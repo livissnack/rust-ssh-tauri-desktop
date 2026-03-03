@@ -1,0 +1,56 @@
+name: "Publish Release"
+
+on:
+  push:
+    tags:
+      - 'v*' # 当你推送以 v 开头的标签（如 v1.0.0）时触发编译
+
+jobs:
+  publish-tauri:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [macos-latest, ubuntu-22.04, windows-latest]
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # 1. 安装 Deno 环境 (因为你的前端是用 deno 跑的)
+      - uses: denoland/setup-deno@v1
+        with:
+          deno-version: v1.x
+
+      # 2. 安装 Rust 环境
+      - name: setup rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # 3. Rust 缓存优化 (加速编译)
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+
+      # 4. Linux 特有依赖安装 (编译 Linux 版必须)
+      - name: install dependencies (ubuntu only)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev libayatana-appindicator3-dev librsvg2-dev
+
+      # 5. 前端依赖安装 (使用 Deno)
+      - name: install frontend dependencies
+        run: deno install
+
+      # 6. 构建 Tauri 软件并自动创建 GitHub Release
+      - name: build tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }} # 使用当前的 tag 名作为 Release 名
+          releaseName: "AI-SSH-Assistant ${{ github.ref_name }}"
+          releaseBody: "自动生成的跨平台版本。包含 Windows, macOS (Intel/M1) 和 Linux。"
+          releaseDraft: true # 先存为草稿，你可以手动检查后再点发布
+          prerelease: false

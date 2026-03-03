@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick, watch } from "vue";
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Terminal } from "xterm";
-import { FitAddon } from "xterm-addon-fit";
+import {ref, computed, onMounted, onUnmounted, nextTick, watch} from "vue";
+import {getCurrentWindow} from "@tauri-apps/api/window";
+import {Terminal} from "xterm";
+import {FitAddon} from "xterm-addon-fit";
 import "xterm/css/xterm.css";
-import { invoke } from "@tauri-apps/api/core";
-import { listen, UnlistenFn } from "@tauri-apps/api/event";
+import {invoke} from "@tauri-apps/api/core";
+import {listen, UnlistenFn} from "@tauri-apps/api/event";
 
 // 组件导入
 import Sidebar from "./components/Sidebar.vue";
@@ -22,7 +22,7 @@ const appWindow = getCurrentWindow();
 // --- 基础状态 ---
 const servers = ref<any[]>([]);
 const activeId = ref<string | null>(null);
-const openSessions = ref<{id: string, serverId: string, name: string}[]>([]);
+const openSessions = ref<{ id: string, serverId: string, name: string }[]>([]);
 const activeSessionId = ref<string | null>(null);
 const showPassword = ref(false);
 const sessionViewModes = ref<Record<string, 'terminal' | 'sftp'>>({});
@@ -52,13 +52,13 @@ const isDraggingOverRemote = ref(false);
 
 // --- 右键菜单 ---
 const menuVisible = ref(false);
-const menuPos = ref({ x: 0, y: 0 });
+const menuPos = ref({x: 0, y: 0});
 const contextFile = ref<any>(null);
 const contextSource = ref<'local' | 'remote' | null>(null);
 
 const newHost = ref({
   id: "", name: "", host: "", username: "root", port: 22,
-  auth_type: "password", password: "", private_key_path: "", jump_host_id: ""
+  auth_type: "password", password: "", private_key_path: "", jump_host_id: null
 });
 
 // --- 计算属性 ---
@@ -88,9 +88,12 @@ const handleContextMenu = (e: MouseEvent, file: any, source: 'local' | 'remote')
   if (file.name === '..') return;
   contextFile.value = file;
   contextSource.value = source;
-  menuPos.value = { x: e.clientX, y: e.clientY };
+  menuPos.value = {x: e.clientX, y: e.clientY};
   menuVisible.value = true;
-  const closeMenu = () => { menuVisible.value = false; window.removeEventListener('click', closeMenu); };
+  const closeMenu = () => {
+    menuVisible.value = false;
+    window.removeEventListener('click', closeMenu);
+  };
   window.addEventListener('click', closeMenu);
 };
 
@@ -105,9 +108,11 @@ const handleMenuAction = async (action: 'transfer' | 'delete') => {
       if (confirm(`确定删除远程文件 "${contextFile.value.name}"？`)) {
         try {
           const path = `${remotePath.value.replace(/\/$/, '')}/${contextFile.value.name}`;
-          await invoke("delete_remote_file", { sessionId: activeSessionId.value, path, isDir: contextFile.value.is_dir });
+          await invoke("delete_remote_file", {sessionId: activeSessionId.value, path, isDir: contextFile.value.is_dir});
           await refreshRemoteFiles();
-        } catch (err) { alert(`删除失败: ${err}`); }
+        } catch (err) {
+          alert(`删除失败: ${err}`);
+        }
       }
     }
   }
@@ -115,10 +120,13 @@ const handleMenuAction = async (action: 'transfer' | 'delete') => {
 
 // 拖拽逻辑
 const onDragStart = (e: DragEvent, file: any, source: 'local' | 'remote') => {
-  if (file.name === '..') { e.preventDefault(); return; }
+  if (file.name === '..') {
+    e.preventDefault();
+    return;
+  }
   if (e.dataTransfer) {
     e.dataTransfer.effectAllowed = "copy";
-    const payload = JSON.stringify({ source, file });
+    const payload = JSON.stringify({source, file});
     e.dataTransfer.setData("file-data", payload);
   }
 };
@@ -129,7 +137,8 @@ const handleDragOver = (e: DragEvent) => {
 };
 
 const handleRemoteDrop = async (e: DragEvent) => {
-  e.preventDefault(); isDraggingOverRemote.value = false;
+  e.preventDefault();
+  isDraggingOverRemote.value = false;
   const rawData = e.dataTransfer?.getData("file-data");
   if (!rawData) return;
   const data = JSON.parse(rawData);
@@ -137,7 +146,8 @@ const handleRemoteDrop = async (e: DragEvent) => {
 };
 
 const handleLocalDrop = async (e: DragEvent) => {
-  e.preventDefault(); isDraggingOverLocal.value = false;
+  e.preventDefault();
+  isDraggingOverLocal.value = false;
   const rawData = e.dataTransfer?.getData("file-data");
   if (!rawData) return;
   const data = JSON.parse(rawData);
@@ -148,10 +158,14 @@ const cancelTask = async (taskId: string) => {
   const task = transferTasks.value.find(t => t.id === taskId);
   if (!task) return;
   try {
-    await invoke("abort_transfer", { taskId });
+    await invoke("abort_transfer", {taskId});
     task.status = 'error';
-    setTimeout(() => { transferTasks.value = transferTasks.value.filter(t => t.id !== taskId); }, 3000);
-  } catch (err) { console.error(err); }
+    setTimeout(() => {
+      transferTasks.value = transferTasks.value.filter(t => t.id !== taskId);
+    }, 3000);
+  } catch (err) {
+    console.error(err);
+  }
 };
 
 const getTaskIcon = (task: any) => {
@@ -169,7 +183,7 @@ const initTerminal = async (sessionId: string) => {
   const term = new Terminal({
     cursorBlink: true, fontSize: 14,
     fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-    theme: { background: "#1a1b26", foreground: "#a9b1d6", cursor: "#7aa2f7" },
+    theme: {background: "#1a1b26", foreground: "#a9b1d6", cursor: "#7aa2f7"},
     allowProposedApi: true,
   });
   const fitAddon = new FitAddon();
@@ -179,8 +193,8 @@ const initTerminal = async (sessionId: string) => {
   if (container) {
     term.open(container);
     fitAddon.fit();
-    term.onData((data) => invoke("write_to_ssh", { sessionId, data }));
-    terminalMap.set(sessionId, { term, fitAddon });
+    term.onData((data) => invoke("write_to_ssh", {sessionId, data}));
+    terminalMap.set(sessionId, {term, fitAddon});
   }
 };
 
@@ -190,26 +204,32 @@ const connectToServer = async () => {
   isConnecting.value = true;
   const sessionId = server.id;
   if (!openSessions.value.find(s => s.id === sessionId)) {
-    openSessions.value.push({ id: sessionId, serverId: server.id, name: server.name });
+    openSessions.value.push({id: sessionId, serverId: server.id, name: server.name});
     sessionViewModes.value[sessionId] = 'terminal';
   }
   activeSessionId.value = sessionId;
   await initTerminal(sessionId);
   try {
-    await invoke("connect_ssh", { serverId: server.id, sessionId });
+    await invoke("connect_ssh", {serverId: server.id, sessionId});
     focusTerminal(sessionId);
-  } catch (err) { console.error(err); }
-  finally { isConnecting.value = false; }
+  } catch (err) {
+    console.error(err);
+  } finally {
+    isConnecting.value = false;
+  }
 };
 
 const closeTab = async (id: string) => {
-  await invoke("disconnect_ssh", { sessionId: id }).catch(console.error);
+  await invoke("disconnect_ssh", {sessionId: id}).catch(console.error);
   internalUiCleanup(id);
 };
 
 const internalUiCleanup = (id: string) => {
   const instance = terminalMap.get(id);
-  if (instance) { instance.term.dispose(); terminalMap.delete(id); }
+  if (instance) {
+    instance.term.dispose();
+    terminalMap.delete(id);
+  }
   delete sessionViewModes.value[id];
   openSessions.value = openSessions.value.filter(s => s.id !== id);
   if (activeSessionId.value === id) {
@@ -222,11 +242,26 @@ const toggleViewMode = async () => {
   const currentMode = sessionViewModes.value[activeSessionId.value] || 'terminal';
   const newMode = currentMode === 'terminal' ? 'sftp' : 'terminal';
   sessionViewModes.value[activeSessionId.value] = newMode;
-  if (newMode === 'sftp') { await refreshRemoteFiles(); await refreshLocalFiles(); }
+  if (newMode === 'sftp') {
+    await refreshRemoteFiles();
+    await refreshLocalFiles();
+  }
 };
 
-const refreshLocalFiles = async () => { try { localFiles.value = await invoke("list_local_dir", { path: localPath.value }); } catch (e) { console.error(e); } };
-const refreshRemoteFiles = async () => { try { remoteFiles.value = await invoke("list_remote_dir", { sessionId: activeSessionId.value, path: remotePath.value }); } catch (e) { console.error(e); } };
+const refreshLocalFiles = async () => {
+  try {
+    localFiles.value = await invoke("list_local_dir", {path: localPath.value});
+  } catch (e) {
+    console.error(e);
+  }
+};
+const refreshRemoteFiles = async () => {
+  try {
+    remoteFiles.value = await invoke("list_remote_dir", {sessionId: activeSessionId.value, path: remotePath.value});
+  } catch (e) {
+    console.error(e);
+  }
+};
 
 const handleFileDblClick = async (file: any, type: 'local' | 'remote') => {
   if (!file.is_dir && file.name !== '..') return;
@@ -235,17 +270,30 @@ const handleFileDblClick = async (file: any, type: 'local' | 'remote') => {
   currentPath = currentPath.replace(/[/\\]$/, '');
   if (file.name === '..') {
     let parts = currentPath.split(/[/\\]/).filter(p => p !== "");
-    if (isRemote) { parts.pop(); currentPath = '/' + parts.join('/'); }
-    else { parts.pop(); currentPath = parts.join('\\'); if (currentPath.length === 2 && currentPath.endsWith(':')) currentPath += '\\'; }
+    if (isRemote) {
+      parts.pop();
+      currentPath = '/' + parts.join('/');
+    } else {
+      parts.pop();
+      currentPath = parts.join('\\');
+      if (currentPath.length === 2 && currentPath.endsWith(':')) currentPath += '\\';
+    }
   } else {
     const separator = isRemote ? '/' : (currentPath.includes('\\') ? '\\' : '/');
     currentPath = `${currentPath}${separator}${file.name}`;
   }
   if (!currentPath) currentPath = isRemote ? "/" : "C:\\";
   try {
-    if (isRemote) { remotePath.value = currentPath; await refreshRemoteFiles(); }
-    else { localPath.value = currentPath; await refreshLocalFiles(); }
-  } catch (err) { console.error(err); }
+    if (isRemote) {
+      remotePath.value = currentPath;
+      await refreshRemoteFiles();
+    } else {
+      localPath.value = currentPath;
+      await refreshLocalFiles();
+    }
+  } catch (err) {
+    console.error(err);
+  }
 };
 
 const startTransfer = async (type: 'upload' | 'download', file: any) => {
@@ -253,7 +301,7 @@ const startTransfer = async (type: 'upload' | 'download', file: any) => {
   const sourcePath = type === 'upload' ? `${localPath.value.replace(/[/\\]$/, '')}/${file.name}` : `${remotePath.value.replace(/\/$/, '')}/${file.name}`;
   const targetPath = type === 'upload' ? `${remotePath.value.replace(/\/$/, '')}/${file.name}` : `${localPath.value.replace(/[/\\]$/, '')}/${file.name}`;
 
-  transferTasks.value.push({ id: taskId, name: file.name, progress: 0, type, status: 'transferring' });
+  transferTasks.value.push({id: taskId, name: file.name, progress: 0, type, status: 'transferring'});
   try {
     await invoke(type === 'upload' ? "sftp_upload" : "sftp_download", {
       sessionId: activeSessionId.value,
@@ -262,8 +310,17 @@ const startTransfer = async (type: 'upload' | 'download', file: any) => {
       taskId
     });
     const task = transferTasks.value.find(t => t.id === taskId);
-    if (task) { task.status = 'success'; task.progress = 100; setTimeout(() => { transferTasks.value = transferTasks.value.filter(t => t.id !== taskId); }, 2000); }
-    if (currentViewMode.value === 'sftp') { refreshLocalFiles(); refreshRemoteFiles(); }
+    if (task) {
+      task.status = 'success';
+      task.progress = 100;
+      setTimeout(() => {
+        transferTasks.value = transferTasks.value.filter(t => t.id !== taskId);
+      }, 2000);
+    }
+    if (currentViewMode.value === 'sftp') {
+      refreshLocalFiles();
+      refreshRemoteFiles();
+    }
   } catch (err) {
     const task = transferTasks.value.find(t => t.id === taskId);
     if (task) task.status = 'error';
@@ -297,7 +354,7 @@ const cloneSession = async () => {
 
     await initTerminal(newSessionId);
     try {
-      await invoke("connect_ssh", { serverId: server.id, sessionId: newSessionId });
+      await invoke("connect_ssh", {serverId: server.id, sessionId: newSessionId});
     } catch (err) {
       console.error("克隆会话失败:", err);
     }
@@ -311,14 +368,75 @@ const focusTerminal = async (sessionId: string | null) => {
   if (instance) instance.term.focus();
 };
 
-const handleResize = () => { terminalMap.forEach(instance => instance.fitAddon.fit()); };
-watch(activeSessionId, (newId) => { if (newId) focusTerminal(newId); });
+const handleResize = () => {
+  terminalMap.forEach(instance => instance.fitAddon.fit());
+};
+watch(activeSessionId, (newId) => {
+  if (newId) focusTerminal(newId);
+});
 
-const openAddModal = () => { isEditing.value = false; newHost.value = { id: "", name: "", host: "", username: "root", port: 22, auth_type: "password", password: "", private_key_path: "", jump_host_id: "" }; isModalOpen.value = true; };
-const openEditModal = (s: any) => { isEditing.value = true; newHost.value = { ...s }; isModalOpen.value = true; };
-const closeModal = () => { isModalOpen.value = false; showPassword.value = false; };
-const saveHost = async () => { if (newHost.value.name && newHost.value.host) { await invoke("save_server", { server: { ...newHost.value, port: Number(newHost.value.port) } }); await loadServers(); closeModal(); } };
-const loadServers = async () => { servers.value = await invoke("get_servers"); if (servers.value.length > 0 && !activeId.value) activeId.value = servers.value[0].id; };
+const openAddModal = () => {
+  isEditing.value = false;
+  newHost.value = {
+    id: "",
+    name: "",
+    host: "",
+    username: "root",
+    port: 22,
+    auth_type: "password",
+    password: "",
+    private_key_path: "",
+    jump_host_id: ""
+  };
+  isModalOpen.value = true;
+};
+const openEditModal = (s: any) => {
+  console.log(s, 'lll----')
+  isEditing.value = true;
+  newHost.value = {
+    ...s,
+    jump_host_id: s.jump_host_id || ""
+  };
+  isModalOpen.value = true;
+};
+const closeModal = () => {
+  isModalOpen.value = false;
+  showPassword.value = false;
+};
+// ... existing code ...
+
+const saveHost = async (e) => {
+  if (e.name && e.host) {
+    // 准备要保存的数据
+    const serverToSave = {
+      ...e,
+      port: Number(e.port),
+      // 将空字符串转换为 null，以便后端正确处理
+      jump_host_id: e.jump_host_id || null
+    };
+    console.log('编辑模式 - 准备保存的数据:', serverToSave);
+
+    try {
+      await invoke("save_server", {server: serverToSave});
+      console.log('✓ 编辑保存成功');
+      await loadServers();
+      closeModal();
+    } catch (error) {
+      console.error('✗ 编辑保存失败:', error);
+      alert('保存失败：' + error);
+    }
+  } else {
+    console.error('✗ 验证失败：缺少 name 或 host');
+    alert('请填写服务器名称和主机地址');
+  }
+};
+
+// ... existing code ...
+
+const loadServers = async () => {
+  servers.value = await invoke("get_servers");
+  if (servers.value.length > 0 && !activeId.value) activeId.value = servers.value[0].id;
+};
 
 onMounted(async () => {
   window.addEventListener("resize", handleResize);
@@ -328,9 +446,11 @@ onMounted(async () => {
     const instance = terminalMap.get(payload.session_id);
     if (instance && currentViewMode.value === 'terminal') instance.term.write(payload.data);
   });
-  unlistenClosed = await listen("ssh-closed", (event) => { internalUiCleanup((event.payload as any).session_id); });
+  unlistenClosed = await listen("ssh-closed", (event) => {
+    internalUiCleanup((event.payload as any).session_id);
+  });
   unlistenTransfer = await listen("transfer-progress", (event) => {
-    const { taskId, progress } = event.payload as { taskId: string, progress: number };
+    const {taskId, progress} = event.payload as { taskId: string, progress: number };
     const task = transferTasks.value.find(t => t.id === taskId);
     if (task) task.progress = progress;
   });
@@ -346,7 +466,7 @@ onUnmounted(async () => {
 
 <template>
   <div class="termius-container">
-    <TitleBar />
+    <TitleBar/>
     <div class="main-layout">
       <Sidebar
           v-model:active-id="activeId"
@@ -400,7 +520,7 @@ onUnmounted(async () => {
               <div class="file-pane local-pane">
                 <div class="pane-header">
                   <i class="fas fa-laptop" style="margin-right: 8px; color: #565f89;"></i>
-                  <input v-model="localPath" class="path-input" @keyup.enter="refreshLocalFiles" />
+                  <input v-model="localPath" class="path-input" @keyup.enter="refreshLocalFiles"/>
                 </div>
                 <div class="file-list" :class="{ 'drag-over': isDraggingOverLocal }"
                      @dragenter.stop.prevent="isDraggingOverLocal = true" @dragover.stop.prevent="handleDragOver"
@@ -409,7 +529,8 @@ onUnmounted(async () => {
                        :class="{ 'is-dir': file.is_dir }" draggable="true"
                        @contextmenu="handleContextMenu($event, file, 'local')"
                        @dragstart="onDragStart($event, file, 'local')" @dblclick="handleFileDblClick(file, 'local')">
-                    <span class="file-icon"><i class="fas" :class="file.name === '..' ? 'fa-level-up-alt' : (file.is_dir ? 'fa-folder' : 'fa-file-alt')"></i></span>
+                    <span class="file-icon"><i class="fas"
+                                               :class="file.name === '..' ? 'fa-level-up-alt' : (file.is_dir ? 'fa-folder' : 'fa-file-alt')"></i></span>
                     <span class="file-name">{{ file.name }}</span>
                     <span class="file-size" v-if="!file.is_dir">{{ (file.size / 1024).toFixed(1) }} KB</span>
                   </div>
@@ -419,7 +540,7 @@ onUnmounted(async () => {
               <div class="file-pane remote-pane">
                 <div class="pane-header">
                   <i class="fas fa-server" style="margin-right: 8px; color: #565f89;"></i>
-                  <input v-model="remotePath" class="path-input" @keyup.enter="refreshRemoteFiles" />
+                  <input v-model="remotePath" class="path-input" @keyup.enter="refreshRemoteFiles"/>
                 </div>
                 <div class="file-list" :class="{ 'drag-over': isDraggingOverRemote }"
                      @dragenter.stop.prevent="isDraggingOverRemote = true" @dragover.stop.prevent="handleDragOver"
@@ -428,7 +549,8 @@ onUnmounted(async () => {
                        :class="{ 'is-dir': file.is_dir }" draggable="true"
                        @contextmenu="handleContextMenu($event, file, 'remote')"
                        @dragstart="onDragStart($event, file, 'remote')" @dblclick="handleFileDblClick(file, 'remote')">
-                    <span class="file-icon"><i class="fas" :class="file.name === '..' ? 'fa-level-up-alt' : (file.is_dir ? 'fa-folder' : 'fa-file-alt')"></i></span>
+                    <span class="file-icon"><i class="fas"
+                                               :class="file.name === '..' ? 'fa-level-up-alt' : (file.is_dir ? 'fa-folder' : 'fa-file-alt')"></i></span>
                     <span class="file-name">{{ file.name }}</span>
                     <span class="file-size" v-if="!file.is_dir">{{ (file.size / 1024).toFixed(1) }} KB</span>
                   </div>
@@ -437,20 +559,28 @@ onUnmounted(async () => {
 
               <div class="transfer-status" v-if="transferTasks.length > 0">
                 <div class="status-header">
-                  <div class="header-left"><i class="fas fa-layer-group"></i><span>传输队列 ({{ transferTasks.length }})</span></div>
+                  <div class="header-left"><i class="fas fa-layer-group"></i><span>传输队列 ({{
+                      transferTasks.length
+                    }})</span></div>
                   <div class="header-status-dot" :class="{ 'is-syncing': hasActiveTasks }"></div>
                 </div>
                 <div class="task-list-wrapper">
                   <TransitionGroup name="task-list">
-                    <div v-for="task in transferTasks" :key="task.id" class="task-row" :class="[`status-${task.status}`]">
+                    <div v-for="task in transferTasks" :key="task.id" class="task-row"
+                         :class="[`status-${task.status}`]">
                       <div class="task-info">
-                        <div class="name-box" :title="task.name"><i :class="getTaskIcon(task)" class="type-icon"></i><span class="task-name">{{ task.name }}</span></div>
+                        <div class="name-box" :title="task.name"><i :class="getTaskIcon(task)"
+                                                                    class="type-icon"></i><span
+                            class="task-name">{{ task.name }}</span></div>
                         <div class="task-actions">
-                          <button v-if="task.status === 'transferring'" class="cancel-btn" @click.stop="cancelTask(task.id)"><i class="fas fa-times"></i></button>
+                          <button v-if="task.status === 'transferring'" class="cancel-btn"
+                                  @click.stop="cancelTask(task.id)"><i class="fas fa-times"></i></button>
                           <span class="task-percent">{{ task.progress }}%</span>
                         </div>
                       </div>
-                      <div class="progress-container"><div class="progress-bar" :style="{ width: task.progress + '%' }"></div></div>
+                      <div class="progress-container">
+                        <div class="progress-bar" :style="{ width: task.progress + '%' }"></div>
+                      </div>
                     </div>
                   </TransitionGroup>
                 </div>
@@ -458,17 +588,30 @@ onUnmounted(async () => {
             </div>
           </div>
         </div>
-        <StatusBar :open-sessions="openSessions" :current-server="currentServer" />
+        <StatusBar :open-sessions="openSessions" :current-server="currentServer"/>
       </main>
 
       <div class="right-dock">
         <div class="icon-bar">
-          <div class="icon-item" title="快捷命令" :class="{ active: rightPanelVisible && rightPanelType === 'quick' }" @click="toggleRightPanel('quick')">
-            <i class="fas fa-bolt"></i>
+          <div class="top-group">
+            <div class="icon-item" title="快捷命令" :class="{ active: rightPanelVisible && rightPanelType === 'quick' }"
+                 @click="toggleRightPanel('quick')">
+              <i class="fas fa-bolt"></i>
+            </div>
+
+            <div class="icon-item" title="AI 助手" :class="{ active: rightPanelVisible && rightPanelType === 'ai' }"
+                 @click="toggleRightPanel('ai')">
+              <i class="fas fa-robot"></i>
+            </div>
           </div>
 
-          <div class="icon-item" title="AI 助手" :class="{ active: rightPanelVisible && rightPanelType === 'ai' }" @click="toggleRightPanel('ai')">
-            <i class="fas fa-robot"></i>
+          <div class="bottom-group">
+            <div class="icon-item" title="操作审计" @click="toggleRightPanel('history')">
+              <i class="fas fa-list-check"></i>
+            </div>
+            <div class="icon-item" title="全局设置" @click="toggleRightPanel('global-setting')">
+              <i class="fas fa-cog"></i>
+            </div>
           </div>
         </div>
 
@@ -487,10 +630,14 @@ onUnmounted(async () => {
       </div>
     </div>
 
-    <ServerModal :is-open="isModalOpen" :is-editing="isEditing" :server="newHost" :servers="servers" @close="closeModal" @save="saveHost" />
+    <ServerModal :is-open="isModalOpen" :is-editing="isEditing" :server="newHost" :servers="servers" @close="closeModal"
+                 @save="saveHost"/>
     <Transition name="fade">
       <div v-if="menuVisible" class="context-menu" :style="{ top: menuPos.y + 'px', left: menuPos.x + 'px' }">
-        <div class="menu-item" @click="handleMenuAction('transfer')"><span>{{ contextSource === 'local' ? '📤' : '📥' }}</span>{{ contextSource === 'local' ? '上传到服务器' : '下载到本地' }}</div>
+        <div class="menu-item" @click="handleMenuAction('transfer')"><span>{{
+            contextSource === 'local' ? '📤' : '📥'
+          }}</span>{{ contextSource === 'local' ? '上传到服务器' : '下载到本地' }}
+        </div>
         <div class="menu-item divider"></div>
         <div class="menu-item danger" @click="handleMenuAction('delete')"><span>🗑️</span> 删除</div>
       </div>
@@ -564,6 +711,7 @@ $error: #f7768e;
 
     :deep(.xterm) {
       padding: 4px;
+
       .xterm-viewport {
         background-color: transparent !important;
       }
@@ -654,9 +802,17 @@ $error: #f7768e;
           margin-right: 10px;
           text-align: center;
 
-          i.fa-folder { color: #e0af68; }
-          i.fa-file-alt { color: $accent; }
-          i.fa-level-up-alt { color: #9ece6a; }
+          i.fa-folder {
+            color: #e0af68;
+          }
+
+          i.fa-file-alt {
+            color: $accent;
+          }
+
+          i.fa-level-up-alt {
+            color: #9ece6a;
+          }
         }
 
         .file-name {
@@ -752,12 +908,18 @@ $error: #f7768e;
 
     &.status-success {
       border-left: 3px solid $success;
-      .task-percent { color: $success; }
+
+      .task-percent {
+        color: $success;
+      }
     }
 
     &.status-error {
       border-left: 3px solid $error;
-      .task-percent { color: $error; }
+
+      .task-percent {
+        color: $error;
+      }
     }
 
     .task-info {
@@ -830,7 +992,7 @@ $error: #f7768e;
           left: 0;
           right: 0;
           bottom: 0;
-          background-image: linear-gradient(-45deg, rgba(255,255,255,0.2) 25%, transparent 25%, transparent 50%, rgba(255,255,255,0.2) 50%, rgba(255,255,255,0.2) 75%, transparent 75%);
+          background-image: linear-gradient(-45deg, rgba(255, 255, 255, 0.2) 25%, transparent 25%, transparent 50%, rgba(255, 255, 255, 0.2) 50%, rgba(255, 255, 255, 0.2) 75%, transparent 75%);
           background-size: 20px 20px;
           animation: move-stripes 2s linear infinite;
         }
@@ -893,35 +1055,74 @@ $error: #f7768e;
   position: relative;
   z-index: 100;
 
+  // 假设你的变量定义如下 (基于 Tokyo Night)
+  $bg-header: #1a1b26;
+  $border-color: #292e42;
+  $text-dim: #565f89;
+  $text-main: #a9b1d6;
+  $accent: #bb9af7; // 紫色强调色
+  $accent-blue: #7aa2f7; // 蓝色
+
   .icon-bar {
-    width: 40px;
+    width: 46px; // 稍微加宽一点点，比例更协调
     background: $bg-header;
     border-left: 1px solid $border-color;
     display: flex;
     flex-direction: column;
+    justify-content: space-between; // 关键：让顶部和底部图标自动分开
     align-items: center;
-    padding-top: 20px;
+    padding: 16px 0; // 上下留白平衡
+    user-select: none;
+
+    .top-group, .bottom-group {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 100%;
+    }
 
     .icon-item {
-      width: 32px;
-      height: 32px;
+      width: 34px;
+      height: 34px;
       display: flex;
       align-items: center;
       justify-content: center;
       color: $text-dim;
       cursor: pointer;
-      border-radius: 6px;
-      margin-bottom: 12px;
-      transition: all 0.2s;
+      border-radius: 8px; // 圆角大一点更有现代感
+      margin-bottom: 10px;
+      position: relative; // 为伪元素定位
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+
+      i {
+        font-size: 16px;
+      }
 
       &:hover {
-        background: rgba($accent, 0.1);
-        color: $text-main;
+        background: rgba($text-main, 0.05);
+        color: $accent-blue;
+        transform: translateY(-1px); // 鼠标悬停微小的上浮感
       }
 
       &.active {
         color: $accent;
-        background: rgba($accent, 0.15);
+        background: rgba($accent, 0.12);
+
+        // 增加一个右侧/左侧的小指示条（根据你的边栏位置决定）
+        &::after {
+          content: '';
+          position: absolute;
+          right: -1px; // 如果在右边，贴着边框
+          width: 3px;
+          height: 16px;
+          background: $accent;
+          border-radius: 4px 0 0 4px;
+          box-shadow: 0 0 8px $accent; // 侧边微发光
+        }
+      }
+
+      &:active {
+        transform: scale(0.92); // 点击下去的物理阻尼感
       }
     }
   }
@@ -943,13 +1144,21 @@ $error: #f7768e;
 // 🎭 动画关键帧
 // ============================================
 @keyframes move-stripes {
-  from { background-position: 0 0; }
-  to { background-position: 40px 0; }
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 40px 0;
+  }
 }
 
 @keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
 }
 
 // ============================================

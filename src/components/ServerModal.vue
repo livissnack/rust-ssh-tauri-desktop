@@ -41,7 +41,14 @@ const selectKeyFile = async () => {
 
 const saveHost = async () => {
   if (formData.value.name && formData.value.host) {
-    emit('save', { ...formData.value, port: Number(formData.value.port) });
+    console.log({
+      ...formData.value,
+      port: Number(formData.value.port)
+    }, 'mm-----')
+    emit('save', {
+      ...formData.value,
+      port: Number(formData.value.port)
+    });
   }
 };
 

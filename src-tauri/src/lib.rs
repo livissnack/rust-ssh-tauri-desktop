@@ -15,6 +15,8 @@ use std::time::{Duration, Instant};
 use tokio::net::TcpStream;
 use futures::StreamExt; // 引入流处理
 use serde_json::json;
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
 const SERVERS_TABLE: TableDefinition<&str, &str> = TableDefinition::new("servers");
 const COMMANDS_TABLE: TableDefinition<&str, &str> = TableDefinition::new("quick_commands");
@@ -155,29 +157,58 @@ async fn create_recursive_session<R: Runtime>(
         session_id: session_id.clone()
     };
 
+    println!("[SSH] 尝试连接 - 目标服务器：{} ({}:{})",
+             target_config.name, target_config.host, target_config.port);
+    println!("[SSH] jump_host_id: {:?}", target_config.jump_host_id);
+
     match target_config.jump_host_id.as_deref() {
         None | Some("") => {
+            println!("[SSH] 直连模式");
             let addr = format!("{}:{}", target_config.host, target_config.port);
             let mut handle = client::connect(client_config, addr, handler).await
-                .map_err(|e| format!("连接 {} 失败: {}", target_config.host, e))?;
+                .map_err(|e| format!("连接 {} 失败：{}", target_config.host, e))?;
             authenticate(&mut handle, target_config).await?;
             Ok(handle)
         }
         Some(jump_id) => {
+            println!("[SSH] 隧道模式 - 跳板机 ID: {}", jump_id);
+
             let jump_config = all_configs.iter().find(|s| s.id == jump_id)
-                .ok_or(format!("找不到跳板机配置: {}", jump_id))?;
+                .ok_or(format!("找不到跳板机配置：{}", jump_id))?;
+
+            println!("[SSH] 跳板机信息：{} ({}:{})",
+                     jump_config.name, jump_config.host, jump_config.port);
+
+            // 递归连接到跳板机
             let jump_handle = Box::pin(create_recursive_session(
                 window.clone(), jump_config, all_configs, format!("{}_tunnel", session_id)
             )).await?;
-            let channel = jump_handle.channel_open_direct_tcpip(&target_config.host, target_config.port as u32, "127.0.0.1", 0).await
-                .map_err(|e| format!("隧道建立失败: {}", e))?;
+
+            println!("[SSH] 跳板机连接成功，尝试建立隧道到 {}:{}",
+                     target_config.host, target_config.port);
+
+            // 通过跳板机建立到目标的隧道
+            let channel = jump_handle.channel_open_direct_tcpip(
+                &target_config.host,
+                target_config.port as u32,
+                "127.0.0.1",
+                0
+            ).await
+            .map_err(|e| {
+                println!("[SSH] 隧道建立失败：{:?}", e);
+                format!("隧道建立失败：{:?}", e)
+            })?;
+
+            println!("[SSH] 隧道建立成功");
+
             let mut handle = client::connect_stream(client_config, channel.into_stream(), handler).await
-                .map_err(|e| format!("隧道内连接失败: {}", e))?;
+                .map_err(|e| format!("隧道内连接失败：{}", e))?;
             authenticate(&mut handle, target_config).await?;
             Ok(handle)
         }
     }
 }
+
 
 // --- 5. Tauri Commands ---
 #[tauri::command]
@@ -213,16 +244,58 @@ async fn get_server_latency(host: String, port: u16) -> Result<u32, String> {
 
 #[tauri::command]
 async fn save_server(state: State<'_, AppState>, mut server: ServerConfig) -> Result<ServerConfig, String> {
-    if server.id.is_empty() { server.id = Uuid::new_v4().to_string(); }
+    println!("\n========== [SAVE_SERVER] 开始保存 ==========");
+    println!("接收到的原始数据:");
+    println!("  - id: '{}'", server.id);
+    println!("  - name: '{}'", server.name);
+    println!("  - host: '{}:{}'", server.host, server.port);
+    println!("  - username: '{}'", server.username);
+    println!("  - auth_type: '{}'", server.auth_type);
+    println!("  - jump_host_id: {:?}", server.jump_host_id);
+
+    if server.id.is_empty() {
+        server.id = Uuid::new_v4().to_string();
+        println!("生成新 ID: {}", server.id);
+    }
+
+    // 确保空的 jump_host_id 被正确处理为 None
+    if let Some(ref jump_id) = server.jump_host_id {
+        if jump_id.is_empty() {
+            server.jump_host_id = None;
+            println!("jump_host_id 转换为: None");
+        }
+    }
+
+    println!("\n处理后的数据:");
+    println!("  - id: '{}'", server.id);
+    println!("  - jump_host_id (最终): {:?}", server.jump_host_id);
+
     let write_txn = state.db.begin_write().map_err(|e| e.to_string())?;
     {
         let mut table = write_txn.open_table(SERVERS_TABLE).map_err(|e| e.to_string())?;
         let json = serde_json::to_string(&server).map_err(|e| e.to_string())?;
+
+        println!("\n序列化 JSON: {}", json);
+        println!("准备插入数据库...");
+
         table.insert(server.id.as_str(), json.as_str()).map_err(|e| e.to_string())?;
+        println!("✓ 插入成功");
     }
-    write_txn.commit().map_err(|e| e.to_string())?;
-    Ok(server)
+
+    match write_txn.commit() {
+        Ok(_) => {
+            println!("✓ 事务提交成功");
+            println!("========== [SAVE_SERVER] 保存完成 ========== {}\n", server.id);
+            Ok(server)
+        }
+        Err(e) => {
+            println!("✗ 事务提交失败：{:?}", e);
+            println!("========== [SAVE_SERVER] 保存失败 ========== {}\n", e);
+            Err(e.to_string())
+        }
+    }
 }
+
 
 #[tauri::command]
 async fn delete_server(state: State<'_, AppState>, id: String) -> Result<(), String> {
@@ -610,32 +683,87 @@ async fn ask_ai(
 
     Ok(())
 }
-// --- 6. 运行入口 ---
 
+// --- 6. 运行入口 ---
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
+            // --- 1. 数据库初始化 (保持你原有的逻辑) ---
             let app_data_dir = app.path().app_data_dir().expect("无法获取应用数据目录");
-            if !app_data_dir.exists() { std::fs::create_dir_all(&app_data_dir).expect("无法创建目录"); }
-            let db = Database::builder().create(app_data_dir.join("gemini_ssh_v2.redb")).expect("无法打开数据库");
+            if !app_data_dir.exists() {
+                std::fs::create_dir_all(&app_data_dir).expect("无法创建目录");
+            }
+            let db = Database::builder()
+                .create(app_data_dir.join("gemini_ssh_v2.redb"))
+                .expect("无法打开数据库");
+
             {
                 let write_txn = db.begin_write().expect("无法开启写事务");
                 {
-                    // open_table 如果表不存在会自动创建
                     let _ = write_txn.open_table(SERVERS_TABLE).expect("初始化服务器表失败");
                     let _ = write_txn.open_table(COMMANDS_TABLE).expect("初始化命令表失败");
                     let _ = write_txn.open_table(AI_CONFIG_TABLE).expect("初始化AI设置表失败");
                 }
                 write_txn.commit().expect("提交初始化事务失败");
             }
+
+            // --- 2. 状态管理注册 ---
             app.manage(AppState {
                 sessions: Arc::new(Mutex::new(HashMap::new())),
                 db: Arc::new(db),
-                cancelled_tasks: Arc::new(Mutex::new(HashSet::new())), // 初始化取消列表
+                cancelled_tasks: Arc::new(Mutex::new(HashSet::new())),
             });
+
+            // --- 3. 系统托盘配置 (新加逻辑) ---
+            let quit_i = MenuItem::with_id(app, "quit", "退出程序", true, None::<&str>)?;
+            let show_i = MenuItem::with_id(app, "show", "显示主窗口", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&show_i, &quit_i])?;
+
+            let _tray = TrayIconBuilder::new()
+                .icon(app.default_window_icon().unwrap().clone())
+                .menu(&menu)
+                .show_menu_on_left_click(false)
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "quit" => app.exit(0),
+                    "show" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event {
+                        let app = tray.app_handle();
+                        if let Some(window) = app.get_webview_window("main") {
+                            if window.is_visible().unwrap_or(false) {
+                                let _ = window.hide();
+                            } else {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
+                        }
+                    }
+                })
+                .build(app)?;
+
             Ok(())
         })
+        // --- 4. 窗口事件拦截：点击关闭隐藏到托盘 ---
+        .on_window_event(|window, event| match event {
+            tauri::WindowEvent::CloseRequested { api, .. } => {
+                let _ = window.hide();
+                api.prevent_close();
+            }
+            _ => {}
+        })
+        // --- 5. 注册指令 (保持你原有的逻辑) ---
         .invoke_handler(tauri::generate_handler![
             connect_ssh,
             disconnect_ssh,
@@ -643,8 +771,8 @@ pub fn run() {
             list_remote_dir,
             sftp_upload,
             sftp_download,
-            abort_transfer,      // 注册取消指令
-            delete_remote_file,  // 注册删除指令
+            abort_transfer,
+            delete_remote_file,
             get_quick_commands,
             save_quick_command,
             delete_quick_command,

@@ -19,6 +19,7 @@ import TitleBar from "./components/TitleBar.vue";
 import QuickCommandPanel from "./components/QuickCommandPanel.vue";
 import AiAssistantPanel from "./components/AiAssistantPanel.vue";
 import SyncSettings from "./components/SyncSettings.vue";
+import RedisManager from "./components/RedisManager.vue";
 
 const appWindow = getCurrentWindow();
 
@@ -617,6 +618,12 @@ onUnmounted(async () => {
                  @click="toggleRightPanel('ai')">
               <i class="fas fa-robot"></i>
             </div>
+            <div class="icon-item" title="Redis 数据库" :class="{ active: rightPanelVisible && rightPanelType === 'redis' }"
+                 @click="toggleRightPanel('redis')">
+              <svg class="redis-icon" viewBox="0 0 24 24" width="18" height="18">
+                <path fill="currentColor" d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+              </svg>
+            </div>
           </div>
 
           <div class="bottom-group">
@@ -630,13 +637,17 @@ onUnmounted(async () => {
         </div>
 
         <Transition name="panel-slide">
-          <div v-if="rightPanelVisible" class="floating-panel">
+          <div v-if="rightPanelVisible" class="floating-panel" :class="{ 'is-redis': rightPanelType === 'redis' }">
             <QuickCommandPanel
                 v-if="rightPanelType === 'quick'"
                 :activeSessionId="activeSessionId"
             />
             <AiAssistantPanel
                 v-else-if="rightPanelType === 'ai'"
+                :activeSessionId="activeSessionId"
+            />
+            <RedisManager
+                v-else-if="rightPanelType === 'redis'"
                 :activeSessionId="activeSessionId"
             />
             <SyncSettings
@@ -1155,6 +1166,9 @@ $error: #f7768e;
     backdrop-filter: blur(12px);
     border-left: 1px solid $border-color;
     box-shadow: -10px 0 30px rgba(0, 0, 0, 0.5);
+    &.is-redis {
+      width: 420px;
+    }
   }
 }
 
@@ -1211,6 +1225,10 @@ $error: #f7768e;
 .task-list-leave-to {
   opacity: 0;
   transform: scale(0.9);
+}
+.redis-icon {
+  color: #DC382D;
+  vertical-align: middle;
 }
 </style>
 

@@ -1,10 +1,12 @@
 mod sync;
+mod redis_manager;
 use crate::sync::{
     get_sync_settings,
     save_sync_settings,
     sync_to_cloud,
     sync_from_cloud
 };
+use redis_manager::{RedisState, redis_connect, redis_get_keys, redis_get_value, redis_set_value, redis_del_key, redis_rename_key, redis_get_ttl};
 use async_trait::async_trait;
 use russh::*;
 use russh::client::DisconnectReason;
@@ -29,6 +31,7 @@ pub const SERVERS_TABLE: TableDefinition<&str, &str> = TableDefinition::new("ser
 pub const COMMANDS_TABLE: TableDefinition<&str, &str> = TableDefinition::new("quick_commands");
 pub const AI_CONFIG_TABLE: TableDefinition<&str, &str> = TableDefinition::new("ai_settings");
 pub const SYNC_CONFIG_TABLE: TableDefinition<&str, &str> = TableDefinition::new("sync_config");
+pub const REDIS_CONN_TABLE: TableDefinition<&str, &str> = TableDefinition::new("sync_config");
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ServerConfig {
@@ -724,6 +727,10 @@ pub fn run() {
                 cancelled_tasks: Arc::new(Mutex::new(HashSet::new())),
             });
 
+            app.manage(redis_manager::RedisState {
+                connection: Arc::new(tokio::sync::Mutex::new(None)),
+            });
+
             // --- 3. 系统托盘配置 (新加逻辑) ---
             let quit_i = MenuItem::with_id(app, "quit", "退出程序", true, None::<&str>)?;
             let show_i = MenuItem::with_id(app, "show", "显示主窗口", true, None::<&str>)?;
@@ -796,7 +803,14 @@ pub fn run() {
             sync_to_cloud,
             sync_from_cloud,
             get_sync_settings,
-            save_sync_settings
+            save_sync_settings,
+            redis_connect,
+            redis_get_keys,
+            redis_get_value,
+            redis_set_value,
+            redis_del_key,      // 新增
+            redis_rename_key,   // 新增
+            redis_get_ttl       // 新增
         ])
         .run(tauri::generate_context!())
         .expect("Tauri 运行出错");

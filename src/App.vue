@@ -6,6 +6,8 @@ import {FitAddon} from "xterm-addon-fit";
 import "xterm/css/xterm.css";
 import {invoke} from "@tauri-apps/api/core";
 import {listen, UnlistenFn} from "@tauri-apps/api/event";
+import { ask } from '@tauri-apps/plugin-dialog';
+import { toast } from './utils/toast.ts';
 
 // 组件导入
 import Sidebar from "./components/Sidebar.vue";
@@ -16,6 +18,7 @@ import ServerModal from "./components/ServerModal.vue";
 import TitleBar from "./components/TitleBar.vue";
 import QuickCommandPanel from "./components/QuickCommandPanel.vue";
 import AiAssistantPanel from "./components/AiAssistantPanel.vue";
+import SyncSettings from "./components/SyncSettings.vue";
 
 const appWindow = getCurrentWindow();
 
@@ -105,13 +108,20 @@ const handleMenuAction = async (action: 'transfer' | 'delete') => {
     await startTransfer(type, contextFile.value);
   } else if (action === 'delete') {
     if (contextSource.value === 'remote') {
-      if (confirm(`确定删除远程文件 "${contextFile.value.name}"？`)) {
+      const confirmed = await ask(`确定删除远程文件 "${contextFile.value.name}"？`, {
+        title: '确认删除',
+        kind: 'warning',
+        okLabel: '确定',
+        cancelLabel: '取消',
+      });
+
+      if (confirmed) {
         try {
           const path = `${remotePath.value.replace(/\/$/, '')}/${contextFile.value.name}`;
           await invoke("delete_remote_file", {sessionId: activeSessionId.value, path, isDir: contextFile.value.is_dir});
           await refreshRemoteFiles();
         } catch (err) {
-          alert(`删除失败: ${err}`);
+          toast.error(`删除失败: ${err}`);
         }
       }
     }
@@ -391,7 +401,6 @@ const openAddModal = () => {
   isModalOpen.value = true;
 };
 const openEditModal = (s: any) => {
-  console.log(s, 'lll----')
   isEditing.value = true;
   newHost.value = {
     ...s,
@@ -403,11 +412,9 @@ const closeModal = () => {
   isModalOpen.value = false;
   showPassword.value = false;
 };
-// ... existing code ...
 
 const saveHost = async (e) => {
   if (e.name && e.host) {
-    // 准备要保存的数据
     const serverToSave = {
       ...e,
       port: Number(e.port),
@@ -423,15 +430,13 @@ const saveHost = async (e) => {
       closeModal();
     } catch (error) {
       console.error('✗ 编辑保存失败:', error);
-      alert('保存失败：' + error);
+      toast.error('保存失败：' + error);
     }
   } else {
     console.error('✗ 验证失败：缺少 name 或 host');
-    alert('请填写服务器名称和主机地址');
+    toast.error('请填写服务器名称和主机地址');
   }
 };
-
-// ... existing code ...
 
 const loadServers = async () => {
   servers.value = await invoke("get_servers");
@@ -441,11 +446,20 @@ const loadServers = async () => {
 onMounted(async () => {
   window.addEventListener("resize", handleResize);
   loadServers();
+
+  const unlistenFuncs: Array<() => void> = [];
   unlisten = await listen("ssh-output", (event) => {
     const payload = event.payload as { session_id: string, data: string };
     const instance = terminalMap.get(payload.session_id);
     if (instance && currentViewMode.value === 'terminal') instance.term.write(payload.data);
   });
+
+  // 2. 监听数据库变更（云端同步恢复后触发）
+  unlistenFuncs.push(await listen('database-changed', (event) => {
+    console.log('检测到数据库变更，来源:', event.payload);
+    loadServers(); // 核心：这里会自动刷新你的服务器列表
+  }));
+
   unlistenClosed = await listen("ssh-closed", (event) => {
     internalUiCleanup((event.payload as any).session_id);
   });
@@ -606,10 +620,10 @@ onUnmounted(async () => {
           </div>
 
           <div class="bottom-group">
-            <div class="icon-item" title="操作审计" @click="toggleRightPanel('history')">
+            <div class="icon-item" title="操作审计" :class="{ active: rightPanelVisible && rightPanelType === 'history' }" @click="toggleRightPanel('history')">
               <i class="fas fa-list-check"></i>
             </div>
-            <div class="icon-item" title="全局设置" @click="toggleRightPanel('global-setting')">
+            <div class="icon-item" title="同步设置" :class="{ active: rightPanelVisible && rightPanelType === 'sync-settings' }" @click="toggleRightPanel('sync-settings')">
               <i class="fas fa-cog"></i>
             </div>
           </div>
@@ -623,6 +637,10 @@ onUnmounted(async () => {
             />
             <AiAssistantPanel
                 v-else-if="rightPanelType === 'ai'"
+                :activeSessionId="activeSessionId"
+            />
+            <SyncSettings
+                v-else-if="rightPanelType === 'sync-settings'"
                 :activeSessionId="activeSessionId"
             />
           </div>

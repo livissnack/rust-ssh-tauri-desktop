@@ -1,3 +1,10 @@
+mod sync;
+use crate::sync::{
+    get_sync_settings,
+    save_sync_settings,
+    sync_to_cloud,
+    sync_from_cloud
+};
 use async_trait::async_trait;
 use russh::*;
 use russh::client::DisconnectReason;
@@ -18,9 +25,10 @@ use serde_json::json;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
-const SERVERS_TABLE: TableDefinition<&str, &str> = TableDefinition::new("servers");
-const COMMANDS_TABLE: TableDefinition<&str, &str> = TableDefinition::new("quick_commands");
-const AI_CONFIG_TABLE: TableDefinition<&str, &str> = TableDefinition::new("ai_settings");
+pub const SERVERS_TABLE: TableDefinition<&str, &str> = TableDefinition::new("servers");
+pub const COMMANDS_TABLE: TableDefinition<&str, &str> = TableDefinition::new("quick_commands");
+pub const AI_CONFIG_TABLE: TableDefinition<&str, &str> = TableDefinition::new("ai_settings");
+pub const SYNC_CONFIG_TABLE: TableDefinition<&str, &str> = TableDefinition::new("sync_config");
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ServerConfig {
@@ -704,6 +712,7 @@ pub fn run() {
                     let _ = write_txn.open_table(SERVERS_TABLE).expect("初始化服务器表失败");
                     let _ = write_txn.open_table(COMMANDS_TABLE).expect("初始化命令表失败");
                     let _ = write_txn.open_table(AI_CONFIG_TABLE).expect("初始化AI设置表失败");
+                    let _ = write_txn.open_table(SYNC_CONFIG_TABLE).expect("初始化同步设置表失败");
                 }
                 write_txn.commit().expect("提交初始化事务失败");
             }
@@ -783,7 +792,11 @@ pub fn run() {
             write_to_ssh,
             get_servers,
             save_server,
-            delete_server
+            delete_server,
+            sync_to_cloud,
+            sync_from_cloud,
+            get_sync_settings,
+            save_sync_settings
         ])
         .run(tauri::generate_context!())
         .expect("Tauri 运行出错");

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { invoke } from "@tauri-apps/api/core";
+import { ask } from '@tauri-apps/plugin-dialog';
 
 const props = defineProps<{
   activeId: string | null;
@@ -21,7 +22,15 @@ const activeId = computed({
 });
 
 const deleteServer = async (id: string) => {
-  if (confirm("Delete this server configuration?")) {
+  const server = props.servers.find(s => s.id === id);
+  const confirmed = await ask(`确定删除服务器配置 "${server?.name}"？`, {
+    title: '确认删除',
+    kind: 'warning',
+    okLabel: '确定',
+    cancelLabel: '取消',
+  });
+
+  if (confirmed) {
     await invoke("delete_server", { id });
     emit('delete', id);
   }

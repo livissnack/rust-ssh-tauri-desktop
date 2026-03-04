@@ -3721,8 +3721,10 @@ dependencies = [
 name = "rust-ssh-tauri-desktop"
 version = "0.1.0"
 dependencies = [
+ "aes-gcm",
  "async-trait",
  "futures",
+ "pbkdf2 0.12.2",
  "redb",
  "reqwest 0.12.28",
  "russh",
@@ -3730,6 +3732,7 @@ dependencies = [
  "russh-sftp",
  "serde",
  "serde_json",
+ "sha2",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",

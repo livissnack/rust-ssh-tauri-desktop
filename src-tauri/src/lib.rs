@@ -6,7 +6,7 @@ use crate::sync::{
     sync_to_cloud,
     sync_from_cloud
 };
-use redis_manager::{RedisState, redis_connect, redis_get_keys, redis_get_value, redis_set_value, redis_del_key, redis_rename_key, redis_get_ttl};
+use redis_manager::{redis_connect, redis_get_keys, redis_get_value, redis_set_value, redis_del_key, redis_rename_key, redis_get_ttl};
 use async_trait::async_trait;
 use russh::*;
 use russh::client::DisconnectReason;

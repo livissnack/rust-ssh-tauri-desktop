@@ -17,7 +17,7 @@ const closeApp = () => appWindow.close();
         <div class="dot minimize" @click="minimize"></div>
         <div class="dot maximize" @click="toggleMaximize"></div>
       </div>
-      <div class="title-text">Hiphup SSH v2.0</div>
+      <div class="title-text">Hiphup Terminal</div>
       <div class="titlebar-spacer"></div>
     </div>
   </header>

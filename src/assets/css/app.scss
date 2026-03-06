@@ -137,6 +137,9 @@ $error: #f7768e;
         background-color: rgba($accent, 0.1);
         outline: 2px dashed $accent;
         outline-offset: -4px;
+        .file-item {
+          pointer-events: none;
+        }
       }
 
       .file-item {
@@ -145,6 +148,8 @@ $error: #f7768e;
         padding: 6px 12px;
         font-size: 13px;
         border-bottom: 1px solid rgba(255, 255, 255, 0.02);
+        cursor: pointer;
+        user-select: none;
 
         &:hover {
           background: #2f334d;

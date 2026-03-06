@@ -34,7 +34,7 @@ const terminalMap = new Map<string, { term: Terminal; fitAddon: FitAddon }>();
 
 // --- UI 状态 ---
 const isConnecting = ref(false);
-const rightPanelVisible = ref(false); // 控制快捷命令面板显示
+const rightPanelVisible = ref(false);
 const isModalOpen = ref(false);
 const isEditing = ref(false);
 
@@ -44,7 +44,7 @@ let unlistenClosed: UnlistenFn | null = null;
 let unlistenTransfer: UnlistenFn | null = null;
 const transferTasks = ref<any[]>([]);
 
-const rightPanelType = ref<'quick' | 'ai'>('quick');
+const rightPanelType = ref<'quick' | 'ai' | 'redis' | 'history' | 'sync-settings'>('quick');
 
 // --- SFTP 状态 ---
 const localPath = ref("C:/");
@@ -77,7 +77,9 @@ const hasActiveTasks = computed(() =>
     transferTasks.value.some(t => t.status === 'transferring')
 );
 
-const toggleRightPanel = (type: 'quick' | 'ai') => {
+// --- 交互逻辑 ---
+
+const toggleRightPanel = (type: any) => {
   if (rightPanelVisible.value && rightPanelType.value === type) {
     rightPanelVisible.value = false;
   } else {
@@ -86,7 +88,6 @@ const toggleRightPanel = (type: 'quick' | 'ai') => {
   }
 };
 
-// --- 方法定义 (保持原有逻辑) ---
 const handleContextMenu = (e: MouseEvent, file: any, source: 'local' | 'remote') => {
   e.preventDefault();
   if (file.name === '..') return;
@@ -94,6 +95,7 @@ const handleContextMenu = (e: MouseEvent, file: any, source: 'local' | 'remote')
   contextSource.value = source;
   menuPos.value = {x: e.clientX, y: e.clientY};
   menuVisible.value = true;
+
   const closeMenu = () => {
     menuVisible.value = false;
     window.removeEventListener('click', closeMenu);
@@ -102,113 +104,197 @@ const handleContextMenu = (e: MouseEvent, file: any, source: 'local' | 'remote')
 };
 
 const handleMenuAction = async (action: 'transfer' | 'delete') => {
-  menuVisible.value = false;
   if (!contextFile.value || !contextSource.value) return;
-  if (action === 'transfer') {
-    const type = contextSource.value === 'local' ? 'upload' : 'download';
-    await startTransfer(type, contextFile.value);
-  } else if (action === 'delete') {
-    if (contextSource.value === 'remote') {
-      const confirmed = await ask(`确定删除远程文件 "${contextFile.value.name}"？`, {
-        title: '确认删除',
-        kind: 'warning',
-        okLabel: '确定',
-        cancelLabel: '取消',
-      });
+  const file = contextFile.value;
+  const source = contextSource.value;
+  menuVisible.value = false;
 
-      if (confirmed) {
-        try {
-          const path = `${remotePath.value.replace(/\/$/, '')}/${contextFile.value.name}`;
-          await invoke("delete_remote_file", {sessionId: activeSessionId.value, path, isDir: contextFile.value.is_dir});
+  if (action === 'transfer') {
+    const type = source === 'local' ? 'upload' : 'download';
+    await startTransfer(type, file);
+  } else if (action === 'delete') {
+    const confirmed = await ask(`确定删除${source === 'local' ? '本地' : '远程'}文件 "${file.name}"？`, {
+      title: '确认删除',
+      kind: 'warning',
+    });
+
+    if (confirmed) {
+      try {
+        if (source === 'remote') {
+          const path = `${remotePath.value.replace(/\/$/, '')}/${file.name}`;
+          await invoke("delete_remote_file", {sessionId: activeSessionId.value, path, isDir: file.is_dir});
           await refreshRemoteFiles();
-        } catch (err) {
-          toast.error(`删除失败: ${err}`);
+        } else {
+          // 这里可以添加删除本地文件的 invoke
+          toast.info("本地删除功能待对接");
         }
+      } catch (err) {
+        toast.error(`删除失败: ${err}`);
       }
     }
   }
 };
 
-// 拖拽逻辑
+// --- 重写的拖拽逻辑 ---
+
 const onDragStart = (e: DragEvent, file: any, source: 'local' | 'remote') => {
-  console.log(e, 'kk----0')
   if (file.name === '..') {
     e.preventDefault();
     return;
   }
   if (e.dataTransfer) {
     e.dataTransfer.effectAllowed = "copy";
+    // 使用标准 text 类型提高跨浏览器稳定性
     const payload = JSON.stringify({source, file});
-    e.dataTransfer.setData("file-data", payload);
+    e.dataTransfer.setData("text/plain", payload);
   }
 };
 
 const handleDragOver = (e: DragEvent) => {
-  // 1. 必须阻止默认行为，光标才会从“禁止”变成“可放置”
-  e.preventDefault();
-  console.log('jjj----111', e)
+  e.preventDefault(); // 必须调用，否则 drop 不触发
   if (e.dataTransfer) {
-    // 2. 必须显式设置 dropEffect，否则浏览器可能不会触发 drop
     e.dataTransfer.dropEffect = "copy";
   }
 };
 
 const handleDragEnter = (e: DragEvent, type: 'local' | 'remote') => {
   e.preventDefault();
-  console.log('jjj----222', e)
   if (type === 'local') isDraggingOverLocal.value = true;
   else isDraggingOverRemote.value = true;
-
-  if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
 };
 
 const handleDragLeave = (e: DragEvent, type: 'local' | 'remote') => {
-  // 关键：防止子元素触发的 leave 导致状态闪烁
-  // @ts-ignore
-  console.log('jjj----333', e)
-  if (e.relatedTarget && e.currentTarget?.contains(e.relatedTarget)) return;
-
-  if (type === 'local') isDraggingOverLocal.value = false;
-  else isDraggingOverRemote.value = false;
-};
-
-const handleRemoteDrop = async (e: DragEvent) => {
-  console.log(e, 'kk----2')
-  e.preventDefault();
-  isDraggingOverRemote.value = false;
-  const rawData = e.dataTransfer?.getData("file-data");
-  if (!rawData) return;
-  const data = JSON.parse(rawData);
-  if (data.source === 'local') await startTransfer('upload', data.file);
-};
-
-const handleLocalDrop = async (e: DragEvent) => {
-  e.preventDefault();
-  isDraggingOverLocal.value = false;
-  const rawData = e.dataTransfer?.getData("file-data");
-  if (!rawData) return;
-  const data = JSON.parse(rawData);
-  if (data.source === 'remote') await startTransfer('download', data.file);
-};
-
-const cancelTask = async (taskId: string) => {
-  const task = transferTasks.value.find(t => t.id === taskId);
-  if (!task) return;
-  try {
-    await invoke("abort_transfer", {taskId});
-    task.status = 'error';
-    setTimeout(() => {
-      transferTasks.value = transferTasks.value.filter(t => t.id !== taskId);
-    }, 3000);
-  } catch (err) {
-    console.error(err);
+  // 只有当真正离开容器时才取消高亮（防止子元素干扰）
+  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+  if (
+      e.clientX <= rect.left || e.clientX >= rect.right ||
+      e.clientY <= rect.top || e.clientY >= rect.bottom
+  ) {
+    if (type === 'local') isDraggingOverLocal.value = false;
+    else isDraggingOverRemote.value = false;
   }
 };
 
-const getTaskIcon = (task: any) => {
-  if (task.status === 'error') return 'fas fa-exclamation-circle';
-  if (task.status === 'success') return 'fas fa-check-circle';
-  return task.type === 'upload' ? 'fas fa-cloud-upload-alt' : 'fas fa-cloud-download-alt';
+const handleDrop = async (e: DragEvent, targetType: 'local' | 'remote') => {
+  e.preventDefault();
+  isDraggingOverLocal.value = false;
+  isDraggingOverRemote.value = false;
+
+  const rawData = e.dataTransfer?.getData("text/plain");
+  if (!rawData) return;
+
+  try {
+    const data = JSON.parse(rawData);
+    // 逻辑：跨端拖拽才触发传输
+    if (data.source === 'local' && targetType === 'remote') {
+      await startTransfer('upload', data.file);
+    } else if (data.source === 'remote' && targetType === 'local') {
+      await startTransfer('download', data.file);
+    }
+  } catch (err) {
+    console.error("Drop Error:", err);
+  }
+};
+
+const handleFileDblClick = async (file: any, type: 'local' | 'remote') => {
+  if (!file.is_dir && file.name !== '..') return;
+
+  const isRemote = type === 'remote';
+  let currentPath = isRemote ? remotePath.value : localPath.value;
+
+  // 标准化路径处理
+  currentPath = currentPath.replace(/[/\\]$/, '');
+
+  if (file.name === '..') {
+    let parts = currentPath.split(/[/\\]/).filter(p => p !== "");
+    if (isRemote) {
+      parts.pop();
+      currentPath = '/' + parts.join('/');
+    } else {
+      parts.pop();
+      currentPath = parts.join('\\');
+      if (currentPath.length === 2 && currentPath.endsWith(':')) currentPath += '\\';
+    }
+  } else {
+    const separator = isRemote ? '/' : '\\';
+    // 针对 Windows 根目录的特殊处理
+    if (!isRemote && currentPath.endsWith(':')) currentPath += '\\';
+
+    const base = currentPath.endsWith(separator) ? currentPath : currentPath + separator;
+    currentPath = base + file.name;
+  }
+
+  if (!currentPath) currentPath = isRemote ? "/" : "C:\\";
+
+  try {
+    if (isRemote) {
+      remotePath.value = currentPath;
+      await refreshRemoteFiles();
+    } else {
+      localPath.value = currentPath;
+      await refreshLocalFiles();
+    }
+  } catch (err) {
+    toast.error(`切换目录失败: ${err}`);
+  }
+};
+
+// --- 其他功能逻辑 (保持原有) ---
+
+const startTransfer = async (type: 'upload' | 'download', file: any) => {
+  if (file.is_dir || file.name === '..') {
+    toast.error(`暂不支持${type === 'upload' ? '上传' : '下载'}文件夹，请先压缩后再操作`);
+    return;
+  }
+  const taskId = Math.random().toString(36).substring(7);
+  const sourcePath = type === 'upload' ? `${localPath.value.replace(/[/\\]$/, '')}/${file.name}` : `${remotePath.value.replace(/\/$/, '')}/${file.name}`;
+  const targetPath = type === 'upload' ? `${remotePath.value.replace(/\/$/, '')}/${file.name}` : `${localPath.value.replace(/[/\\]$/, '')}/${file.name}`;
+
+  transferTasks.value.push({id: taskId, name: file.name, progress: 0, type, status: 'transferring'});
+  try {
+    await invoke(type === 'upload' ? "sftp_upload" : "sftp_download", {
+      sessionId: activeSessionId.value,
+      localPath: type === 'upload' ? sourcePath : targetPath,
+      remotePath: type === 'upload' ? targetPath : sourcePath,
+      taskId
+    });
+    const task = transferTasks.value.find(t => t.id === taskId);
+    if (task) {
+      task.status = 'success';
+      task.progress = 100;
+      setTimeout(() => {
+        transferTasks.value = transferTasks.value.filter(t => t.id !== taskId);
+      }, 2000);
+    }
+    refreshLocalFiles();
+    refreshRemoteFiles();
+  } catch (err) {
+    const task = transferTasks.value.find(t => t.id === taskId);
+    if (task) task.status = 'error';
+    console.log(err, 'kkk---')
+    toast.error(`传输失败: ${err}`);
+  }
+};
+
+const connectToServer = async () => {
+  const server = servers.value.find(s => s.id === activeId.value);
+  if (!server) return;
+  isConnecting.value = true;
+  const sessionId = server.id;
+  if (!openSessions.value.find(s => s.id === sessionId)) {
+    openSessions.value.push({id: sessionId, serverId: server.id, name: server.name});
+    sessionViewModes.value[sessionId] = 'terminal';
+  }
+  activeSessionId.value = sessionId;
+  await initTerminal(sessionId);
+  try {
+    await invoke("connect_ssh", {serverId: server.id, sessionId});
+    focusTerminal(sessionId);
+  } catch (err) {
+    toast.error(`连接失败: ${err}`);
+  } finally {
+    isConnecting.value = false;
+  }
 };
 
 const initTerminal = async (sessionId: string) => {
@@ -232,27 +318,6 @@ const initTerminal = async (sessionId: string) => {
     fitAddon.fit();
     term.onData((data) => invoke("write_to_ssh", {sessionId, data}));
     terminalMap.set(sessionId, {term, fitAddon});
-  }
-};
-
-const connectToServer = async () => {
-  const server = servers.value.find(s => s.id === activeId.value);
-  if (!server) return;
-  isConnecting.value = true;
-  const sessionId = server.id;
-  if (!openSessions.value.find(s => s.id === sessionId)) {
-    openSessions.value.push({id: sessionId, serverId: server.id, name: server.name});
-    sessionViewModes.value[sessionId] = 'terminal';
-  }
-  activeSessionId.value = sessionId;
-  await initTerminal(sessionId);
-  try {
-    await invoke("connect_ssh", {serverId: server.id, sessionId});
-    focusTerminal(sessionId);
-  } catch (err) {
-    console.error(err);
-  } finally {
-    isConnecting.value = false;
   }
 };
 
@@ -280,121 +345,35 @@ const toggleViewMode = async () => {
   const newMode = currentMode === 'terminal' ? 'sftp' : 'terminal';
   sessionViewModes.value[activeSessionId.value] = newMode;
   if (newMode === 'sftp') {
-    await refreshRemoteFiles();
-    await refreshLocalFiles();
+    refreshRemoteFiles();
+    refreshLocalFiles();
   }
 };
 
 const refreshLocalFiles = async () => {
   try {
     localFiles.value = await invoke("list_local_dir", {path: localPath.value});
-  } catch (e) {
-    console.error(e);
-  }
+  } catch (e) { console.error(e); }
 };
 const refreshRemoteFiles = async () => {
   try {
     remoteFiles.value = await invoke("list_remote_dir", {sessionId: activeSessionId.value, path: remotePath.value});
-  } catch (e) {
-    console.error(e);
-  }
+  } catch (e) { console.error(e); }
 };
 
-const handleFileDblClick = async (file: any, type: 'local' | 'remote') => {
-  if (!file.is_dir && file.name !== '..') return;
-  const isRemote = type === 'remote';
-  let currentPath = isRemote ? remotePath.value : localPath.value;
-  currentPath = currentPath.replace(/[/\\]$/, '');
-  if (file.name === '..') {
-    let parts = currentPath.split(/[/\\]/).filter(p => p !== "");
-    if (isRemote) {
-      parts.pop();
-      currentPath = '/' + parts.join('/');
-    } else {
-      parts.pop();
-      currentPath = parts.join('\\');
-      if (currentPath.length === 2 && currentPath.endsWith(':')) currentPath += '\\';
-    }
-  } else {
-    const separator = isRemote ? '/' : (currentPath.includes('\\') ? '\\' : '/');
-    currentPath = `${currentPath}${separator}${file.name}`;
-  }
-  if (!currentPath) currentPath = isRemote ? "/" : "C:\\";
-  try {
-    if (isRemote) {
-      remotePath.value = currentPath;
-      await refreshRemoteFiles();
-    } else {
-      localPath.value = currentPath;
-      await refreshLocalFiles();
-    }
-  } catch (err) {
-    console.error(err);
-  }
-};
-
-const startTransfer = async (type: 'upload' | 'download', file: any) => {
-  const taskId = Math.random().toString(36).substring(7);
-  const sourcePath = type === 'upload' ? `${localPath.value.replace(/[/\\]$/, '')}/${file.name}` : `${remotePath.value.replace(/\/$/, '')}/${file.name}`;
-  const targetPath = type === 'upload' ? `${remotePath.value.replace(/\/$/, '')}/${file.name}` : `${localPath.value.replace(/[/\\]$/, '')}/${file.name}`;
-
-  transferTasks.value.push({id: taskId, name: file.name, progress: 0, type, status: 'transferring'});
-  try {
-    await invoke(type === 'upload' ? "sftp_upload" : "sftp_download", {
-      sessionId: activeSessionId.value,
-      localPath: type === 'upload' ? sourcePath : targetPath,
-      remotePath: type === 'upload' ? targetPath : sourcePath,
-      taskId
-    });
-    const task = transferTasks.value.find(t => t.id === taskId);
-    if (task) {
-      task.status = 'success';
-      task.progress = 100;
-      setTimeout(() => {
-        transferTasks.value = transferTasks.value.filter(t => t.id !== taskId);
-      }, 2000);
-    }
-    if (currentViewMode.value === 'sftp') {
-      refreshLocalFiles();
-      refreshRemoteFiles();
-    }
-  } catch (err) {
-    const task = transferTasks.value.find(t => t.id === taskId);
-    if (task) task.status = 'error';
-  }
-};
-
-// --- 逻辑方法 ---
 const cloneSession = async () => {
   if (!activeSessionId.value) return;
-
-  // 查找当前活跃的服务器信息
   const sessionToClone = openSessions.value.find(s => s.id === activeSessionId.value);
   const server = servers.value.find(s => s.id === sessionToClone?.serverId);
-
   if (server) {
-    // 生成一个新的临时会话 ID（或者由后端生成）
-    // 这里简单调用连接逻辑，开启一个同服务器的新会话
-    console.log("正在克隆会话:", server.name);
-
-    // 如果你的后端 connect_ssh 支持多个 session_id 对应同一个 server_id：
     const newSessionId = `${server.id}-${Math.random().toString(36).substring(7)}`;
-
-    openSessions.value.push({
-      id: newSessionId,
-      serverId: server.id,
-      name: `${server.name} (Copy)`
-    });
-
+    openSessions.value.push({id: newSessionId, serverId: server.id, name: `${server.name} (Copy)`});
     activeSessionId.value = newSessionId;
     sessionViewModes.value[newSessionId] = 'terminal';
-
     await initTerminal(newSessionId);
     try {
       await invoke("connect_ssh", {serverId: server.id, sessionId: newSessionId});
-    } catch (err) {
-      console.error("克隆会话失败:", err);
-    }
+    } catch (err) { console.error(err); }
   }
 };
 
@@ -408,60 +387,34 @@ const focusTerminal = async (sessionId: string | null) => {
 const handleResize = () => {
   terminalMap.forEach(instance => instance.fitAddon.fit());
 };
-watch(activeSessionId, (newId) => {
-  if (newId) focusTerminal(newId);
-});
 
 const openAddModal = () => {
   isEditing.value = false;
-  newHost.value = {
-    id: "",
-    name: "",
-    host: "",
-    username: "root",
-    port: 22,
-    auth_type: "password",
-    password: "",
-    private_key_path: "",
-    jump_host_id: ""
-  };
+  newHost.value = {id: "", name: "", host: "", username: "root", port: 22, auth_type: "password", password: "", private_key_path: "", jump_host_id: ""};
   isModalOpen.value = true;
 };
+
 const openEditModal = (s: any) => {
   isEditing.value = true;
-  newHost.value = {
-    ...s,
-    jump_host_id: s.jump_host_id || ""
-  };
+  newHost.value = {...s, jump_host_id: s.jump_host_id || ""};
   isModalOpen.value = true;
 };
+
 const closeModal = () => {
   isModalOpen.value = false;
   showPassword.value = false;
 };
 
-const saveHost = async (e) => {
+const saveHost = async (e: any) => {
   if (e.name && e.host) {
-    const serverToSave = {
-      ...e,
-      port: Number(e.port),
-      // 将空字符串转换为 null，以便后端正确处理
-      jump_host_id: e.jump_host_id || null
-    };
-    console.log('编辑模式 - 准备保存的数据:', serverToSave);
-
+    const serverToSave = {...e, port: Number(e.port), jump_host_id: e.jump_host_id || null};
     try {
       await invoke("save_server", {server: serverToSave});
-      console.log('✓ 编辑保存成功');
       await loadServers();
       closeModal();
     } catch (error) {
-      console.error('✗ 编辑保存失败:', error);
       toast.error('保存失败：' + error);
     }
-  } else {
-    console.error('✗ 验证失败：缺少 name 或 host');
-    toast.error('请填写服务器名称和主机地址');
   }
 };
 
@@ -470,23 +423,37 @@ const loadServers = async () => {
   if (servers.value.length > 0 && !activeId.value) activeId.value = servers.value[0].id;
 };
 
+const getTaskIcon = (task: any) => {
+  if (task.status === 'error') return 'fas fa-exclamation-circle';
+  if (task.status === 'success') return 'fas fa-check-circle';
+  return task.type === 'upload' ? 'fas fa-cloud-upload-alt' : 'fas fa-cloud-download-alt';
+};
+
+const cancelTask = async (taskId: string) => {
+  const task = transferTasks.value.find(t => t.id === taskId);
+  if (!task) return;
+  try {
+    await invoke("abort_transfer", {taskId});
+    task.status = 'error';
+    setTimeout(() => {
+      transferTasks.value = transferTasks.value.filter(t => t.id !== taskId);
+    }, 3000);
+  } catch (err) { console.error(err); }
+};
+
+watch(activeSessionId, (newId) => {
+  if (newId) focusTerminal(newId);
+});
+
 onMounted(async () => {
   window.addEventListener("resize", handleResize);
   loadServers();
-
-  const unlistenFuncs: Array<() => void> = [];
   unlisten = await listen("ssh-output", (event) => {
     const payload = event.payload as { session_id: string, data: string };
     const instance = terminalMap.get(payload.session_id);
     if (instance && currentViewMode.value === 'terminal') instance.term.write(payload.data);
   });
-
-  // 2. 监听数据库变更（云端同步恢复后触发）
-  unlistenFuncs.push(await listen('database-changed', (event) => {
-    console.log('检测到数据库变更，来源:', event.payload);
-    loadServers(); // 核心：这里会自动刷新你的服务器列表
-  }));
-
+  await listen('database-changed', () => loadServers());
   unlistenClosed = await listen("ssh-closed", (event) => {
     internalUiCleanup((event.payload as any).session_id);
   });
@@ -497,7 +464,7 @@ onMounted(async () => {
   });
 });
 
-onUnmounted(async () => {
+onUnmounted(() => {
   window.removeEventListener("resize", handleResize);
   if (unlisten) unlisten();
   if (unlistenClosed) unlistenClosed();
@@ -563,19 +530,21 @@ onUnmounted(async () => {
                   <i class="fas fa-laptop" style="margin-right: 8px; color: #565f89;"></i>
                   <input v-model="localPath" class="path-input" @keyup.enter="refreshLocalFiles"/>
                 </div>
-                <div class="file-list" :class="{ 'drag-over': isDraggingOverLocal }"
-                     @dragenter.stop.prevent="isDraggingOverLocal = true"
-                     @dragenter.prevent="handleDragEnter"
-                     @dragleave.prevent="handleDragLeave"
-                     @dragover.stop.prevent="handleDragOver"
-                     @dragleave.stop.prevent="isDraggingOverLocal = false"
-                     @drop.stop.prevent="handleLocalDrop">
+                <div class="file-list"
+                     :class="{ 'drag-over': isDraggingOverLocal }"
+                     @dragover="handleDragOver"
+                     @dragenter="handleDragEnter($event, 'local')"
+                     @dragleave="handleDragLeave($event, 'local')"
+                     @drop="handleDrop($event, 'local')">
                   <div v-for="file in localFiles" :key="file.name" class="file-item"
-                       :class="{ 'is-dir': file.is_dir }" draggable="true"
-                       @contextmenu="handleContextMenu($event, file, 'local')"
-                       @dragstart="onDragStart($event, file, 'local')" @dblclick="handleFileDblClick(file, 'local')">
-                    <span class="file-icon"><i class="fas"
-                                               :class="file.name === '..' ? 'fa-level-up-alt' : (file.is_dir ? 'fa-folder' : 'fa-file-alt')"></i></span>
+                       :class="{ 'is-dir': file.is_dir }"
+                       :draggable="file.name !== '..'"
+                       @dragstart="onDragStart($event, file, 'local')"
+                       @dblclick.stop="handleFileDblClick(file, 'local')"
+                       @contextmenu="handleContextMenu($event, file, 'local')">
+                    <span class="file-icon">
+                      <i class="fas" :class="file.name === '..' ? 'fa-level-up-alt' : (file.is_dir ? 'fa-folder' : 'fa-file-alt')"></i>
+                    </span>
                     <span class="file-name">{{ file.name }}</span>
                     <span class="file-size" v-if="!file.is_dir">{{ (file.size / 1024).toFixed(1) }} KB</span>
                   </div>
@@ -587,15 +556,21 @@ onUnmounted(async () => {
                   <i class="fas fa-server" style="margin-right: 8px; color: #565f89;"></i>
                   <input v-model="remotePath" class="path-input" @keyup.enter="refreshRemoteFiles"/>
                 </div>
-                <div class="file-list" :class="{ 'drag-over': isDraggingOverRemote }"
-                     @dragenter.stop.prevent="isDraggingOverRemote = true" @dragover.stop.prevent="handleDragOver"
-                     @dragleave.stop.prevent="isDraggingOverRemote = false" @drop.stop.prevent="handleRemoteDrop">
+                <div class="file-list"
+                     :class="{ 'drag-over': isDraggingOverRemote }"
+                     @dragover="handleDragOver"
+                     @dragenter="handleDragEnter($event, 'remote')"
+                     @dragleave="handleDragLeave($event, 'remote')"
+                     @drop="handleDrop($event, 'remote')">
                   <div v-for="file in remoteFiles" :key="file.name" class="file-item"
-                       :class="{ 'is-dir': file.is_dir }" draggable="true"
-                       @contextmenu="handleContextMenu($event, file, 'remote')"
-                       @dragstart="onDragStart($event, file, 'remote')" @dblclick="handleFileDblClick(file, 'remote')">
-                    <span class="file-icon"><i class="fas"
-                                               :class="file.name === '..' ? 'fa-level-up-alt' : (file.is_dir ? 'fa-folder' : 'fa-file-alt')"></i></span>
+                       :class="{ 'is-dir': file.is_dir }"
+                       :draggable="file.name !== '..'"
+                       @dragstart="onDragStart($event, file, 'remote')"
+                       @dblclick.stop="handleFileDblClick(file, 'remote')"
+                       @contextmenu="handleContextMenu($event, file, 'remote')">
+                    <span class="file-icon">
+                      <i class="fas" :class="file.name === '..' ? 'fa-level-up-alt' : (file.is_dir ? 'fa-folder' : 'fa-file-alt')"></i>
+                    </span>
                     <span class="file-name">{{ file.name }}</span>
                     <span class="file-size" v-if="!file.is_dir">{{ (file.size / 1024).toFixed(1) }} KB</span>
                   </div>
@@ -604,22 +579,16 @@ onUnmounted(async () => {
 
               <div class="transfer-status" v-if="transferTasks.length > 0">
                 <div class="status-header">
-                  <div class="header-left"><i class="fas fa-layer-group"></i><span>传输队列 ({{
-                      transferTasks.length
-                    }})</span></div>
+                  <div class="header-left"><i class="fas fa-layer-group"></i><span>传输队列 ({{ transferTasks.length }})</span></div>
                   <div class="header-status-dot" :class="{ 'is-syncing': hasActiveTasks }"></div>
                 </div>
                 <div class="task-list-wrapper">
                   <TransitionGroup name="task-list">
-                    <div v-for="task in transferTasks" :key="task.id" class="task-row"
-                         :class="[`status-${task.status}`]">
+                    <div v-for="task in transferTasks" :key="task.id" class="task-row" :class="[`status-${task.status}`]">
                       <div class="task-info">
-                        <div class="name-box" :title="task.name"><i :class="getTaskIcon(task)"
-                                                                    class="type-icon"></i><span
-                            class="task-name">{{ task.name }}</span></div>
+                        <div class="name-box" :title="task.name"><i :class="getTaskIcon(task)" class="type-icon"></i><span class="task-name">{{ task.name }}</span></div>
                         <div class="task-actions">
-                          <button v-if="task.status === 'transferring'" class="cancel-btn"
-                                  @click.stop="cancelTask(task.id)"><i class="fas fa-times"></i></button>
+                          <button v-if="task.status === 'transferring'" class="cancel-btn" @click.stop="cancelTask(task.id)"><i class="fas fa-times"></i></button>
                           <span class="task-percent">{{ task.progress }}%</span>
                         </div>
                       </div>
@@ -639,23 +608,16 @@ onUnmounted(async () => {
       <div class="right-dock">
         <div class="icon-bar">
           <div class="top-group">
-            <div class="icon-item" title="快捷命令" :class="{ active: rightPanelVisible && rightPanelType === 'quick' }"
-                 @click="toggleRightPanel('quick')">
+            <div class="icon-item" title="快捷命令" :class="{ active: rightPanelVisible && rightPanelType === 'quick' }" @click="toggleRightPanel('quick')">
               <i class="fas fa-bolt"></i>
             </div>
-
-            <div class="icon-item" title="AI 助手" :class="{ active: rightPanelVisible && rightPanelType === 'ai' }"
-                 @click="toggleRightPanel('ai')">
+            <div class="icon-item" title="AI 助手" :class="{ active: rightPanelVisible && rightPanelType === 'ai' }" @click="toggleRightPanel('ai')">
               <i class="fas fa-robot"></i>
             </div>
-            <div class="icon-item" title="Redis 数据库" :class="{ active: rightPanelVisible && rightPanelType === 'redis' }"
-                 @click="toggleRightPanel('redis')">
-              <svg class="redis-icon" viewBox="0 0 24 24" width="18" height="18">
-                <path fill="currentColor" d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
-              </svg>
+            <div class="icon-item" title="Redis 数据库" :class="{ active: rightPanelVisible && rightPanelType === 'redis' }" @click="toggleRightPanel('redis')">
+              <svg class="redis-icon" viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
             </div>
           </div>
-
           <div class="bottom-group">
             <div class="icon-item" title="操作审计" :class="{ active: rightPanelVisible && rightPanelType === 'history' }" @click="toggleRightPanel('history')">
               <i class="fas fa-list-check"></i>
@@ -668,37 +630,27 @@ onUnmounted(async () => {
 
         <Transition name="panel-slide">
           <div v-if="rightPanelVisible" class="floating-panel" :class="{ 'is-redis': rightPanelType === 'redis' }">
-            <QuickCommandPanel
-                v-if="rightPanelType === 'quick'"
-                :activeSessionId="activeSessionId"
-            />
-            <AiAssistantPanel
-                v-else-if="rightPanelType === 'ai'"
-                :activeSessionId="activeSessionId"
-            />
-            <RedisManager
-                v-else-if="rightPanelType === 'redis'"
-                :activeSessionId="activeSessionId"
-            />
-            <SyncSettings
-                v-else-if="rightPanelType === 'sync-settings'"
-                :activeSessionId="activeSessionId"
-            />
+            <QuickCommandPanel v-if="rightPanelType === 'quick'" :activeSessionId="activeSessionId" />
+            <AiAssistantPanel v-else-if="rightPanelType === 'ai'" :activeSessionId="activeSessionId" />
+            <RedisManager v-else-if="rightPanelType === 'redis'" :activeSessionId="activeSessionId" />
+            <SyncSettings v-else-if="rightPanelType === 'sync-settings'" :activeSessionId="activeSessionId" />
           </div>
         </Transition>
       </div>
     </div>
 
-    <ServerModal :is-open="isModalOpen" :is-editing="isEditing" :server="newHost" :servers="servers" @close="closeModal"
-                 @save="saveHost"/>
+    <ServerModal :is-open="isModalOpen" :is-editing="isEditing" :server="newHost" :servers="servers" @close="closeModal" @save="saveHost"/>
+
     <Transition name="fade">
       <div v-if="menuVisible" class="context-menu" :style="{ top: menuPos.y + 'px', left: menuPos.x + 'px' }">
-        <div class="menu-item" @click="handleMenuAction('transfer')"><span>{{
-            contextSource === 'local' ? '📤' : '📥'
-          }}</span>{{ contextSource === 'local' ? '上传到服务器' : '下载到本地' }}
+        <div class="menu-item" @click="handleMenuAction('transfer')">
+          <span>{{ contextSource === 'local' ? '📤' : '📥' }}</span>
+          {{ contextSource === 'local' ? '上传到服务器' : '下载到本地' }}
         </div>
         <div class="menu-item divider"></div>
-        <div class="menu-item danger" @click="handleMenuAction('delete')"><span>🗑️</span> 删除</div>
+        <div class="menu-item danger" @click="handleMenuAction('delete')">
+          <span>🗑️</span> 删除
+        </div>
       </div>
     </Transition>
   </div>
@@ -710,5 +662,3 @@ onUnmounted(async () => {
 <style lang="scss" scoped>
 @use './assets/css/app.scss';
 </style>
-
-

@@ -1,0 +1,556 @@
+
+// ============================================
+// 🎨 变量定义
+// ============================================
+$bg-dark: #0f111a;
+$bg-pane: #1a1b26;
+$bg-header: #16161e;
+$border-color: #292e42;
+$text-main: #a9b1d6;
+$text-dim: #565f89;
+$accent: #7aa2f7;
+$success: #73daca;
+$error: #f7768e;
+
+// ============================================
+// 🏗️ 基础布局
+// ============================================
+.termius-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100vw;
+  background-color: $bg-dark;
+  color: $text-main;
+}
+
+.main-layout {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+.workspace {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: $bg-dark;
+  overflow: hidden;
+}
+
+// ============================================
+// 💻 终端容器
+// ============================================
+.terminal-shell {
+  flex: 1;
+  margin: 0 16px 16px;
+  background: $bg-pane;
+  border-radius: 12px;
+  border: 1px solid $border-color;
+  position: relative;
+  overflow: hidden;
+
+  .terminal-wrapper, .sftp-wrapper, .terminal-multi-wrapper {
+    width: 100%;
+    height: 100%;
+  }
+
+  .xterm-container {
+    width: 100%;
+    height: 100%;
+    padding: 10px;
+    box-sizing: border-box;
+
+    :deep(.xterm) {
+      padding: 4px;
+
+      .xterm-viewport {
+        background-color: transparent !important;
+      }
+    }
+  }
+
+  .empty-state {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: $text-dim;
+
+    .empty-icon {
+      font-size: 48px;
+      opacity: 0.3;
+    }
+  }
+}
+
+// ============================================
+// 📂 SFTP 管理面板
+// ============================================
+.sftp-manager {
+  display: flex;
+  height: 100%;
+  background: $bg-pane;
+  overflow: hidden;
+
+  .file-pane {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-width: 0;
+    border-right: 1px solid #24283b;
+
+    .pane-header {
+      flex-shrink: 0;
+      padding: 10px 12px;
+      background: $bg-header;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+
+      .path-input {
+        background: transparent;
+        border: none;
+        color: $accent;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 11px;
+        width: 100%;
+
+        &:focus {
+          outline: none;
+          background: $bg-pane;
+        }
+      }
+    }
+
+    .file-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 4px 0;
+      scrollbar-gutter: stable;
+      transition: background-color 0.2s;
+
+      &.drag-over {
+        background-color: rgba($accent, 0.1);
+        outline: 2px dashed $accent;
+        outline-offset: -4px;
+      }
+
+      .file-item {
+        display: flex;
+        align-items: center;
+        padding: 6px 12px;
+        font-size: 13px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.02);
+
+        &:hover {
+          background: #2f334d;
+        }
+
+        .file-icon {
+          width: 20px;
+          margin-right: 10px;
+          text-align: center;
+
+          i.fa-folder {
+            color: #e0af68;
+          }
+
+          i.fa-file-alt {
+            color: $accent;
+          }
+
+          i.fa-level-up-alt {
+            color: #9ece6a;
+          }
+        }
+
+        .file-name {
+          flex: 1;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+
+          &.is-dir {
+            color: $accent;
+            font-weight: 500;
+          }
+        }
+
+        .file-size {
+          color: #444b6a;
+          font-size: 11px;
+          margin-left: 8px;
+        }
+      }
+    }
+  }
+}
+
+// ============================================
+// 📦 传输状态显示
+// ============================================
+.transfer-status {
+  position: fixed;
+  bottom: 60px;
+  right: 25px;
+  width: 320px;
+  background: rgba(22, 22, 30, 0.95);
+  backdrop-filter: blur(12px);
+  border: 1px solid $border-color;
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  z-index: 2000;
+  overflow: hidden;
+
+  .status-header {
+    padding: 12px 16px;
+    background: rgba(41, 46, 66, 0.4);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid rgba(65, 72, 104, 0.3);
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: $accent;
+      font-size: 13px;
+      font-weight: bold;
+    }
+
+    .header-status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #414868;
+
+      &.is-syncing {
+        background: $accent;
+        box-shadow: 0 0 8px $accent;
+        animation: pulse 1.5s infinite;
+      }
+    }
+  }
+
+  .task-list-wrapper {
+    max-height: 280px;
+    overflow-y: auto;
+    padding: 8px;
+
+    &::-webkit-scrollbar {
+      width: 4px;
+    }
+
+    &::-webkit-scrollbar-thumb {
+      background: #414868;
+      border-radius: 10px;
+    }
+  }
+
+  .task-row {
+    background: rgba(255, 255, 255, 0.03);
+    padding: 10px;
+    border-radius: 8px;
+    margin-bottom: 8px;
+    transition: all 0.3s ease;
+
+    &.status-success {
+      border-left: 3px solid $success;
+
+      .task-percent {
+        color: $success;
+      }
+    }
+
+    &.status-error {
+      border-left: 3px solid $error;
+
+      .task-percent {
+        color: $error;
+      }
+    }
+
+    .task-info {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+
+      .name-box {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex: 1;
+        min-width: 0;
+
+        .task-name {
+          font-size: 12px;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+      }
+
+      .task-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+
+        .cancel-btn {
+          background: rgba($error, 0.1);
+          border: none;
+          color: $text-dim;
+          cursor: pointer;
+          padding: 4px;
+          border-radius: 4px;
+          transition: all 0.2s ease;
+
+          &:hover {
+            color: $error;
+            background: rgba($error, 0.2);
+            transform: rotate(90deg);
+          }
+        }
+
+        .task-percent {
+          font-size: 11px;
+          font-family: 'JetBrains Mono', monospace;
+          min-width: 35px;
+          text-align: right;
+        }
+      }
+    }
+
+    .progress-container {
+      height: 4px;
+      background: rgba(0, 0, 0, 0.2);
+      border-radius: 2px;
+      overflow: hidden;
+
+      .progress-bar {
+        height: 100%;
+        background: $accent;
+        transition: width 0.4s ease;
+        position: relative;
+
+        &.transferring::after {
+          content: "";
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background-image: linear-gradient(-45deg, rgba(255, 255, 255, 0.2) 25%, transparent 25%, transparent 50%, rgba(255, 255, 255, 0.2) 50%, rgba(255, 255, 255, 0.2) 75%, transparent 75%);
+          background-size: 20px 20px;
+          animation: move-stripes 2s linear infinite;
+        }
+      }
+    }
+  }
+}
+
+// ============================================
+// 🖱️ 右键菜单
+// ============================================
+.context-menu {
+  position: fixed;
+  z-index: 9999;
+  background: #24283b;
+  border: 1px solid #414868;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  padding: 4px;
+  min-width: 160px;
+
+  .menu-item {
+    padding: 8px 12px;
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    font-size: 13px;
+    border-radius: 4px;
+
+    &:hover {
+      background: #3b4261;
+      color: $accent;
+    }
+
+    &.danger:hover {
+      background: #44232f;
+      color: $error;
+    }
+
+    &.divider {
+      height: 1px;
+      background: #414868;
+      margin: 6px 4px;
+      padding: 0;
+      cursor: default;
+      pointer-events: none;
+
+      &:hover {
+        background: #414868;
+      }
+    }
+  }
+}
+
+// ============================================
+// 🎯 右侧工具栏
+// ============================================
+.right-dock {
+  display: flex;
+  position: relative;
+  z-index: 100;
+
+  // 假设你的变量定义如下 (基于 Tokyo Night)
+  $bg-header: #1a1b26;
+  $border-color: #292e42;
+  $text-dim: #565f89;
+  $text-main: #a9b1d6;
+  $accent: #bb9af7; // 紫色强调色
+  $accent-blue: #7aa2f7; // 蓝色
+
+  .icon-bar {
+    width: 46px; // 稍微加宽一点点，比例更协调
+    background: $bg-header;
+    border-left: 1px solid $border-color;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between; // 关键：让顶部和底部图标自动分开
+    align-items: center;
+    padding: 16px 0; // 上下留白平衡
+    user-select: none;
+
+    .top-group, .bottom-group {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 100%;
+    }
+
+    .icon-item {
+      width: 34px;
+      height: 34px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: $text-dim;
+      cursor: pointer;
+      border-radius: 8px; // 圆角大一点更有现代感
+      margin-bottom: 10px;
+      position: relative; // 为伪元素定位
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+
+      i {
+        font-size: 16px;
+      }
+
+      &:hover {
+        background: rgba($text-main, 0.05);
+        color: $accent-blue;
+        transform: translateY(-1px); // 鼠标悬停微小的上浮感
+      }
+
+      &.active {
+        color: $accent;
+        background: rgba($accent, 0.12);
+
+        // 增加一个右侧/左侧的小指示条（根据你的边栏位置决定）
+        &::after {
+          content: '';
+          position: absolute;
+          right: -1px; // 如果在右边，贴着边框
+          width: 3px;
+          height: 16px;
+          background: $accent;
+          border-radius: 4px 0 0 4px;
+          box-shadow: 0 0 8px $accent; // 侧边微发光
+        }
+      }
+
+      &:active {
+        transform: scale(0.92); // 点击下去的物理阻尼感
+      }
+    }
+  }
+
+  .floating-panel {
+    position: absolute;
+    top: 0;
+    right: 40px;
+    width: 320px;
+    height: 100%;
+    background: rgba($bg-pane, 0.95);
+    backdrop-filter: blur(12px);
+    border-left: 1px solid $border-color;
+    box-shadow: -10px 0 30px rgba(0, 0, 0, 0.5);
+    &.is-redis {
+      width: 420px;
+    }
+  }
+}
+
+// ============================================
+// 🎭 动画关键帧
+// ============================================
+@keyframes move-stripes {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 40px 0;
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+// ============================================
+// 🎬 Vue 过渡动画
+// ============================================
+.panel-slide-enter-active,
+.panel-slide-leave-active {
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s;
+}
+
+.panel-slide-enter-from,
+.panel-slide-leave-to {
+  transform: translateX(20px);
+  opacity: 0;
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+.task-list-enter-from {
+  opacity: 0;
+  transform: translateX(30px);
+}
+
+.task-list-leave-to {
+  opacity: 0;
+  transform: scale(0.9);
+}
+.redis-icon {
+  color: #DC382D;
+  vertical-align: middle;
+}

@@ -1,0 +1,90 @@
+:root {
+  --bg-main: #0f111a;
+  --scrollbar-track: transparent;
+  --scrollbar-thumb: #292e42;
+  --scrollbar-thumb-hover: #3b4261;
+  --accent-color: #7aa2f7;
+  --accent-glow: rgba(122, 162, 247, 0.2);
+
+  /* 图标专属颜色 */
+  --icon-folder: #e0af68;
+  --icon-file: #7aa2f7;
+  --icon-up: #9ece6a;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background-color: var(--bg-main);
+  user-select: none;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+// 滚动条美化
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 10px;
+  transition: background 0.2s ease;
+
+  &:hover {
+    background: var(--scrollbar-thumb-hover);
+  }
+}
+
+// 表单元素交互
+input, select, textarea {
+  transition: border-color 0.2s, box-shadow 0.2s;
+
+  &:focus {
+    border-color: var(--accent-color) !important;
+    box-shadow: 0 0 0 2px var(--accent-glow);
+    outline: none;
+  }
+}
+
+// 文件图标系统
+.file-icon {
+  width: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+
+  i.fas {
+    font-family: "Font Awesome 6 Free", "Font Awesome 5 Free", sans-serif !important;
+    font-weight: 900 !important;
+    font-style: normal;
+    font-variant: normal;
+    text-rendering: auto;
+    line-height: 1;
+  }
+
+  .fa-folder {
+    color: var(--icon-folder) !important;
+  }
+
+  .fa-file-alt, .fa-file {
+    color: var(--icon-file) !important;
+  }
+
+  .fa-level-up-alt, .fa-reply {
+    color: var(--icon-up) !important;
+  }
+}
+
+// 防止拖拽时的默认蓝色阴影
+[draggable="true"] {
+  user-select: none;
+  -webkit-user-drag: element;
+}

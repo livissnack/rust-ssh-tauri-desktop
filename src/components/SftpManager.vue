@@ -94,7 +94,7 @@ onUnmounted(() => {
           class="file-list"
           :class="{ 'drag-over': isDraggingOverLocal }"
           @drop="emit('handleLocalDrop', $event);"
-          @dragover.prevent
+          @dragover.stop.prevent
           @dragenter.prevent="emit('handleDragEnter', $event, 'local')"
           @dragleave.prevent="emit('handleDragLeave', $event, 'local')"
       >

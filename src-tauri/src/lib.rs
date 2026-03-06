@@ -84,8 +84,6 @@ struct ProgressPayload {
     progress: u64,
 }
 
-// --- 2. SSH 事件处理器 (保持原样) ---
-
 pub struct ClientHandler<R: Runtime> {
     window: tauri::Window<R>,
     server_id: String,
@@ -119,8 +117,6 @@ impl<R: Runtime> client::Handler for ClientHandler<R> {
     }
 }
 
-// --- 3. 状态管理 ---
-
 pub struct ActiveSession {
     pub handle: client::Handle<ClientHandler<tauri::Wry>>,
     pub channel_id: ChannelId,
@@ -129,11 +125,8 @@ pub struct ActiveSession {
 pub struct AppState {
     pub sessions: Arc<Mutex<HashMap<String, ActiveSession>>>,
     pub db: Arc<Database>,
-    // 这里的修改是为了支持取消功能
     pub cancelled_tasks: Arc<Mutex<HashSet<String>>>,
 }
-
-// --- 4. 内部辅助逻辑 (保持原样) ---
 
 async fn authenticate<R: Runtime>(
     handle: &mut client::Handle<ClientHandler<R>>,
@@ -190,7 +183,6 @@ async fn create_recursive_session<R: Runtime>(
             println!("[SSH] 跳板机信息：{} ({}:{})",
                      jump_config.name, jump_config.host, jump_config.port);
 
-            // 递归连接到跳板机
             let jump_handle = Box::pin(create_recursive_session(
                 window.clone(), jump_config, all_configs, format!("{}_tunnel", session_id)
             )).await?;
@@ -198,7 +190,6 @@ async fn create_recursive_session<R: Runtime>(
             println!("[SSH] 跳板机连接成功，尝试建立隧道到 {}:{}",
                      target_config.host, target_config.port);
 
-            // 通过跳板机建立到目标的隧道
             let channel = jump_handle.channel_open_direct_tcpip(
                 &target_config.host,
                 target_config.port as u32,
@@ -220,8 +211,6 @@ async fn create_recursive_session<R: Runtime>(
     }
 }
 
-
-// --- 5. Tauri Commands ---
 #[tauri::command]
 async fn get_servers(state: State<'_, AppState>) -> Result<Vec<ServerConfig>, String> {
     let read_txn = state.db.begin_read().map_err(|e| e.to_string())?;
@@ -233,7 +222,6 @@ async fn get_servers(state: State<'_, AppState>) -> Result<Vec<ServerConfig>, St
         let server: ServerConfig = serde_json::from_str(value.value()).map_err(|e| e.to_string())?;
         servers.push(server);
     }
-    // 逻辑：直接返回数据，不进行网络探测，确保 UI 列表秒开
     Ok(servers)
 }
 
@@ -407,7 +395,6 @@ async fn list_remote_dir(state: State<'_, AppState>, session_id: String, path: S
     Ok(files)
 }
 
-// --- 上传逻辑 (优化：多任务并发 & 取消检查) ---
 #[tauri::command]
 async fn sftp_upload(
     window: tauri::Window,
@@ -429,13 +416,12 @@ async fn sftp_upload(
     let total_size = local_file.metadata().await.map_err(|e| e.to_string())?.len();
     let mut remote_file = sftp.create(&remote_path).await.map_err(|e| e.to_string())?;
 
-    let mut buffer = [0u8; 32768]; // 32KB
+    let mut buffer = [0u8; 32768];
     let mut uploaded_size = 0u64;
 
     while let Ok(n) = local_file.read(&mut buffer).await {
         if n == 0 { break; }
 
-        // 检查用户是否取消
         if state.cancelled_tasks.lock().await.contains(&task_id) {
             state.cancelled_tasks.lock().await.remove(&task_id);
             return Err("Task cancelled".into());
@@ -448,7 +434,6 @@ async fn sftp_upload(
     Ok(())
 }
 
-// --- 下载逻辑 (优化：多任务并发 & 取消检查) ---
 #[tauri::command]
 async fn sftp_download(
     window: tauri::Window,
@@ -491,8 +476,6 @@ async fn sftp_download(
     Ok(())
 }
 
-// --- 新功能：取消任务 & 删除文件 ---
-
 #[tauri::command]
 async fn abort_transfer(state: State<'_, AppState>, task_id: String) -> Result<(), String> {
     state.cancelled_tasks.lock().await.insert(task_id);
@@ -504,7 +487,7 @@ async fn delete_remote_file(
     state: State<'_, AppState>,
     session_id: String,
     path: String,
-    is_dir: bool // 必须添加此参数
+    is_dir: bool
 ) -> Result<(), String> {
     let sftp = {
         let mut sessions = state.sessions.lock().await;
@@ -515,7 +498,6 @@ async fn delete_remote_file(
     };
 
     if is_dir {
-        // 使用显式闭包返回 String，解决推导问题
         sftp.remove_dir(path).await.map_err(|e| format!("删除目录失败: {}", e))
     } else {
         sftp.remove_file(path).await.map_err(|e| format!("删除文件失败: {}", e))
@@ -551,19 +533,14 @@ async fn save_quick_command(state: State<'_, AppState>, mut cmd: QuickCommand) -
 
 #[tauri::command]
 async fn delete_quick_command(state: State<'_, AppState>, id: String) -> Result<(), String> {
-    // 1. 开启写事务
     let write_txn = state.db.begin_write().map_err(|e| e.to_string())?;
 
     {
-        // 2. 打开快捷指令表
         let mut table = write_txn.open_table(COMMANDS_TABLE).map_err(|e| e.to_string())?;
 
-        // 3. 执行删除操作
-        // redb 的 remove 返回 Option<AccessGuard>，我们只需关心是否执行即可
         table.remove(id.as_str()).map_err(|e| e.to_string())?;
     }
 
-    // 4. 提交事务，否则更改不会保存到磁盘
     write_txn.commit().map_err(|e| e.to_string())?;
 
     Ok(())
@@ -575,7 +552,6 @@ async fn save_ai_config(state: State<'_, AppState>, config: AiConfig) -> Result<
     {
         let mut table = write_txn.open_table(AI_CONFIG_TABLE).map_err(|e| e.to_string())?;
         let json = serde_json::to_string(&config).map_err(|e| e.to_string())?;
-        // 我们始终用 "default" 作为 key，因为全局只有一个 AI 配置
         table.insert("default", json.as_str()).map_err(|e| e.to_string())?;
     }
     write_txn.commit().map_err(|e| e.to_string())?;
@@ -594,7 +570,6 @@ async fn get_ai_config(state: State<'_, AppState>) -> Result<Option<AiConfig>, S
         Ok(None)
     }
 }
-
 
 #[tauri::command]
 async fn ask_ai(
@@ -626,7 +601,6 @@ async fn ask_ai(
         "temperature": config.temperature
     });
 
-    // 1. 发起请求
     let response = client
         .post(url)
         .header("Authorization", format!("Bearer {}", config.api_key))
@@ -639,7 +613,6 @@ async fn ask_ai(
             e.to_string()
         })?;
 
-    // 2. 检查状态码
     if !response.status().is_success() {
         let status = response.status();
         let err_text = response.text().await.unwrap_or_else(|_| "无法读取错误详情".into());
@@ -653,24 +626,22 @@ async fn ask_ai(
         return Err(final_err);
     }
 
-    // 3. 流式处理（增加缓冲区处理数据切断问题）
     let mut stream = response.bytes_stream();
-    let mut buffer = String::new(); // 【核心改进】增加缓冲区
+    let mut buffer = String::new();
 
     while let Some(item) = stream.next().await {
         match item {
             Ok(chunk) => {
                 let text = String::from_utf8_lossy(&chunk);
-                buffer.push_str(&text); // 将新到的数据放入缓存
+                buffer.push_str(&text);
 
-                // 处理缓存中的完整行
                 while let Some(line_end) = buffer.find('\n') {
                     let line = buffer.drain(..line_end + 1).collect::<String>();
                     let line = line.trim();
 
                     if line.is_empty() { continue; }
                     if line == "data: [DONE]" {
-                        return Ok(()); // 正常结束
+                        return Ok(());
                     }
 
                     if let Some(data_json) = line.strip_prefix("data: ") {
@@ -695,12 +666,10 @@ async fn ask_ai(
     Ok(())
 }
 
-// --- 6. 运行入口 ---
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            // --- 1. 数据库初始化 (保持你原有的逻辑) ---
             let app_data_dir = app.path().app_data_dir().expect("无法获取应用数据目录");
             if !app_data_dir.exists() {
                 std::fs::create_dir_all(&app_data_dir).expect("无法创建目录");
@@ -721,7 +690,6 @@ pub fn run() {
                 write_txn.commit().expect("提交初始化事务失败");
             }
 
-            // --- 2. 状态管理注册 ---
             app.manage(AppState {
                 sessions: Arc::new(Mutex::new(HashMap::new())),
                 db: Arc::new(db),
@@ -732,7 +700,6 @@ pub fn run() {
                 connection: Arc::new(tokio::sync::Mutex::new(None)),
             });
 
-            // --- 3. 系统托盘配置 (新加逻辑) ---
             let quit_i = MenuItem::with_id(app, "quit", "退出程序", true, None::<&str>)?;
             let show_i = MenuItem::with_id(app, "show", "显示主窗口", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show_i, &quit_i])?;
@@ -772,7 +739,6 @@ pub fn run() {
 
             Ok(())
         })
-        // --- 4. 窗口事件拦截：点击关闭隐藏到托盘 ---
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::CloseRequested { api, .. } => {
                 let _ = window.hide();
@@ -780,7 +746,6 @@ pub fn run() {
             }
             _ => {}
         })
-        // --- 5. 注册指令 (保持你原有的逻辑) ---
         .invoke_handler(tauri::generate_handler![
             connect_ssh,
             disconnect_ssh,

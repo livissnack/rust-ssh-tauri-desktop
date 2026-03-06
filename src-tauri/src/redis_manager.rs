@@ -1,24 +1,30 @@
 use redis::{AsyncCommands, Client};
-use serde::Deserialize; // 移除了未使用的 Serialize
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tauri::State; // 移除了未使用的 Runtime
+use tauri::State;
+use crate::{AppState, REDIS_CONN_TABLE};
+use uuid::Uuid;
+use redb::{ReadableTable};
 
-// --- 数据结构 ---
-
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct RedisConfig {
-    pub host: String,
-    pub port: u16,
-    pub password: Option<String>,
-    pub db: i64,
+  pub id: Option<String>,
+  #[serde(default = "default_conn_name")]
+  pub name: String,
+  pub host: String,
+  pub port: u16,
+  pub password: Option<String>,
+  pub db: i64,
+}
+
+fn default_conn_name() -> String {
+    "未命名连接".to_string()
 }
 
 pub struct RedisState {
     pub connection: Arc<Mutex<Option<redis::aio::MultiplexedConnection>>>,
 }
-
-// --- 指令实现 ---
 
 #[tauri::command]
 pub async fn redis_connect(
@@ -50,13 +56,26 @@ pub async fn redis_connect(
 
 #[tauri::command]
 pub async fn redis_get_keys(
-    pattern: String,
+    mut pattern: String,
     state: State<'_, RedisState>,
 ) -> Result<Vec<String>, String> {
     let mut lock = state.connection.lock().await;
+
     if let Some(ref mut conn) = *lock {
+        if !pattern.is_empty() && pattern != "*" && !pattern.contains('*') {
+            pattern = format!("*{}*", pattern);
+        }
+
+        if pattern.is_empty() {
+            pattern = "*".to_string();
+        }
+
         let keys: Vec<String> = conn.keys(pattern).await.map_err(|e| e.to_string())?;
-        return Ok(keys);
+
+        let mut sorted_keys = keys;
+        sorted_keys.sort();
+
+        return Ok(sorted_keys);
     }
     Err("Redis 未连接".into())
 }
@@ -83,16 +102,40 @@ pub async fn redis_get_value(
 pub async fn redis_set_value(
     key: String,
     value: String,
+    key_type: String,
+    field: Option<String>,
+    ttl: i64,
     state: State<'_, RedisState>,
 ) -> Result<String, String> {
     let mut lock = state.connection.lock().await;
-    if let Some(ref mut conn) = *lock {
-        // 显式指定返回值为 ()
-        conn.set::<_, _, ()>(key, value).await.map_err(|e| e.to_string())?;
-        Ok("Success".into())
-    } else {
-        Err("Redis 未连接".into())
+
+    let conn = lock.as_mut().ok_or("Redis 未连接")?;
+
+    match key_type.as_str() {
+        "string" => {
+            conn.set::<_, _, ()>(&key, value).await.map_err(|e| e.to_string())?;
+        }
+        "hash" => {
+            let f = field.ok_or("Hash 类型必须提供 Field 字段")?;
+            if f.trim().is_empty() { return Err("Field 不能为空".into()); }
+            conn.hset::<_, _, _, ()>(&key, f, value).await.map_err(|e| e.to_string())?;
+        }
+        "list" => {
+            conn.rpush::<_, _, ()>(&key, value).await.map_err(|e| e.to_string())?;
+        }
+        "set" => {
+            conn.sadd::<_, _, ()>(&key, value).await.map_err(|e| e.to_string())?;
+        }
+        _ => return Err(format!("暂不支持的类型: {}", key_type)),
     }
+
+    if ttl > 0 {
+        let _: () = conn.expire(&key, ttl).await.map_err(|e| e.to_string())?;
+    } else if ttl == -1 {
+        let _: () = conn.persist(&key).await.map_err(|e| e.to_string())?;
+    }
+
+    Ok("操作成功".into())
 }
 
 #[tauri::command]
@@ -116,11 +159,18 @@ pub async fn redis_rename_key(
 ) -> Result<String, String> {
     let mut lock = state.connection.lock().await;
     if let Some(ref mut conn) = *lock {
-        // 关键修复：使用 turbofish 语法显式标注返回类型为 ()
         conn.rename::<_, _, ()>(&old_key, &new_key).await.map_err(|e| e.to_string())?;
         return Ok(format!("已将 '{}' 重命名为 '{}'", old_key, new_key));
     }
     Err("Redis 未连接".into())
+}
+
+#[tauri::command]
+pub async fn redis_get_type(key: String, state: State<'_, RedisState>) -> Result<String, String> {
+    let mut lock = state.connection.lock().await;
+    let conn = lock.as_mut().ok_or("Redis 未连接")?;
+    let key_type: String = redis::cmd("TYPE").arg(&key).query_async(conn).await.map_err(|e| e.to_string())?;
+    Ok(key_type)
 }
 
 #[tauri::command]
@@ -134,4 +184,73 @@ pub async fn redis_get_ttl(
         return Ok(ttl);
     }
     Err("Redis 未连接".into())
+}
+
+#[tauri::command]
+pub async fn save_redis_config(
+    state: State<'_, AppState>,
+    mut config: RedisConfig
+) -> Result<RedisConfig, String> {
+    if config.id.is_none() || config.id.as_ref().unwrap().is_empty() {
+        config.id = Some(Uuid::new_v4().to_string());
+    }
+    let id = config.id.as_ref().unwrap().clone();
+
+    let write_txn = state.db.begin_write().map_err(|e| e.to_string())?;
+    {
+        let mut table = write_txn.open_table(REDIS_CONN_TABLE).map_err(|e| e.to_string())?;
+        let json = serde_json::to_string(&config).map_err(|e| e.to_string())?;
+        table.insert(id.as_str(), json.as_str()).map_err(|e| e.to_string())?;
+    }
+    write_txn.commit().map_err(|e| e.to_string())?;
+    Ok(config)
+}
+
+#[tauri::command]
+pub async fn get_redis_configs(state: State<'_, AppState>) -> Result<Vec<RedisConfig>, String> {
+    let read_txn = state.db.begin_read().map_err(|e| e.to_string())?;
+    let table = read_txn.open_table(REDIS_CONN_TABLE).map_err(|e| e.to_string())?;
+
+    let mut configs = Vec::new();
+    let iter = table.iter().map_err(|e| e.to_string())?;
+
+    for result in iter {
+        if let Ok((_key, value)) = result {
+            match serde_json::from_str::<RedisConfig>(value.value()) {
+                Ok(config) => configs.push(config),
+                Err(e) => eprintln!("跳过无效配置: {}", e),
+            }
+        }
+    }
+    Ok(configs)
+}
+
+#[tauri::command]
+pub async fn delete_redis_config(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let write_txn = state.db.begin_write().map_err(|e| e.to_string())?;
+    {
+        let mut table = write_txn.open_table(REDIS_CONN_TABLE).map_err(|e| e.to_string())?;
+        table.remove(id.as_str()).map_err(|e| e.to_string())?;
+    }
+    write_txn.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn clear_all_redis_configs(state: State<'_, AppState>) -> Result<(), String> {
+    let write_txn = state.db.begin_write().map_err(|e| e.to_string())?;
+    {
+        let mut table = write_txn.open_table(REDIS_CONN_TABLE).map_err(|e| e.to_string())?;
+
+        let keys: Vec<String> = table.iter()
+            .map_err(|e| e.to_string())?
+            .filter_map(|res| res.ok().map(|(k, _)| k.value().to_string()))
+            .collect();
+
+        for key in keys {
+            table.remove(key.as_str()).map_err(|e| e.to_string())?;
+        }
+    }
+    write_txn.commit().map_err(|e| e.to_string())?;
+    Ok(())
 }

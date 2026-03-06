@@ -6,7 +6,7 @@ use crate::sync::{
     sync_to_cloud,
     sync_from_cloud
 };
-use redis_manager::{redis_connect, redis_get_keys, redis_get_value, redis_set_value, redis_del_key, redis_rename_key, redis_get_ttl};
+use redis_manager::{redis_connect, redis_get_keys, redis_get_value, redis_set_value, redis_del_key, redis_rename_key, redis_get_ttl, redis_get_type, save_redis_config, get_redis_configs, delete_redis_config, clear_all_redis_configs};
 use async_trait::async_trait;
 use russh::*;
 use russh::client::DisconnectReason;
@@ -716,6 +716,7 @@ pub fn run() {
                     let _ = write_txn.open_table(COMMANDS_TABLE).expect("初始化命令表失败");
                     let _ = write_txn.open_table(AI_CONFIG_TABLE).expect("初始化AI设置表失败");
                     let _ = write_txn.open_table(SYNC_CONFIG_TABLE).expect("初始化同步设置表失败");
+                    let _ = write_txn.open_table(REDIS_CONN_TABLE).expect("初始化Redis连接表失败");
                 }
                 write_txn.commit().expect("提交初始化事务失败");
             }
@@ -808,9 +809,14 @@ pub fn run() {
             redis_get_keys,
             redis_get_value,
             redis_set_value,
-            redis_del_key,      // 新增
-            redis_rename_key,   // 新增
-            redis_get_ttl       // 新增
+            redis_del_key,
+            redis_rename_key,
+            redis_get_ttl,
+            redis_get_type,
+            save_redis_config,
+            get_redis_configs,
+            delete_redis_config,
+            clear_all_redis_configs
         ])
         .run(tauri::generate_context!())
         .expect("Tauri 运行出错");

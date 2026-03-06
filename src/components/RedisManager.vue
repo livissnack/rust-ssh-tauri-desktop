@@ -4,33 +4,29 @@ import { invoke } from '@tauri-apps/api/core';
 import { toast } from '../utils/toast.ts';
 import RedisCreateModal from './RedisCreateModal.vue';
 
-// --- 状态管理 ---
 const isConnectPanelVisible = ref(false);
 const isConnecting = ref(false);
 const searchQuery = ref('*');
 const keysList = ref<string[]>([]);
 const selectedKey = ref<string | null>(null);
 const keyValue = ref<any>(null);
+const savedConfigs = ref<any[]>([]);
+const isConfigListVisible = ref(false);
 
-// --- 新增 Key 弹窗状态 ---
 const isCreateModalVisible = ref(false);
+// --- 新增：当前选中键的元数据 ---
+const selectedKeyType = ref('string'); // 默认为 string
+const selectedField = ref<string | null>(null); // Hash 专用
+const selectedTTL = ref(-1); // 过期时间
 const newKeyData = ref({
   key: '',
   value: '',
-  type: 'string', // 默认类型
-  field: ''       // Hash 专属字段
+  type: 'string',
+  field: ''
 });
 
-// Redis 类型配置
-const redisTypes = [
-  { label: 'String', value: 'string', color: '#9ece6a' },
-  { label: 'Hash', value: 'hash', color: '#7aa2f7' },
-  { label: 'List', value: 'list', color: '#e0af68' },
-  { label: 'Set', value: 'set', color: '#bb9af7' }
-];
-
-// 表单数据
 const connForm = ref({
+  id: '',
   name: '本地开发环境',
   host: '127.0.0.1',
   port: 2552,
@@ -38,23 +34,54 @@ const connForm = ref({
   db: 0
 });
 
-// 1. 连接 Redis
+const loadSavedConfigs = async () => {
+  try {
+    savedConfigs.value = await invoke('get_redis_configs');
+  } catch (err) {
+    console.error("加载 Redis 配置失败", err);
+  }
+};
+
+const selectSavedConfig = (config: any) => {
+  connForm.value = { ...config };
+  isConfigListVisible.value = false;
+  handleConnect();
+};
+
 const handleConnect = async () => {
   isConnecting.value = true;
   try {
+    // await invoke('clear_all_redis_configs');
     await invoke('redis_connect', { config: connForm.value });
-    toast.success("已成功连接至 Redis 服务器", "连接成功");
+
+    const savedConfig = await invoke('save_redis_config', { config: connForm.value }) as any;
+
+    connForm.value.id = savedConfig.id;
+
+    toast.success("连接成功并已保存配置", "成功");
     isConnectPanelVisible.value = false;
+
+    await loadSavedConfigs();
     refreshKeys();
   } catch (err) {
-    console.error(err);
     toast.error(`${err}`, "连接失败");
   } finally {
     isConnecting.value = false;
   }
 };
 
-// 2. 获取 Key 列表
+const handleDeleteConfig = async (id: string, event: Event) => {
+  event.stopPropagation();
+  if (!confirm("确定要删除此连接配置吗？")) return;
+  try {
+    await invoke('delete_redis_config', { id });
+    await loadSavedConfigs();
+    toast.success("配置已删除");
+  } catch (err) {
+    toast.error("删除失败");
+  }
+};
+
 const refreshKeys = async () => {
   try {
     keysList.value = await invoke('redis_get_keys', { pattern: searchQuery.value }) as string[];
@@ -63,66 +90,52 @@ const refreshKeys = async () => {
   }
 };
 
-// 3. 查看 Key 详情
 const selectKey = async (key: string) => {
   selectedKey.value = key;
   try {
-    keyValue.value = await invoke('redis_get_value', { key });
+    // 1. 并发获取数据，提高效率
+    const [value, type, ttl] = await Promise.all([
+      invoke('redis_get_value', { key }),
+      invoke('redis_get_type', { key }) as Promise<string>, // 需要后端实现
+      invoke('redis_get_ttl', { key }) as Promise<number>   // 需要后端实现
+    ]);
+
+    keyValue.value = value;
+    selectedKeyType.value = type;
+    selectedTTL.value = ttl;
+
+    // 如果是 Hash 类型，初始化 field 为空（或者根据你的 UI 逻辑调整）
+    selectedField.value = null;
+
   } catch (err) {
+    console.error("加载 Key 详情失败:", err);
     toast.error("读取内容失败");
   }
 };
 
-// 4. 保存/更新 Key (String)
 const handleSave = async () => {
   if (!selectedKey.value) return;
+
   try {
     await invoke('redis_set_value', {
       key: selectedKey.value,
-      value: String(keyValue.value)
+      value: String(keyValue.value),
+      keyType: selectedKeyType.value, // 现在有了
+      field: selectedField.value,      // 现在有了
+      ttl: selectedTTL.value          // 现在有了
     });
+
     toast.success("数据已成功保存", "更新成功");
+    // 保存后刷新列表，以防过期时间或类型发生变化
+    await refreshKeys();
   } catch (err) {
+    console.error(err);
     toast.error(`保存失败: ${err}`);
   }
 };
 
-// --- 5. 执行新增 Key (支持多类型) ---
-const handleCreateKey = async () => {
-  const { key, value, type, field } = newKeyData.value;
-
-  if (!key.trim()) return toast.error("Key 名称不能为空");
-  if (type === 'hash' && !field.trim()) return toast.error("Hash 类型必须填写 Field");
-
-  try {
-    // 调用后端多类型指令 (需确保后端已实现 redis_add_key)
-    await invoke('redis_add_key', {
-      key,
-      value,
-      keyType: type,
-      field: type === 'hash' ? field : null
-    });
-
-    toast.success(`Key "${key}" 创建成功`);
-    isCreateModalVisible.value = false;
-
-    // 重置数据
-    newKeyData.value = { key: '', value: '', type: 'string', field: '' };
-
-    // 刷新并选中
-    await refreshKeys();
-    selectKey(key);
-  } catch (err) {
-    toast.error(`创建失败: ${err}`);
-  }
-};
-
-// 6. 删除 Key
 const handleDeleteKey = async () => {
   if (!selectedKey.value) return;
-  const confirmed = confirm(`确定要删除键 "${selectedKey.value}" 吗？`);
-  if (!confirmed) return;
-
   try {
     await invoke('redis_del_key', { key: selectedKey.value });
     toast.success("删除成功");
@@ -136,23 +149,32 @@ const handleDeleteKey = async () => {
 
 const onConfirmCreate = async (data: any) => {
   try {
-    await invoke('redis_add_key', {
+    await invoke('redis_set_value', {
       key: data.key,
       value: data.value,
       keyType: data.type,
-      field: data.type === 'hash' ? data.field : null
+      field: data.type === 'hash' ? data.field : null,
+      ttl: data.ttl
     });
 
-    toast.success(`Key "${data.key}" 创建成功`);
-    isCreateModalVisible.value = false; // 关闭弹窗
+    toast.success(`Key "${data.key}" 创建成功`, "操作成功");
+    isCreateModalVisible.value = false;
+
     await refreshKeys();
-    selectKey(data.key);
+
+    setTimeout(() => {
+      selectKey(data.key);
+    }, 100);
+
   } catch (err) {
-    toast.error(`创建失败: ${err}`);
+    toast.error(`创建失败: ${err}`, "错误");
   }
 };
 
-onMounted(refreshKeys);
+onMounted(() => {
+  loadSavedConfigs();
+  refreshKeys();
+});
 </script>
 
 <template>
@@ -160,13 +182,27 @@ onMounted(refreshKeys);
     <div class="panel-header">
       <div class="title">
         <i class="fas fa-database" :class="{ 'fa-spin': isConnecting }"></i>
-        <span>Redis 控制台 - {{ connForm.name }}</span>
+        <span>{{ connForm.name }}</span>
       </div>
+
       <div class="actions">
+        <button class="icon-btn" @click="isConfigListVisible = !isConfigListVisible" title="历史连接">
+          <i class="fas fa-history"></i>
+        </button>
         <button class="icon-btn" @click="isConnectPanelVisible = !isConnectPanelVisible" :class="{ 'is-active': isConnectPanelVisible }">
           <i class="fas fa-plug"></i>
         </button>
-        <button class="icon-btn" @click="refreshKeys" title="刷新列表"><i class="fas fa-sync"></i></button>
+      </div>
+
+      <div v-if="isConfigListVisible" class="saved-configs-dropdown animate-slide">
+        <div v-for="cfg in savedConfigs" :key="cfg.id" class="config-item" @click="selectSavedConfig(cfg)">
+          <div class="cfg-info">
+            <span class="cfg-name">{{ cfg.name }}</span>
+            <span class="cfg-addr">{{ cfg.host }}:{{ cfg.port }}</span>
+          </div>
+          <i class="fas fa-times-circle delete-cfg-icon" @click="handleDeleteConfig(cfg.id, $event)"></i>
+        </div>
+        <div v-if="savedConfigs.length === 0" class="empty-hint">暂无连接</div>
       </div>
     </div>
 
@@ -244,8 +280,8 @@ onMounted(refreshKeys);
         <template v-if="selectedKey">
           <div class="detail-header">
             <span class="tag">String</span>
-            <h3>{{ selectedKey }}</h3>
-            <button class="delete-btn" @click="handleDeleteKey" title="删除键">
+            <h3 class="redis-key-name" :title="selectedKey">{{ selectedKey }}</h3>
+            <button class="delete-btn" @click="handleDeleteKey" title="删除">
               <i class="fas fa-trash"></i>
             </button>
           </div>
@@ -255,7 +291,7 @@ onMounted(refreshKeys);
           </div>
 
           <div class="detail-footer">
-            <button class="btn-save" @click="handleSave">
+            <button class="btn-save" v-if="selectedKeyType === 'string'" @click="handleSave">
               <i class="fas fa-save"></i> 保存
             </button>
           </div>
@@ -338,7 +374,7 @@ $danger: #f7768e;
   .detail-view {
     flex: 1; display: flex; flex-direction: column; background: $bg-primary; height: 100%; min-width: 0;
     .detail-header { padding: 14px 20px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid $border;
-      h3 { font-size: 14px; margin: 0; flex: 1; font-family: monospace; }
+      h3 { font-size: 14px; margin: 0; flex: 1; font-family: monospace; width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
       .tag { background: rgba($accent, 0.15); color: $accent; padding: 2px 8px; border-radius: 4px; font-size: 10px; }
       .delete-btn { background: transparent; border: none; color: $text-dim; cursor: pointer; &:hover { color: $danger; } }
     }
@@ -365,6 +401,45 @@ $danger: #f7768e;
   .btns-row { display: flex; gap: 10px; }
   .btn-cancel { background: transparent; border: 1px solid $border; color: $text-main; padding: 8px 16px; border-radius: 6px; cursor: pointer; }
   .btn-confirm { background: $accent; color: $bg-primary; border: none; padding: 8px 20px; border-radius: 6px; font-weight: bold; cursor: pointer; }
+}
+
+/* 已保存配置下拉列表 */
+.saved-configs-dropdown {
+  background: $bg-secondary;
+  border: 1px solid $border;
+  border-radius: 8px;
+  margin: 10px 18px;
+  max-height: 200px;
+  overflow-y: auto;
+  box-shadow: 0 10px 20px rgba(0,0,0,0.3);
+
+  .config-item {
+    padding: 10px 15px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    border-bottom: 1px solid rgba($border, 0.5);
+    &:hover { background: rgba($accent, 0.1); }
+
+    .cfg-info {
+      display: flex;
+      flex-direction: column;
+      .cfg-name { font-size: 13px; font-weight: bold; color: $accent; }
+      .cfg-addr { font-size: 11px; color: $text-dim; }
+    }
+
+    .delete-cfg-icon {
+      color: $text-dim;
+      font-size: 14px;
+      opacity: 0;
+      transition: opacity 0.2s;
+      &:hover { color: $danger; }
+    }
+    &:hover .delete-cfg-icon { opacity: 1; }
+  }
+
+  .empty-hint { padding: 20px; text-align: center; color: $text-dim; font-size: 12px; }
 }
 
 /* Animations */

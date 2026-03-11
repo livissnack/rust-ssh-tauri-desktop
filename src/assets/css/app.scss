@@ -46,9 +46,13 @@
   .xterm-container {
     padding: 10px;
     box-sizing: border-box;
+
     :deep(.xterm) {
       padding: 4px;
-      .xterm-viewport { background-color: transparent !important; }
+
+      .xterm-viewport {
+        background-color: transparent !important;
+      }
     }
   }
 
@@ -65,25 +69,39 @@
     .icon-stack {
       position: relative;
       margin-bottom: 24px;
+
       .main-icon {
         font-size: 56px;
         color: var(--accent);
         opacity: 0.8;
         filter: drop-shadow(0 0 15px var(--accent-20));
       }
+
       .glow-ring {
         position: absolute;
-        top: 50%; left: 50%;
+        top: 50%;
+        left: 50%;
         transform: translate(-50%, -50%);
-        width: 100px; height: 100px;
+        width: 100px;
+        height: 100px;
         background: radial-gradient(circle, var(--accent-10) 0%, transparent 70%);
         border-radius: 50%;
         animation: pulse-ring 4s infinite ease-in-out;
       }
     }
 
-    .empty-title { font-size: 18px; font-weight: 600; margin-bottom: 8px; }
-    .empty-description { font-size: 13px; color: var(--text-dim); line-height: 1.6; margin-bottom: 24px; }
+    .empty-title {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+
+    .empty-description {
+      font-size: 13px;
+      color: var(--text-dim);
+      line-height: 1.6;
+      margin-bottom: 24px;
+    }
 
     .create-btn {
       /* 核心修复：确保按钮自身作为 flex 项目居中 */
@@ -140,46 +158,97 @@
     .pane-header {
       padding: 10px 12px;
       background: var(--bg-secondary);
-      display: flex; align-items: center; gap: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+
       .path-input {
-        background: transparent; border: none; color: var(--accent);
-        font-family: 'JetBrains Mono', monospace; font-size: 11px; width: 100%;
-        &:focus { outline: none; background: var(--accent-05); }
+        background: transparent;
+        border: none;
+        color: var(--accent);
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 11px;
+        width: 100%;
+
+        &:focus {
+          outline: none;
+          background: var(--accent-05);
+        }
       }
     }
 
     .file-list {
-      flex: 1; overflow-y: auto;
+      flex: 1;
+      overflow-y: auto;
       scrollbar-gutter: stable;
-      &.drag-over { background: var(--accent-10); outline: 2px dashed var(--accent); outline-offset: -4px; }
+
+      &.drag-over {
+        background: var(--accent-10);
+        outline: 2px dashed var(--accent);
+        outline-offset: -4px;
+      }
 
       .file-item {
-        display: flex; align-items: center;
-        padding: 8px 12px; font-size: 13px;
+        display: flex;
+        align-items: center;
+        padding: 8px 12px;
+        font-size: 13px;
         border-bottom: 1px solid var(--border-30);
         cursor: pointer;
-        &:hover { background: var(--accent-08); }
-        .file-icon { width: 24px; margin-right: 8px; text-align: center;
-          i.fa-folder { color: var(--accent-orange); }
-          i.fa-file-alt { color: var(--accent); }
+
+        &:hover {
+          background: var(--accent-08);
         }
-        .file-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-          &.is-dir { color: var(--accent); font-weight: 500; }
+
+        .file-icon {
+          width: 24px;
+          margin-right: 8px;
+          text-align: center;
+
+          i.fa-folder {
+            color: var(--accent-orange);
+          }
+
+          i.fa-file-alt {
+            color: var(--accent);
+          }
         }
-        .file-size { color: var(--text-dim); font-size: 11px; }
+
+        .file-name {
+          flex: 1;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+
+          &.is-dir {
+            color: var(--accent);
+            font-weight: 500;
+          }
+        }
+
+        .file-size {
+          font-family: 'JetBrains Mono', monospace;
+          font-size: 12px;
+          color: var(--text-dim);
+          text-align: right;
+          min-width: 60px;
+          display: inline-block;
+          opacity: 0.8;
+        }
       }
     }
   }
 }
 
-// --- 右侧停靠栏 (Right Dock & AI Panel) ---
 .right-dock {
   display: flex;
-  flex-direction: row-reverse; // 关键：图标栏靠最右，面板紧贴其左侧
+  flex-direction: row-reverse;
   position: absolute;
-  top: 0; right: 0; bottom: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
   z-index: 1000;
-  pointer-events: none; // 默认不拦截点击，防止遮挡终端
+  pointer-events: none;
 
   .icon-bar {
     pointer-events: auto;
@@ -196,27 +265,41 @@
 
     .icon-item {
       position: relative;
-      width: 36px; height: 36px;
-      display: flex; align-items: center; justify-content: center;
+      width: 36px;
+      height: 36px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
       color: var(--text-dim);
       cursor: pointer;
       border-radius: 8px;
       margin-bottom: 12px;
       transition: all 0.2s ease;
 
-      &:hover { background: var(--accent-10); color: var(--accent); }
+      &:hover {
+        background: var(--accent-10);
+        color: var(--accent);
+      }
+
       &.active {
         color: var(--accent);
         background: var(--accent-15);
+
         &::after {
-          content: ''; position: absolute; right: -7px;
-          width: 3px; height: 18px;
+          content: '';
+          position: absolute;
+          right: -7px;
+          width: 3px;
+          height: 18px;
           background: var(--accent);
           border-radius: 4px 0 0 4px;
           box-shadow: 0 0 8px var(--accent-40);
         }
       }
-      i { font-size: 16px; }
+
+      i {
+        font-size: 16px;
+      }
     }
 
     .bottom-group {
@@ -239,20 +322,29 @@
 
     .panel-resizer {
       position: absolute;
-      left: -4px; top: 0; bottom: 0;
+      left: -4px;
+      top: 0;
+      bottom: 0;
       width: 8px;
       cursor: col-resize;
       z-index: 1010;
-      &:hover { background: var(--accent-30); }
+
+      &:hover {
+        background: var(--accent-30);
+      }
     }
 
-    .panel-content-wrapper { flex: 1; overflow: hidden; }
+    .panel-content-wrapper {
+      flex: 1;
+      overflow: hidden;
+    }
   }
 }
 
-// --- 弹窗与悬浮组件 (Transfer, Menu) ---
 .transfer-status {
-  position: fixed; bottom: 60px; right: 25px;
+  position: fixed;
+  bottom: 60px;
+  right: 25px;
   width: 320px;
   background: var(--bg-card-95);
   backdrop-filter: blur(12px);
@@ -265,61 +357,198 @@
   .status-header {
     padding: 12px 16px;
     background: var(--bg-secondary-60);
-    display: flex; justify-content: space-between; align-items: center;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
     border-bottom: 1px solid var(--border);
-    .header-left { display: flex; align-items: center; gap: 10px; color: var(--accent); font-weight: bold; }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--accent);
+      font-weight: bold;
+    }
+
     .header-status-dot.is-syncing {
-      width: 8px; height: 8px; border-radius: 50%;
-      background: var(--accent); box-shadow: 0 0 8px var(--accent);
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 8px var(--accent);
       animation: pulse 1.5s infinite;
     }
   }
 
   .task-row {
-    background: var(--bg-primary-30); padding: 10px; border-radius: 8px; margin: 8px;
-    &.status-success { border-left: 3px solid var(--success); .task-percent { color: var(--success); } }
-    &.status-error { border-left: 3px solid var(--error); .task-percent { color: var(--error); } }
+    background: var(--bg-primary-30);
+    padding: 10px;
+    border-radius: 8px;
+    margin: 8px;
+
+    &.status-success {
+      border-left: 3px solid var(--success);
+
+      .task-percent {
+        color: var(--success);
+      }
+    }
+
+    &.status-error {
+      border-left: 3px solid var(--error);
+
+      .task-percent {
+        color: var(--error);
+      }
+    }
+
     .progress-bar {
-      height: 4px; background: var(--accent); border-radius: 2px;
+      height: 4px;
+      background: var(--accent);
+      border-radius: 2px;
+
       &.transferring::after {
-        content: ""; position: absolute; inset: 0;
+        content: "";
+        position: absolute;
+        inset: 0;
         background-image: linear-gradient(-45deg, rgba(255, 255, 255, 0.2) 25%, transparent 25%, transparent 50%, rgba(255, 255, 255, 0.2) 50%, rgba(255, 255, 255, 0.2) 75%, transparent 75%);
-        background-size: 20px 20px; animation: move-stripes 2s linear infinite;
+        background-size: 20px 20px;
+        animation: move-stripes 2s linear infinite;
       }
     }
   }
 }
 
 .context-menu {
-  position: fixed; z-index: 9999;
-  background: var(--bg-card); border: 1px solid var(--border);
-  border-radius: 6px; box-shadow: 0 4px 12px var(--shadow);
-  padding: 4px; min-width: 160px;
+  position: fixed;
+  z-index: 9999;
+  background: var(--bg-card-95);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--border-30);
+  border-radius: 10px; // 圆角
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+  padding: 6px;
+  min-width: 170px;
+  overflow: hidden;
+  will-change: transform, opacity;
 
   .menu-item {
-    padding: 8px 12px; font-size: 13px; border-radius: 4px;
-    &:hover { background: var(--accent-15); color: var(--accent); }
-    &.danger:hover { background: var(--error-15); color: var(--error); }
-    &.divider { height: 1px; background: var(--border); margin: 6px 4px; }
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    font-size: 13px;
+    border-radius: 6px;
+    color: var(--text-main);
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+
+    i {
+      font-size: 14px;
+      color: var(--text-dim);
+      opacity: 0.8;
+      width: 16px;
+      text-align: center;
+      transition: all 0.2s;
+    }
+
+    .menu-text {
+      flex: 1;
+    }
+
+    &:hover {
+      background: var(--accent-10);
+      color: var(--accent);
+      transform: translateX(2px);
+
+      i {
+        color: var(--accent);
+        opacity: 1;
+      }
+    }
+
+    &.danger {
+      color: var(--error);
+
+      i {
+        color: var(--error);
+        opacity: 0.8;
+      }
+
+      &:hover {
+        background: var(--error-10);
+        color: var(--error);
+
+        i {
+          opacity: 1;
+          transform: scale(1.1);
+        }
+      }
+    }
+  }
+
+  .menu-divider {
+    height: 1px;
+    background-color: var(--border);
+    opacity: 0.4;
+    margin: 6px 10px;
+    width: calc(100% - 20px);
   }
 }
 
-// --- 动画定义 ---
-@keyframes pulse-ring {
-  0%, 100% { transform: translate(-50%, -50%) scale(0.8); opacity: 0.5; }
-  50% { transform: translate(-50%, -50%) scale(1.2); opacity: 0.8; }
+.menu-scale-enter-active,
+.menu-scale-leave-active {
+  transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-@keyframes move-stripes { from { background-position: 0 0; } to { background-position: 40px 0; } }
+.menu-scale-enter-from,
+.menu-scale-leave-to {
+  opacity: 0;
+  transform: scale(0.9) translateY(-10px);
+  transform-origin: top left;
+}
 
-@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+@keyframes pulse-ring {
+  0%, 100% {
+    transform: translate(-50%, -50%) scale(0.8);
+    opacity: 0.5;
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.2);
+    opacity: 0.8;
+  }
+}
+
+@keyframes move-stripes {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 40px 0;
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
 
 .panel-slide-enter-active, .panel-slide-leave-active {
   transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease;
 }
+
 .panel-slide-enter-from, .panel-slide-leave-to {
-  transform: translateX(100%); opacity: 0;
+  transform: translateX(100%);
+  opacity: 0;
 }
 
-// --- 杂项 ---
-.redis-icon { color: var(--error); vertical-align: middle; filter: drop-shadow(0 0 2px var(--error-30)); }
+.redis-icon {
+  color: var(--error);
+  vertical-align: middle;
+  filter: drop-shadow(0 0 2px var(--error-30));
+}

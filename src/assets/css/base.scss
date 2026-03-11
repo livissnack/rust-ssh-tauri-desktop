@@ -453,6 +453,9 @@ input, select, textarea {
     --bg-secondary-60: #{color.change(map.get($map, 'bg-secondary'), $alpha: 0.6)};
     --bg-secondary-95: #{color.change(map.get($map, 'bg-secondary'), $alpha: 0.95)};
     --bg-primary-30: #{color.change(map.get($map, 'bg-primary'), $alpha: 0.3)};
+    // 用于 Tabs 的非激活态背景
+    --bg-primary-60: #{color.change(map.get($map, 'bg-primary'), $alpha: 0.6)};
+    --bg-primary-80: #{color.change(map.get($map, 'bg-primary'), $alpha: 0.8)};
 
     // --- 补充缺失的透明阶梯 ---
     // 用于状态灯和延迟显示的发光效果
@@ -461,11 +464,7 @@ input, select, textarea {
     --accent-orange-20: #{color.change(map.get($map, 'accent-orange'), $alpha: 0.2)};
     --accent-orange-50: #{color.change(map.get($map, 'accent-orange'), $alpha: 0.5)};
 
-    // 用于 Tabs 的非激活态背景
-    --bg-primary-60: #{color.change(map.get($map, 'bg-primary'), $alpha: 0.6)};
-    --bg-primary-80: #{color.change(map.get($map, 'bg-primary'), $alpha: 0.8)};
-
-    // 用于边框的微妙层次感 (Workspace Header 使用过)
+    --border-30: #{color.change(map.get($map, 'border'), $alpha: 0.3)};
     --border-50: #{color.change(map.get($map, 'border'), $alpha: 0.5)};
 
     // 用于失焦状态的文字 (Titlebar 使用)

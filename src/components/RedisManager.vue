@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
-import { invoke } from '@tauri-apps/api/core';
-import { toast } from '../utils/toast.ts';
+import {ref, onMounted} from 'vue';
+import {invoke} from '@tauri-apps/api/core';
+import {toast} from '../utils/toast.ts';
 import RedisCreateModal from './RedisCreateModal.vue';
 
 // --- 状态控制 ---
@@ -30,44 +30,65 @@ const connForm = ref({
 
 // --- 逻辑函数 ---
 const loadSavedConfigs = async () => {
-  try { savedConfigs.value = await invoke('get_redis_configs'); } catch (err) { console.error(err); }
+  try {
+    savedConfigs.value = await invoke('get_redis_configs');
+  } catch (err) {
+    console.error(err);
+  }
 };
 
 const handleConnect = async () => {
   isConnecting.value = true;
   try {
-    await invoke('redis_connect', { config: connForm.value });
-    await invoke('save_redis_config', { config: connForm.value });
+    await invoke('redis_connect', {config: connForm.value});
+    await invoke('save_redis_config', {config: connForm.value});
     toast.success("Redis 连接成功");
     isConnectPanelVisible.value = false;
     refreshKeys();
     loadSavedConfigs();
-  } catch (err) { toast.error(`${err}`); } finally { isConnecting.value = false; }
+  } catch (err) {
+    toast.error(`${err}`);
+  } finally {
+    isConnecting.value = false;
+  }
 };
 
 const refreshKeys = async () => {
-  try { keysList.value = await invoke('redis_get_keys', { pattern: searchQuery.value }) as string[]; } catch (err) { toast.error("刷新失败"); }
+  try {
+    keysList.value = await invoke('redis_get_keys', {pattern: searchQuery.value}) as string[];
+  } catch (err) {
+    toast.error("刷新失败");
+  }
 };
 
 const selectKey = async (key: string) => {
   selectedKey.value = key;
   try {
     const [val, type, ttl] = await Promise.all([
-      invoke('redis_get_value', { key }),
-      invoke('redis_get_type', { key }) as Promise<string>,
-      invoke('redis_get_ttl', { key }) as Promise<number>
+      invoke('redis_get_value', {key}),
+      invoke('redis_get_type', {key}) as Promise<string>,
+      invoke('redis_get_ttl', {key}) as Promise<number>
     ]);
     keyValue.value = val;
     selectedKeyType.value = type;
     selectedTTL.value = ttl;
-  } catch (err) { toast.error("读取 Key 失败"); }
+  } catch (err) {
+    toast.error("读取 Key 失败");
+  }
 };
 
 const handleSave = async () => {
   try {
-    await invoke('redis_set_value', { key: selectedKey.value, value: String(keyValue.value), keyType: 'string', ttl: selectedTTL.value });
+    await invoke('redis_set_value', {
+      key: selectedKey.value,
+      value: String(keyValue.value),
+      keyType: 'string',
+      ttl: selectedTTL.value
+    });
     toast.success("保存成功");
-  } catch (err) { toast.error("保存失败"); }
+  } catch (err) {
+    toast.error("保存失败");
+  }
 };
 
 const toggleConnectPanel = () => {
@@ -97,13 +118,15 @@ onMounted(() => {
         <button class="rd-mg-btn-icon" @click.stop="toggleConfigList" title="历史连接">
           <i class="fas fa-history"></i>
         </button>
-        <button class="rd-mg-btn-icon" :class="{'active': isConnectPanelVisible}" @click.stop="toggleConnectPanel" title="连接设置">
+        <button class="rd-mg-btn-icon" :class="{'active': isConnectPanelVisible}" @click.stop="toggleConnectPanel"
+                title="连接设置">
           <i class="fas fa-plug"></i>
         </button>
       </div>
 
       <div v-if="isConfigListVisible" class="rd-mg-dropdown">
-        <div v-for="cfg in savedConfigs" :key="cfg.id" class="rd-mg-dropdown-item" @click="connForm = {...cfg}; handleConnect(); isConfigListVisible=false;">
+        <div v-for="cfg in savedConfigs" :key="cfg.id" class="rd-mg-dropdown-item"
+             @click="connForm = {...cfg}; handleConnect(); isConfigListVisible=false;">
           <span class="name">{{ cfg.name }}</span>
           <span class="addr">{{ cfg.host }}:{{ cfg.port }}</span>
         </div>
@@ -121,7 +144,7 @@ onMounted(() => {
           <div class="rd-mg-field">
             <label><i class="fas fa-tag"></i> 连接名称</label>
             <div class="input-control">
-              <input v-model="connForm.name" placeholder="例如：生产环境主库" />
+              <input v-model="connForm.name" placeholder="例如：生产环境主库"/>
             </div>
           </div>
 
@@ -129,13 +152,13 @@ onMounted(() => {
             <div class="rd-mg-field flex-3">
               <label><i class="fas fa-network-wired"></i> 主机地址</label>
               <div class="input-control">
-                <input v-model="connForm.host" placeholder="127.0.0.1" />
+                <input v-model="connForm.host" placeholder="127.0.0.1"/>
               </div>
             </div>
             <div class="rd-mg-field flex-1">
               <label><i class="fas fa-door-open"></i> 端口</label>
               <div class="input-control">
-                <input v-model.number="connForm.port" type="number" placeholder="6379" />
+                <input v-model.number="connForm.port" type="number" placeholder="6379"/>
               </div>
             </div>
           </div>
@@ -144,14 +167,15 @@ onMounted(() => {
             <div class="rd-mg-field" style="width: 140px; flex: none;">
               <label><i class="fas fa-layer-group"></i> 数据库</label>
               <div class="input-control">
-                <input v-model.number="connForm.db" type="number" min="0" max="15" />
+                <input v-model.number="connForm.db" type="number" min="0" max="15"/>
               </div>
             </div>
 
             <div class="rd-mg-field flex-1">
               <label><i class="fas fa-key"></i> 访问密码</label>
               <div class="input-control rd-mg-password-box">
-                <input :type="showPassword ? 'text' : 'password'" v-model="connForm.password" placeholder="若无密码请留空" />
+                <input :type="showPassword ? 'text' : 'password'" v-model="connForm.password"
+                       placeholder="若无密码请留空"/>
                 <button class="rd-mg-eye-btn" @click="showPassword = !showPassword">
                   <i class="fas" :class="showPassword ? 'fa-eye-slash' : 'fa-eye'"></i>
                 </button>
@@ -174,12 +198,13 @@ onMounted(() => {
         <div class="rd-mg-search">
           <div class="rd-mg-search-inner">
             <i class="fas fa-search"></i>
-            <input v-model="searchQuery" @keyup.enter="refreshKeys" placeholder="过滤 Key..." />
+            <input v-model="searchQuery" @keyup.enter="refreshKeys" placeholder="过滤 Key..."/>
           </div>
           <button @click="isCreateModalVisible = true" class="rd-mg-add-btn"><i class="fas fa-plus"></i></button>
         </div>
         <div class="rd-mg-list">
-          <div v-for="k in keysList" :key="k" class="rd-mg-item" :title="k" :class="{'is-active': selectedKey === k}" @click="selectKey(k)">
+          <div v-for="k in keysList" :key="k" class="rd-mg-item" :title="k" :class="{'is-active': selectedKey === k}"
+               @click="selectKey(k)">
             <i class="fas fa-hashtag"></i>
             <span class="truncate">{{ k }}</span>
           </div>
@@ -207,7 +232,7 @@ onMounted(() => {
       </main>
     </div>
 
-    <RedisCreateModal :visible="isCreateModalVisible" @close="isCreateModalVisible = false" @confirm="refreshKeys" />
+    <RedisCreateModal :visible="isCreateModalVisible" @close="isCreateModalVisible = false" @confirm="refreshKeys"/>
   </div>
 </template>
 
@@ -216,36 +241,65 @@ onMounted(() => {
 @use '../assets/css/base.scss';
 
 .rd-mg-container {
-  height: 100%; width: 100%; display: flex; flex-direction: column;
-  background: var(--bg-primary); color: var(--text-main); font-size: 13px;
-  position: relative; overflow: hidden;
+  height: 100%;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+  color: var(--text-main);
+  font-size: 13px;
+  position: relative;
+  overflow: hidden;
 
-  /* 移除数字输入框原生样式 */
   input[type="number"] {
     -moz-appearance: textfield;
-    &::-webkit-outer-spin-button, &::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+    &::-webkit-outer-spin-button, &::-webkit-inner-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
   }
 
   .rd-mg-header {
-    height: 52px; display: flex; align-items: center; justify-content: space-between;
-    padding: 0 16px; background: var(--bg-secondary); border-bottom: 1px solid var(--border);
+    height: 52px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 16px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border);
     z-index: 30;
-    .rd-mg-brand { display: flex; align-items: center; gap: 10px; font-weight: 600; color: var(--accent); }
+
+    .rd-mg-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 600;
+      color: var(--accent);
+    }
   }
 
-  /* --- 纵向表单面板 --- */
   .rd-mg-expand-panel {
     backface-visibility: hidden;
     will-change: max-height;
-    max-height: 0; overflow: hidden; transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    max-height: 0;
+    overflow: hidden;
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 
-    // 修复点 1：移除静态 @if，改用动态背景
-    background: var(--bg-card-95); // 之前的 95% 透明变量派上用场了
+    background: var(--bg-card-95);
 
-    border-bottom: 0px solid var(--border);
-    &.is-open { max-height: 450px; border-bottom-width: 1px; }
+    border-bottom: 0 solid var(--border);
 
-    .rd-mg-form-scroll { max-height: 450px; overflow-y: auto; padding: 20px 0; }
+    &.is-open {
+      max-height: 450px;
+      border-bottom-width: 1px;
+    }
+
+    .rd-mg-form-scroll {
+      max-height: 450px;
+      overflow-y: auto;
+      padding: 20px 0;
+    }
 
     .rd-mg-form-vertical {
       max-width: 540px;
@@ -263,11 +317,13 @@ onMounted(() => {
         margin-bottom: -8px;
 
         .dot-deco {
-          width: 4px; height: 16px;
+          width: 4px;
+          height: 16px;
           background: var(--accent);
           border-radius: 2px;
           box-shadow: 0 0 8px var(--accent-30);
         }
+
         span {
           font-size: 12px;
           font-weight: 800;
@@ -277,29 +333,30 @@ onMounted(() => {
         }
       }
 
-      /* 行布局控制器 */
       .rd-mg-field-row {
         display: flex;
         gap: 12px;
         align-items: flex-end;
-        width: 100%; // 强制宽度
+        width: 100%;
         box-sizing: border-box;
 
         &.group-box {
           background: var(--bg-primary-30);
-          padding: 12px; // 稍微收紧内边距
+          padding: 12px;
           border-radius: 10px;
           border: 1px solid var(--border-50);
-          margin: 0; // 【关键修复】移除负 margin，改为 0，防止撑破容器
+          margin: 0;
           width: 100%;
         }
+
         .flex-3 {
-          flex: 3; // 恢复 3:1 或 2:1，确保比例协调
-          min-width: 0; // 防止内容撑开 flex 项
+          flex: 3;
+          min-width: 0;
         }
+
         .flex-1 {
           flex: 1;
-          min-width: 80px; // 给端口一个最小宽度，防止在窄屏下消失
+          min-width: 80px;
         }
       }
 
@@ -342,32 +399,48 @@ onMounted(() => {
             font-family: 'Inter', system-ui;
             transition: all 0.25s ease;
 
-            &::placeholder { color: var(--text-dim); opacity: 0.3; }
+            &::placeholder {
+              color: var(--text-dim);
+              opacity: 0.3;
+            }
 
             &:focus {
               background: var(--bg-primary);
               border-color: var(--accent);
               box-shadow: 0 0 0 4px var(--accent-15);
               outline: none;
-              transform: translateY(-1px); // 增加浮动感
+              transform: translateY(-1px);
             }
           }
         }
       }
 
-      /* 密码查看按钮特化 */
       .rd-mg-password-box {
-        input { padding-right: 40px !important; }
+        input {
+          padding-right: 40px !important;
+        }
+
         .rd-mg-eye-btn {
-          position: absolute; right: 0; top: 0; bottom: 0; width: 40px;
-          background: transparent; border: none; color: var(--text-dim);
-          cursor: pointer; display: flex; align-items: center; justify-content: center;
+          position: absolute;
+          right: 0;
+          top: 0;
+          bottom: 0;
+          width: 40px;
+          background: transparent;
+          border: none;
+          color: var(--text-dim);
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
           transition: color 0.2s;
-          &:hover { color: var(--accent); }
+
+          &:hover {
+            color: var(--accent);
+          }
         }
       }
 
-      /* 提交区域容器 */
       .rd-mg-form-footer {
         margin-top: 8px;
         padding-top: 16px;
@@ -427,49 +500,138 @@ onMounted(() => {
 
   /* 密码框样式 */
   .rd-mg-password-box {
-    position: relative; display: flex;
-    input { flex: 1; padding-right: 40px !important; }
+    position: relative;
+    display: flex;
+
+    input {
+      flex: 1;
+      padding-right: 40px !important;
+    }
+
     .rd-mg-eye-btn {
-      position: absolute; right: 0; top: 0; bottom: 0; width: 40px;
-      background: transparent; border: none; color: var(--text-dim);
-      cursor: pointer; display: flex; align-items: center; justify-content: center;
-      &:hover { color: var(--accent); }
+      position: absolute;
+      right: 0;
+      top: 0;
+      bottom: 0;
+      width: 40px;
+      background: transparent;
+      border: none;
+      color: var(--text-dim);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+
+      &:hover {
+        color: var(--accent);
+      }
     }
   }
 
   /* 提交按钮区域 */
   .rd-mg-form-footer {
-    margin-top: 8px; display: flex; justify-content: flex-end;
+    margin-top: 8px;
+    display: flex;
+    justify-content: flex-end;
+
     .rd-mg-btn-submit {
-      background: var(--accent); color: var(--bg-primary); border: none; padding: 10px 24px;
-      border-radius: 6px; font-weight: 600; cursor: pointer; transition: all 0.2s;
-      &:hover { filter: brightness(1.1); transform: translateY(-1px); }
-      &:active { transform: translateY(0); }
+      background: var(--accent);
+      color: var(--bg-primary);
+      border: none;
+      padding: 10px 24px;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+
+      &:hover {
+        filter: brightness(1.1);
+        transform: translateY(-1px);
+      }
+
+      &:active {
+        transform: translateY(0);
+      }
     }
   }
 
   /* --- 主体部分 --- */
-  .rd-mg-main { flex: 1; display: flex; overflow: hidden; }
+  .rd-mg-main {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+  }
 
   /* 侧边栏列表 */
   .rd-mg-sidebar {
-    width: 180px; border-right: 1px solid var(--border); display: flex; flex-direction: column;
+    width: 180px;
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
     background: var(--bg-sidebar);
+
     .rd-mg-search {
-      padding: 12px; display: flex; gap: 8px;
+      padding: 12px;
+      display: flex;
+      gap: 8px;
+
       .rd-mg-search-inner {
-        position: relative; flex: 1;
-        i { position: absolute; left: 10px; top: 10px; font-size: 12px; color: var(--text-dim); }
-        input { width: 100%; height: 32px; padding: 0 10px 0 32px; background: var(--bg-input); border: 1px solid var(--border); color: var(--text-main); border-radius: 4px; }
+        position: relative;
+        flex: 1;
+
+        i {
+          position: absolute;
+          left: 10px;
+          top: 10px;
+          font-size: 12px;
+          color: var(--text-dim);
+        }
+
+        input {
+          width: 100%;
+          height: 32px;
+          padding: 0 10px 0 32px;
+          background: var(--bg-input);
+          border: 1px solid var(--border);
+          color: var(--text-main);
+          border-radius: 4px;
+        }
       }
-      .rd-mg-add-btn { width: 32px; height: 32px; border: 1px solid var(--border); background: transparent; color: var(--accent); border-radius: 4px; cursor: pointer; &:hover { background: var(--accent-10); } }
+
+      .rd-mg-add-btn {
+        width: 32px;
+        height: 32px;
+        border: 1px solid var(--border);
+        background: transparent;
+        color: var(--accent);
+        border-radius: 4px;
+        cursor: pointer;
+
+        &:hover {
+          background: var(--accent-10);
+        }
+      }
     }
+
     .rd-mg-list {
-      flex: 1; overflow-y: auto; padding: 4px 8px;
+      flex: 1;
+      overflow-y: auto;
+      padding: 4px 8px;
+
       .rd-mg-item {
-        display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 6px;
-        cursor: pointer; color: var(--text-dim); margin-bottom: 2px;
-        &:hover { background: var(--accent-05); color: var(--text-main); }
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 14px;
+        border-radius: 6px;
+        cursor: pointer;
+        color: var(--text-dim);
+        margin-bottom: 2px;
+
+        &:hover {
+          background: var(--accent-05);
+          color: var(--text-main);
+        }
 
         // 修复点 2：使用混合变量处理激活态背景
         &.is-active {
@@ -478,61 +640,169 @@ onMounted(() => {
           font-weight: 600;
         }
 
-        i { font-size: 11px; opacity: 0.5; }
+        i {
+          font-size: 11px;
+          opacity: 0.5;
+        }
       }
     }
   }
 
   /* 编辑器内容区 */
   .rd-mg-content {
-    flex: 1; display: flex; flex-direction: column;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+
     .rd-mg-detail-header {
-      padding: 14px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px;
-      .rd-mg-tag { background: var(--accent-10); color: var(--accent); padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: bold; }
-      .ttl { font-size: 12px; color: var(--text-dim); margin-left: auto; }
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+
+      .rd-mg-tag {
+        background: var(--accent-10);
+        color: var(--accent);
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 10px;
+        font-weight: bold;
+      }
+
+      .ttl {
+        font-size: 12px;
+        color: var(--text-dim);
+        margin-left: auto;
+      }
     }
+
     .rd-mg-editor {
       flex: 1;
+
       textarea {
-        width: 100%; height: 100%; border: none; outline: none; padding: 20px; background: transparent;
+        width: 100%;
+        height: 100%;
+        border: none;
+        outline: none;
+        padding: 20px;
+        background: transparent;
 
         // 修复点 3：编辑器文字颜色，使用 accent 或 success 确保可读性
         color: var(--text-main);
-        &:focus { color: var(--accent); } // 聚焦时变色提示编辑
 
-        font-family: 'JetBrains Mono', monospace; font-size: 14px; resize: none; line-height: 1.6;
+        &:focus {
+          color: var(--accent);
+        }
+
+        // 聚焦时变色提示编辑
+
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 14px;
+        resize: none;
+        line-height: 1.6;
       }
     }
-    .rd-mg-footer { padding: 14px 20px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; }
+
+    .rd-mg-footer {
+      padding: 14px 20px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: flex-end;
+    }
   }
 
   /* 通用组件样式 */
   .rd-mg-btn-icon {
-    background: transparent; border: none; color: var(--text-dim);
-    width: 36px; height: 36px; border-radius: 6px; cursor: pointer;
-    &:hover { background: var(--accent-10); color: var(--accent); }
-    &.active { background: var(--accent); color: var(--bg-primary); }
-  }
+    background: transparent;
+    border: none;
+    color: var(--text-dim);
+    width: 36px;
+    height: 36px;
+    border-radius: 6px;
+    cursor: pointer;
 
-  .rd-mg-btn-primary {
-    background: var(--accent); color: var(--bg-primary); border: none; padding: 8px 18px; border-radius: 4px; font-weight: 600; cursor: pointer;
-    &:hover { filter: brightness(1.1); }
-  }
+    &:hover {
+      background: var(--accent-10);
+      color: var(--accent);
+    }
 
-  .rd-mg-dropdown {
-    position: absolute; top: 55px; right: 16px; width: 260px; z-index: 100;
-    background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
-    box-shadow: 0 10px 30px var(--shadow);
-    &-item {
-      padding: 12px 16px; cursor: pointer; border-bottom: 1px solid var(--border-50);
-      &:last-child { border-bottom: none; }
-      &:hover { background: var(--accent-05); }
-      .name { font-weight: 600; color: var(--accent); display: block; }
-      .addr { font-size: 11px; color: var(--text-dim); }
+    &.active {
+      background: var(--accent);
+      color: var(--bg-primary);
     }
   }
 
-  .rd-mg-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--text-dim); opacity: 0.5; i { font-size: 50px; margin-bottom: 16px; } }
-  .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rd-mg-btn-primary {
+    background: var(--accent);
+    color: var(--bg-primary);
+    border: none;
+    padding: 8px 18px;
+    border-radius: 4px;
+    font-weight: 600;
+    cursor: pointer;
+
+    &:hover {
+      filter: brightness(1.1);
+    }
+  }
+
+  .rd-mg-dropdown {
+    position: absolute;
+    top: 55px;
+    right: 16px;
+    width: 260px;
+    z-index: 100;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 10px 30px var(--shadow);
+
+    &-item {
+      padding: 12px 16px;
+      cursor: pointer;
+      border-bottom: 1px solid var(--border-50);
+
+      &:last-child {
+        border-bottom: none;
+      }
+
+      &:hover {
+        background: var(--accent-05);
+      }
+
+      .name {
+        font-weight: 600;
+        color: var(--accent);
+        display: block;
+      }
+
+      .addr {
+        font-size: 11px;
+        color: var(--text-dim);
+      }
+    }
+  }
+
+  .rd-mg-empty {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-dim);
+    opacity: 0.5;
+
+    i {
+      font-size: 50px;
+      margin-bottom: 16px;
+    }
+  }
+
+  .truncate {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 }
 </style>

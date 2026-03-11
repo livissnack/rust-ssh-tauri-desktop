@@ -452,6 +452,16 @@ const cancelTask = async (taskId: string) => {
   } catch (err) { console.error(err); }
 };
 
+const formatSize = (bytes: number) => {
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  // 计算指数偏移
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  // 格式化输出，如果是 B 则不带小数，其他保留一位小数
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(i > 0 ? 1 : 0)) + ' ' + sizes[i];
+};
+
 watch(activeSessionId, (newId) => {
   if (newId) focusTerminal(newId);
 });
@@ -603,7 +613,9 @@ onUnmounted(() => {
                       <i class="fas" :class="file.name === '..' ? 'fa-level-up-alt' : (file.is_dir ? 'fa-folder' : 'fa-file-alt')"></i>
                     </span>
                     <span class="file-name">{{ file.name }}</span>
-                    <span class="file-size" v-if="!file.is_dir">{{ (file.size / 1024).toFixed(1) }} KB</span>
+                    <span class="file-size" v-if="!file.is_dir">
+                      {{ formatSize(file.size) }}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -711,15 +723,20 @@ onUnmounted(() => {
 
     <ServerModal :is-open="isModalOpen" :is-editing="isEditing" :server="newHost" :servers="servers" @close="closeModal" @save="saveHost"/>
 
-    <Transition name="fade">
-      <div v-if="menuVisible" class="context-menu" :style="{ top: menuPos.y + 'px', left: menuPos.x + 'px' }">
+    <Transition name="menu-scale">
+      <div v-if="menuVisible" class="context-menu" :style="{ top: menuPos.y + 'px', left: menuPos.x + 'px' }" @click.stop>
         <div class="menu-item" @click="handleMenuAction('transfer')">
-          <span>{{ contextSource === 'local' ? '📤' : '📥' }}</span>
-          {{ contextSource === 'local' ? '上传到服务器' : '下载到本地' }}
+          <i class="fas" :class="contextSource === 'local' ? 'fa-cloud-upload-alt' : 'fa-cloud-download-alt'"></i>
+          <span class="menu-text">
+        {{ contextSource === 'local' ? '上传到远程' : '下载到本地' }}
+      </span>
         </div>
-        <div class="menu-item divider"></div>
+
+        <div class="menu-divider"></div>
+
         <div class="menu-item danger" @click="handleMenuAction('delete')">
-          <span>🗑️</span> 删除
+          <i class="fas fa-trash-alt"></i>
+          <span class="menu-text">删除文件</span>
         </div>
       </div>
     </Transition>

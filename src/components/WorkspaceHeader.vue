@@ -100,7 +100,7 @@ const connectButtonIcon = computed(() => {
   align-items: center;
   padding: 0 24px;
   flex-shrink: 0;
-  background: base.$bg-primary; // 修改：使用主背景色，确保与内容区连贯
+  background: var(--bg-primary); // 保持与内容区连贯
 
   .breadcrumb {
     font-size: 13px;
@@ -108,19 +108,22 @@ const connectButtonIcon = computed(() => {
     align-items: center;
 
     .root {
-      color: base.$text-dim;
+      color: var(--text-dim);
       transition: color 0.2s;
-      &:hover { color: base.$text-main; cursor: pointer; }
+      &:hover {
+        color: var(--text-main);
+        cursor: pointer;
+      }
     }
 
     .sep {
-      color: base.$border;
+      color: var(--border);
       margin: 0 10px;
       font-size: 10px;
     }
 
     .current {
-      color: base.$text-main; // 修改：跟随主题文字色
+      color: var(--text-main);
       font-weight: 600;
       letter-spacing: 0.3px;
     }
@@ -132,14 +135,14 @@ const connectButtonIcon = computed(() => {
   align-items: center;
   gap: 8px;
   padding: 4px;
-  background: base.$bg-secondary; // 修改：使用次要背景色营造工具栏感
+  background: var(--bg-secondary); // 工具栏使用次要背景
   border-radius: 10px;
-  border: 1px solid base.$border;
+  border: 1px solid var(--border);
 
   .separator {
     width: 1px;
     height: 18px;
-    background: base.$border;
+    background: var(--border);
     margin: 0 4px;
     opacity: 0.6;
   }
@@ -152,7 +155,7 @@ const connectButtonIcon = computed(() => {
     border-radius: 6px;
     border: 1px solid transparent;
     background: transparent;
-    color: base.$text-muted;
+    color: var(--text-dim); // 使用统一 dim 变量
     font-size: 12px;
     font-weight: 500;
     cursor: pointer;
@@ -161,9 +164,9 @@ const connectButtonIcon = computed(() => {
     i { font-size: 14px; }
 
     &:hover:not(:disabled) {
-      background: rgba(base.$accent, 0.1);
-      color: base.$accent;
-      border-color: rgba(base.$accent, 0.15);
+      background: var(--accent-10); // 修复点：使用预计算透明变量
+      color: var(--accent);
+      border-color: var(--accent-20);
     }
 
     &:disabled {
@@ -171,15 +174,15 @@ const connectButtonIcon = computed(() => {
       cursor: not-allowed;
     }
 
-    /* SFTP 模式特定样式 - 使用主题橙色/警告色 */
+    /* SFTP 模式特定样式 - 使用橙色/警告色变量 */
     &.mode-toggle.is-sftp {
-      background: rgba(base.$accent-orange, 0.1);
-      color: base.$accent-orange;
-      border-color: rgba(base.$accent-orange, 0.2);
+      background: var(--accent-orange-10, rgba(249, 115, 22, 0.1));
+      color: var(--accent-orange, #f97316);
+      border-color: var(--accent-orange-20, rgba(249, 115, 22, 0.2));
 
       &:hover {
-        background: rgba(base.$accent-orange, 0.2);
-        border-color: base.$accent-orange;
+        background: var(--accent-orange-20);
+        border-color: var(--accent-orange);
       }
     }
   }
@@ -192,18 +195,18 @@ const connectButtonIcon = computed(() => {
     padding: 6px 16px;
     border-radius: 6px;
     border: none;
-    background: base.$accent;
-    color: base.$bg-primary; // 修改：按钮文字使用背景深色以获得最高对比度
+    background: var(--accent);
+    color: var(--bg-primary); // 按钮文字使用深色以增强对比
     font-size: 12px;
     font-weight: 700;
     cursor: pointer;
     transition: all 0.2s;
-    box-shadow: 0 4px 12px rgba(base.$accent, 0.2);
+    box-shadow: 0 4px 12px var(--accent-20); // 修复点
 
     &:hover:not(:disabled) {
       filter: brightness(1.1);
       transform: translateY(-1px);
-      box-shadow: 0 6px 16px rgba(base.$accent, 0.3);
+      box-shadow: 0 6px 16px var(--accent-30);
     }
 
     &:active {
@@ -212,8 +215,8 @@ const connectButtonIcon = computed(() => {
     }
 
     &:disabled {
-      background: base.$bg-input;
-      color: base.$text-dim;
+      background: var(--bg-input);
+      color: var(--text-dim);
       box-shadow: none;
       cursor: not-allowed;
       opacity: 0.6;

@@ -29,8 +29,8 @@ const closeApp = () => appWindow.close();
 
 .titlebar {
   height: 38px;
-  background-color: base.$bg-sidebar; // 标题栏通常与侧边栏融为一体
-  border-bottom: 1px solid rgba(base.$border, 0.5); // 增加极其细微的分割感
+  background-color: var(--bg-sidebar);
+  border-bottom: 1px solid var(--border-50); // 修复点：使用预计算的 50% 透明边框
   position: relative;
   z-index: 1000;
   flex-shrink: 0;
@@ -44,7 +44,6 @@ const closeApp = () => appWindow.close();
     width: 100%;
     height: 100%;
     z-index: 10;
-    // 注意：在 Tauri 中需在 HTML 标签上添加 data-tauri-drag-region
   }
 
   /* 交互层 */
@@ -59,12 +58,12 @@ const closeApp = () => appWindow.close();
     justify-content: space-between;
     padding: 0 15px;
     z-index: 20;
-    pointer-events: none; // 穿透到拖拽层
+    pointer-events: none; // 关键：允许点击穿透到下方的拖拽层
 
     .window-controls {
       display: flex;
       gap: 8px;
-      pointer-events: auto; // 恢复控件的点击事件
+      pointer-events: auto; // 恢复控件区域的交互
 
       .dot {
         width: 12px;
@@ -77,23 +76,22 @@ const closeApp = () => appWindow.close();
         align-items: center;
         justify-content: center;
 
-        /* 标准 macOS 风格配色，但在不同主题下会自动调整明度 */
+        /* 标准 macOS 风格配色：通过 filter 替代 Sass 函数实现动态变色 */
         &.close {
           background: #ff5f56;
-          &:hover { background: color.scale(#ff5f56, $lightness: 10%); }
+          &:hover { filter: brightness(1.1); }
         }
 
         &.minimize {
           background: #ffbd2e;
-          &:hover { background: color.scale(#ffbd2e, $lightness: 10%); }
+          &:hover { filter: brightness(1.1); }
         }
 
         &.maximize {
           background: #27c93f;
-          &:hover { background: color.scale(#27c93f, $lightness: 10%); }
+          &:hover { filter: brightness(1.1); }
         }
 
-        /* 悬停时可以增加一个小图标感（可选） */
         &:active {
           transform: scale(0.9);
           filter: brightness(0.8);
@@ -102,21 +100,22 @@ const closeApp = () => appWindow.close();
     }
 
     .title-text {
-      font-size: 10px; // 稍微缩小一点更精致
-      color: base.$text-dim;
+      font-size: 10px;
+      color: var(--text-dim);
       font-weight: 700;
       text-transform: uppercase;
-      letter-spacing: 1.5px; // 增加间距营造高级感
+      letter-spacing: 1.5px;
       opacity: 0.8;
+      transition: color 0.3s ease;
 
-      // 当窗口失去焦点时，可以配合全局类名变色（需 JS 配合）
+      // 修复点：配合 CSS 变量处理失焦状态
       .is-inactive & {
-        color: rgba(base.$text-dim, 0.4);
+        color: var(--text-dim-40);
       }
     }
 
     .titlebar-spacer {
-      width: 60px; // 用于平衡左侧控制按钮的视觉重量，保持文字居中
+      width: 60px; // 视觉平衡块
     }
   }
 }

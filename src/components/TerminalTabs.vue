@@ -40,50 +40,51 @@ const activeSessionId = computed({
 
 .session-tabs {
   height: 44px;
-  background: base.$bg-sidebar; // 选项卡槽背景，通常与侧边栏一致
+  background: var(--bg-sidebar);
   display: flex;
   align-items: flex-end;
   padding-left: 10px;
   gap: 4px;
   flex-shrink: 0;
-  border-bottom: 1px solid base.$border; // 增加底部细线，增强与内容区的隔离感
+  border-bottom: 1px solid var(--border);
 
   .tab-item {
     height: 34px;
     padding: 0 15px;
-    background: rgba(base.$bg-primary, 0.4); // 非激活状态略透明
-    border: 1px solid base.$border;
+    // 修复点：使用预计算的 bg-primary 透明变量
+    background: var(--bg-primary-60);
+    border: 1px solid var(--border);
     border-bottom: none;
     border-radius: 8px 8px 0 0;
     display: flex;
     align-items: center;
     gap: 8px;
     font-size: 12px;
-    color: base.$text-dim;
+    color: var(--text-dim);
     cursor: pointer;
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     position: relative;
-    top: 1px; // 压在 border-bottom 上
+    top: 1px; // 视觉技巧：压在底部的 border-bottom 上实现缝隙消除
 
     &:hover {
-      background: rgba(base.$bg-primary, 0.8);
-      color: base.$text-main;
+      background: var(--bg-primary-80); // 悬浮时稍亮
+      color: var(--text-main);
     }
 
     &.active {
-      background: base.$bg-primary; // 激活态与主内容区背景融合
-      color: base.$accent;
-      height: 35px; // 略高一点点，覆盖住底边框
+      background: var(--bg-primary);
+      color: var(--accent);
+      height: 35px; // 盖住底边框
       font-weight: 600;
-      border-color: base.$border;
+      border-color: var(--border);
 
-      // 使用伪元素做顶部发光条，比直接底边框更符合现代 IDE 审美
+      // 现代 IDE 风格的顶部强调条
       &::before {
         content: '';
         position: absolute;
         top: 0; left: 0; right: 0;
         height: 2px;
-        background: base.$accent;
+        background: var(--accent);
         border-radius: 8px 8px 0 0;
       }
     }
@@ -99,8 +100,8 @@ const activeSessionId = computed({
       justify-content: center;
 
       &:hover {
-        background: rgba(base.$error, 0.15);
-        color: base.$error; // 修改：使用主题错误色
+        background: var(--error-15); // 修复点：使用 error 的透明变量
+        color: var(--error);
       }
     }
   }
@@ -110,13 +111,13 @@ const activeSessionId = computed({
     display: flex;
     align-items: center;
     padding: 0 12px;
-    color: base.$text-dim;
+    color: var(--text-dim);
     cursor: pointer;
     font-size: 18px;
     transition: color 0.2s;
 
     &:hover {
-      color: base.$accent;
+      color: var(--accent);
     }
   }
 }

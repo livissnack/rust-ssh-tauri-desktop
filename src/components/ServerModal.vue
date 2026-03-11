@@ -138,7 +138,7 @@ const closeModal = () => {
   left: 0;
   width: 100vw;
   height: 100vh;
-  background: rgba(0, 0, 0, 0.7); // 保持深色背景以聚焦内容
+  background: rgba(0, 0, 0, 0.7); // 保持固定深色以增强对比
   backdrop-filter: blur(8px);
   display: flex;
   align-items: center;
@@ -149,35 +149,35 @@ const closeModal = () => {
 /* 弹窗主体 */
 .modal-content {
   width: 440px;
-  background: base.$bg-primary;
-  border: 1px solid base.$border; // 使用统一 border 变量
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
   border-radius: 20px;
   max-height: 90vh;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 25px 50px -12px var(--shadow);
 
   .modal-header {
     padding: 20px 24px;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    background: rgba(0, 0, 0, 0.1); // 轻微区分头部
+    background: var(--bg-secondary-60); // 修复点：使用预计算透明变量
 
     h3 {
       margin: 0;
       font-size: 16px;
-      color: base.$text-main; // 修改：跟随主题文字色
+      color: var(--text-main);
     }
 
     .close-btn {
       background: none;
       border: none;
-      color: base.$text-dim;
+      color: var(--text-dim);
       font-size: 20px;
       cursor: pointer;
       transition: color 0.2s;
-      &:hover { color: base.$error; } // 修改：悬浮变错误色
+      &:hover { color: var(--error); }
     }
   }
 
@@ -192,7 +192,7 @@ const closeModal = () => {
       label {
         display: block;
         font-size: 11px;
-        color: base.$text-muted; // 使用 muted 更符合标签感
+        color: var(--text-dim); // 使用 text-dim 替代 muted
         font-weight: 600;
         text-transform: uppercase;
         margin-bottom: 8px;
@@ -202,20 +202,20 @@ const closeModal = () => {
       input,
       .styled-select {
         width: 100%;
-        background: base.$bg-input; // 修改：使用统一输入框背景
-        border: 1px solid base.$border;
+        background: var(--bg-input);
+        border: 1px solid var(--border);
         padding: 12px;
         border-radius: 10px;
-        color: base.$text-main;
+        color: var(--text-main);
         font-size: 13px;
         outline: none;
         box-sizing: border-box;
         transition: all 0.2s ease;
 
         &:focus {
-          border-color: base.$accent !important;
-          background: rgba(base.$accent, 0.02);
-          box-shadow: 0 0 0 3px rgba(base.$accent, 0.1); // 使用动态透明度
+          border-color: var(--accent) !important;
+          background: var(--accent-05); // 修复点
+          box-shadow: 0 0 0 3px var(--accent-10); // 修复点
         }
       }
     }
@@ -227,25 +227,24 @@ const closeModal = () => {
       .flex-1 { flex: 1; }
     }
 
-    /* 文件选择器 (如 SSH Key 选择) */
+    /* 文件选择器 */
     .file-picker {
       display: flex;
       gap: 8px;
-
       input { flex: 1; }
 
       button {
-        background: base.$bg-secondary; // 修改：按钮背景跟随主题
-        border: 1px solid base.$border;
-        color: base.$text-main;
+        background: var(--bg-secondary);
+        border: 1px solid var(--border);
+        color: var(--text-main);
         padding: 0 15px;
         border-radius: 10px;
         cursor: pointer;
         transition: all 0.2s;
         &:hover {
-          background: rgba(base.$accent, 0.1);
-          border-color: base.$accent;
-          color: base.$accent;
+          background: var(--accent-10); // 修复点
+          border-color: var(--accent);
+          color: var(--accent);
         }
       }
     }
@@ -253,12 +252,12 @@ const closeModal = () => {
 
   .modal-footer {
     padding: 20px 24px;
-    background: base.$bg-secondary; // 修改：底部背景跟随主题
+    background: var(--bg-secondary);
     display: flex;
     justify-content: flex-end;
     gap: 12px;
     border-radius: 0 0 20px 20px;
-    border-top: 1px solid base.$border;
+    border-top: 1px solid var(--border);
 
     button {
       padding: 10px 22px;
@@ -270,23 +269,23 @@ const closeModal = () => {
 
     .cancel-btn {
       background: transparent;
-      border: 1px solid base.$border;
-      color: base.$text-muted;
+      border: 1px solid var(--border);
+      color: var(--text-dim);
       &:hover {
-        background: rgba(base.$text-main, 0.05);
-        color: base.$text-main;
+        background: var(--accent-05);
+        color: var(--text-main);
       }
     }
 
     .save-btn {
-      background: base.$accent;
+      background: var(--accent);
       border: none;
-      color: base.$bg-primary; // 修改：按钮文字使用主题深色
+      color: var(--bg-primary);
       font-weight: 600;
       &:hover {
         filter: brightness(1.1);
         transform: translateY(-1px);
-        box-shadow: 0 4px 12px rgba(base.$accent, 0.3);
+        box-shadow: 0 4px 12px var(--accent-30); // 修复点
       }
       &:active { transform: translateY(0); }
     }
@@ -297,15 +296,15 @@ const closeModal = () => {
 .port-input-wrapper {
   display: flex;
   align-items: center;
-  background: base.$bg-input;
-  border: 1px solid base.$border;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
   border-radius: 10px;
   overflow: hidden;
   transition: all 0.2s;
 
   &:focus-within {
-    border-color: base.$accent;
-    box-shadow: 0 0 0 3px rgba(base.$accent, 0.1);
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-10);
   }
 
   input {
@@ -314,16 +313,15 @@ const closeModal = () => {
     padding: 10px 0 !important;
     width: 100%;
     background: transparent !important;
-    color: base.$accent !important; // 端口号突出显示
+    color: var(--accent) !important;
     font-weight: bold;
     font-family: 'JetBrains Mono', monospace;
-
     &:focus { outline: none; }
   }
 
   .port-btn {
     background: transparent;
-    color: base.$text-dim;
+    color: var(--text-dim);
     padding: 0 10px;
     font-size: 14px;
     height: 100%;
@@ -332,8 +330,8 @@ const closeModal = () => {
     transition: all 0.2s;
 
     &:hover {
-      color: base.$accent;
-      background: rgba(base.$accent, 0.1);
+      color: var(--accent);
+      background: var(--accent-10);
     }
   }
 }
@@ -344,10 +342,7 @@ const closeModal = () => {
   display: flex;
   align-items: center;
 
-  input {
-    padding-right: 40px !important;
-    width: 100%;
-  }
+  input { padding-right: 40px !important; width: 100%; }
 
   .eye-btn {
     position: absolute;
@@ -357,20 +352,20 @@ const closeModal = () => {
     padding: 4px;
     cursor: pointer;
     font-size: 16px;
-    color: base.$text-dim; // 修改：图标颜色跟随主题
+    color: var(--text-dim);
     display: flex;
     align-items: center;
     justify-content: center;
     transition: all 0.2s;
 
     &:hover {
-      color: base.$accent;
+      color: var(--accent);
       transform: scale(1.1);
     }
   }
 }
 
-/* 动画效果 */
+/* 动画效果保持不变 */
 .scale-enter-active,
 .scale-leave-active {
   transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
@@ -381,7 +376,6 @@ const closeModal = () => {
   transform: scale(0.9);
 }
 
-/* 数字输入框清除默认样式 */
 input::-webkit-outer-spin-button,
 input::-webkit-inner-spin-button {
   -webkit-appearance: none;

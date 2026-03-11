@@ -137,7 +137,7 @@ const handleConfirm = () => {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.75); // 遮罩层通常保持深色以聚焦内容
+  background: rgba(0, 0, 0, 0.75);
   backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
@@ -146,11 +146,11 @@ const handleConfirm = () => {
 }
 
 .modal-card {
-  background: base.$bg-card;
+  background: var(--bg-card);
   width: 460px;
   border-radius: 12px;
-  border: 1px solid base.$border;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  border: 1px solid var(--border);
+  box-shadow: 0 20px 60px var(--shadow);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -159,8 +159,9 @@ const handleConfirm = () => {
 /* Header & Body */
 .modal-header {
   padding: 16px 20px;
-  background: rgba(0, 0, 0, 0.2);
-  border-bottom: 1px solid base.$border;
+  // 使用预计算的透明变量，避免 rgba(var) 报错
+  background: var(--bg-secondary-60);
+  border-bottom: 1px solid var(--border);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -170,19 +171,19 @@ const handleConfirm = () => {
     align-items: center;
     gap: 10px;
     font-size: 14px;
-    color: base.$accent;
+    color: var(--accent);
     font-weight: 600;
   }
 
   .close-x {
     background: none;
     border: none;
-    color: base.$text-dim;
+    color: var(--text-dim);
     font-size: 22px;
     cursor: pointer;
     transition: color 0.2s;
 
-    &:hover { color: base.$error; } // 修改：使用主题错误色
+    &:hover { color: var(--error); }
   }
 }
 
@@ -192,7 +193,7 @@ const handleConfirm = () => {
 .type-selector {
   display: flex;
   gap: 4px;
-  background: base.$bg-input;
+  background: var(--bg-input);
   padding: 4px;
   border-radius: 8px;
   margin-bottom: 20px;
@@ -204,7 +205,7 @@ const handleConfirm = () => {
     border-radius: 6px;
     font-size: 11px;
     font-weight: bold;
-    color: base.$text-dim;
+    color: var(--text-dim);
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -213,13 +214,13 @@ const handleConfirm = () => {
     transition: all 0.2s;
 
     &.active {
-      background: base.$bg-card; // 使用略浅的背景突出
-      color: base.$accent;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+      background: var(--bg-card);
+      color: var(--accent);
+      box-shadow: 0 2px 8px var(--shadow);
     }
 
     &:hover:not(.active) {
-      color: base.$text-main;
+      color: var(--text-main);
     }
   }
 }
@@ -239,13 +240,13 @@ const handleConfirm = () => {
 
     label {
       font-size: 10px;
-      color: base.$text-muted;
+      color: var(--text-dim);
       font-weight: bold;
       text-transform: uppercase;
 
       .hint {
         font-weight: normal;
-        color: base.$text-dim;
+        color: var(--text-dim);
         opacity: 0.6;
         text-transform: none;
         margin-left: 4px;
@@ -256,19 +257,19 @@ const handleConfirm = () => {
 
 .dark-input {
   width: 100%;
-  background: base.$bg-input !important;
-  border: 1px solid base.$border;
+  background: var(--bg-input) !important;
+  border: 1px solid var(--border);
   border-radius: 6px;
   padding: 10px 12px;
-  color: base.$text-main;
+  color: var(--text-main);
   font-size: 13px;
   outline: none;
   transition: all 0.2s;
 
   &:focus {
-    border-color: base.$accent;
-    background: rgba(base.$accent, 0.02) !important;
-    box-shadow: 0 0 0 2px rgba(base.$accent, 0.1);
+    border-color: var(--accent);
+    background: var(--accent-05) !important; // 修复点
+    box-shadow: 0 0 0 2px var(--accent-10); // 修复点
   }
 }
 
@@ -282,26 +283,25 @@ const handleConfirm = () => {
     position: absolute;
     right: 12px;
     font-size: 12px;
-    color: base.$text-dim;
+    color: var(--text-dim);
     pointer-events: none;
   }
 
-  &:focus-within .clock-icon { color: base.$accent; }
+  &:focus-within .clock-icon { color: var(--accent); }
 }
 
 .ttl-input {
   padding-right: 32px !important;
 
-  /* 针对 Chrome/Edge/Safari 优化箭头样式，使其自适应强调色 */
   &::-webkit-inner-spin-button {
     opacity: 0.7;
     cursor: pointer;
-    /* 利用滤镜让系统默认箭头变亮，呈现类似主题色的质感 */
-    filter: invert(1) brightness(1.5);
+    /* 亮色主题下保持默认，暗色主题下通过滤镜翻转箭头颜色 */
+    filter: var(--spin-button-filter, invert(0.8));
     height: 18px;
   }
 
-  -moz-appearance: textfield; /* 火狐隐藏默认箭头 */
+  -moz-appearance: textfield;
 }
 
 .value-area {
@@ -329,15 +329,15 @@ const handleConfirm = () => {
 /* Footer */
 .modal-footer {
   padding: 15px 20px;
-  background: rgba(0, 0, 0, 0.15);
-  border-top: 1px solid base.$border;
+  background: var(--bg-secondary-60); // 修复点
+  border-top: 1px solid var(--border);
   display: flex;
   justify-content: space-between;
   align-items: center;
 
   .type-hint {
     font-size: 11px;
-    color: base.$text-dim;
+    color: var(--text-dim);
     display: flex;
     align-items: center;
     gap: 6px;
@@ -348,22 +348,22 @@ const handleConfirm = () => {
 
   .btn-cancel {
     background: transparent;
-    border: 1px solid base.$border;
-    color: base.$text-muted;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
     padding: 8px 18px;
     border-radius: 6px;
     cursor: pointer;
     transition: all 0.2s;
 
     &:hover {
-      color: base.$text-main;
-      background: rgba(base.$text-main, 0.05);
+      color: var(--text-main);
+      background: var(--accent-05);
     }
   }
 
   .btn-confirm {
-    background: base.$accent;
-    color: base.$bg-primary; // 修改：按钮文字使用主题背景深色
+    background: var(--accent);
+    color: var(--bg-primary);
     border: none;
     padding: 8px 22px;
     border-radius: 6px;
@@ -373,7 +373,7 @@ const handleConfirm = () => {
 
     &:hover {
       transform: translateY(-1px);
-      box-shadow: 0 4px 12px rgba(base.$accent, 0.3);
+      box-shadow: 0 4px 12px var(--accent-30); // 使用预定义的 accent-30
       filter: brightness(1.1);
     }
 

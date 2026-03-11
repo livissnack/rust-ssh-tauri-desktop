@@ -251,40 +251,39 @@ onUnmounted(() => {
 <style lang="scss" scoped>
 @use '../assets/css/base.scss';
 
-/* 覆盖样式以穿透 v-html (深度选择器) */
 :deep(.markdown-body) {
   font-size: 13px;
   line-height: 1.6;
-  color: base.$text-main; // 修改：跟随主题主文字颜色
+  color: var(--text-main);
 
   p { margin: 0 0 8px 0; }
 
   code {
-    background: rgba(base.$accent, 0.15);
-    color: base.$accent;
+    background: var(--accent-15); // 使用预定义的透明变量
+    color: var(--accent);
     padding: 2px 4px;
     border-radius: 4px;
     font-family: 'Fira Code', monospace;
   }
 
   pre {
-    background: base.$bg-dark !important; // 修改：使用主题最深背景
+    background: var(--bg-secondary) !important; // 建议改用 secondary
     padding: 12px;
     border-radius: 8px;
-    border: 1px solid base.$border;
+    border: 1px solid var(--border);
     margin: 10px 0;
     overflow-x: auto;
 
     code {
       background: transparent;
       padding: 0;
-      color: base.$text-main; // 修改：代码文字跟随主题
+      color: var(--text-main);
     }
   }
 
   ul, ol { padding-left: 20px; margin-bottom: 8px; }
   a {
-    color: base.$accent;
+    color: var(--accent);
     text-decoration: none;
     &:hover { text-decoration: underline; }
   }
@@ -294,8 +293,8 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: base.$bg-primary; // 修改：通常面板使用主背景
-  color: base.$text-main;
+  background: var(--bg-primary);
+  color: var(--text-main);
 }
 
 .panel-header {
@@ -303,8 +302,8 @@ onUnmounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border-bottom: 1px solid base.$border;
-  background: base.$bg-header; // 建议增加 header 背景映射
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary); // 或使用 --bg-header
 
   .title {
     display: flex;
@@ -312,18 +311,18 @@ onUnmounted(() => {
     gap: 10px;
     font-size: 13px;
     font-weight: 600;
-    color: base.$accent;
+    color: var(--accent);
   }
 }
 
 .icon-btn {
   background: transparent;
   border: none;
-  color: base.$text-dim; // 修改：使用更淡的文字色
+  color: var(--text-dim);
   cursor: pointer;
   transition: color 0.2s;
 
-  &:hover, &.active { color: base.$accent; }
+  &:hover, &.active { color: var(--accent); }
 }
 
 .config-container {
@@ -332,7 +331,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 18px;
-  background: base.$bg-secondary; // 修改：配置区使用次要背景
+  background: var(--bg-secondary);
 
   .config-group {
     display: flex;
@@ -341,38 +340,39 @@ onUnmounted(() => {
 
     label {
       font-size: 11px;
-      color: base.$text-muted;
+      color: var(--text-dim);
       font-weight: bold;
       text-transform: uppercase;
     }
 
     input, select {
-      background: base.$bg-input; // 修改：使用专门的输入框背景
-      border: 1px solid base.$border;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
       border-radius: 6px;
       padding: 10px;
-      color: base.$text-main;
+      color: var(--text-main);
       font-size: 12px;
 
       &:focus {
-        border-color: base.$accent;
+        border-color: var(--accent);
         outline: none;
-        box-shadow: 0 0 0 2px rgba(base.$accent, 0.2); // 增加聚焦发光
+        // 注意：这里的 boxShadow 建议在 base 循环里也预定义一个 --accent-focus-shadow
+        box-shadow: 0 0 0 2px var(--accent-20);
       }
     }
 
     .input-with-icon {
       position: relative;
       input { width: 100%; padding-right: 35px; box-sizing: border-box; }
-      i { position: absolute; right: 12px; top: 12px; color: base.$text-dim; font-size: 12px; }
+      i { position: absolute; right: 12px; top: 12px; color: var(--text-dim); font-size: 12px; }
     }
   }
 
   .btn-save-config {
     margin-top: 10px;
     padding: 12px;
-    background: base.$accent;
-    color: base.$bg-primary; // 修改：按钮文字使用背景色以形成反差
+    background: var(--accent);
+    color: var(--bg-primary); // 对比色
     border: none;
     border-radius: 6px;
     font-weight: bold;
@@ -394,7 +394,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 20px;
-  background: base.$bg-primary;
+  background: var(--bg-primary);
 
   .msg-row {
     display: flex;
@@ -404,9 +404,9 @@ onUnmounted(() => {
     &.user {
       align-self: flex-end;
       .msg-bubble {
-        background: rgba(base.$accent, 0.2); // 修改：用户气泡使用强调色的透明色
-        border: 1px solid rgba(base.$accent, 0.3);
-        color: base.$text-main;
+        background: var(--accent-20); // 修复点
+        border: 1px solid var(--accent-30); // 修复点
+        color: var(--text-main);
         border-radius: 12px 12px 2px 12px;
       }
     }
@@ -414,9 +414,9 @@ onUnmounted(() => {
     &.assistant {
       align-self: flex-start;
       .msg-bubble {
-        background: base.$bg-card; // 修改：助手使用卡片背景色
-        border: 1px solid base.$border;
-        color: base.$text-main;
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        color: var(--text-main);
         border-radius: 12px 12px 12px 2px;
       }
     }
@@ -430,17 +430,17 @@ onUnmounted(() => {
       margin-top: 10px;
       width: 100%;
       padding: 6px;
-      background: rgba(base.$accent, 0.1);
-      border: 1px dashed base.$accent;
-      color: base.$accent;
+      background: var(--accent-10); // 修复点
+      border: 1px dashed var(--accent);
+      color: var(--accent);
       border-radius: 4px;
       cursor: pointer;
       font-size: 11px;
       transition: all 0.2s;
 
       &:hover {
-        background: base.$accent;
-        color: base.$bg-primary;
+        background: var(--accent);
+        color: var(--bg-primary);
       }
     }
   }
@@ -448,34 +448,34 @@ onUnmounted(() => {
 
 .input-bar {
   padding: 12px;
-  border-top: 1px solid base.$border;
+  border-top: 1px solid var(--border);
   display: flex;
   gap: 10px;
   align-items: flex-end;
-  background: base.$bg-secondary;
+  background: var(--bg-secondary);
 
   textarea {
     flex: 1;
-    background: base.$bg-input;
-    border: 1px solid base.$border;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
     border-radius: 8px;
     padding: 10px;
-    color: base.$text-main;
+    color: var(--text-main);
     font-size: 12px;
     height: 60px;
     resize: none;
 
     &:focus {
       outline: none;
-      border-color: base.$accent;
+      border-color: var(--accent);
     }
   }
 
   .btn-send {
     width: 40px;
     height: 40px;
-    background: base.$accent;
-    color: base.$bg-primary;
+    background: var(--accent);
+    color: var(--bg-primary);
     border: none;
     border-radius: 8px;
     cursor: pointer;
@@ -485,7 +485,7 @@ onUnmounted(() => {
     transition: all 0.2s;
 
     &:disabled {
-      background: base.$text-dim;
+      background: var(--text-dim);
       opacity: 0.5;
       cursor: not-allowed;
     }
@@ -500,7 +500,7 @@ onUnmounted(() => {
   .dot {
     width: 6px;
     height: 6px;
-    background: base.$accent;
+    background: var(--accent);
     border-radius: 50%;
     animation: blink 1.4s infinite;
   }
@@ -510,14 +510,13 @@ onUnmounted(() => {
 
 @keyframes blink { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
 
-/* 使用 base.scss 中定义的滚动条变量或直接映射 */
 .custom-scrollbar {
   &::-webkit-scrollbar { width: 4px; }
   &::-webkit-scrollbar-track { background: transparent; }
   &::-webkit-scrollbar-thumb {
-    background: base.$border;
+    background: var(--border);
     border-radius: 4px;
-    &:hover { background: base.$text-dim; }
+    &:hover { background: var(--text-dim); }
   }
 }
 </style>

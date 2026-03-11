@@ -19,6 +19,7 @@ import TitleBar from "./components/TitleBar.vue";
 import QuickCommandPanel from "./components/QuickCommandPanel.vue";
 import AiAssistantPanel from "./components/AiAssistantPanel.vue";
 import SyncSettings from "./components/SyncSettings.vue";
+import ThemeSettings from "./components/ThemeSettings.vue";
 import RedisManager from "./components/RedisManager.vue";
 
 const appWindow = getCurrentWindow();
@@ -297,6 +298,16 @@ const connectToServer = async () => {
   }
 };
 
+const getTerminalTheme = () => {
+  const style = getComputedStyle(document.documentElement);
+  return {
+    background: style.getPropertyValue('--bg-primary').trim(),
+    foreground: style.getPropertyValue('--text-main').trim(),
+    cursor: style.getPropertyValue('--accent').trim(),
+    selectionBackground: style.getPropertyValue('--accent-glow').trim(),
+  };
+};
+
 const initTerminal = async (sessionId: string) => {
   if (terminalMap.has(sessionId)) {
     await nextTick();
@@ -306,7 +317,7 @@ const initTerminal = async (sessionId: string) => {
   const term = new Terminal({
     cursorBlink: true, fontSize: 14,
     fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-    theme: {background: "#1a1b26", foreground: "#a9b1d6", cursor: "#7aa2f7"},
+    theme: getTerminalTheme(),
     allowProposedApi: true,
   });
   const fitAddon = new FitAddon();
@@ -625,6 +636,9 @@ onUnmounted(() => {
             <div class="icon-item" title="同步设置" :class="{ active: rightPanelVisible && rightPanelType === 'sync-settings' }" @click="toggleRightPanel('sync-settings')">
               <i class="fas fa-cog"></i>
             </div>
+            <div class="icon-item" title="主题设置" :class="{ active: rightPanelVisible && rightPanelType === 'theme-settings' }" @click="toggleRightPanel('theme-settings')">
+              <i class="fas fa-palette"></i>
+            </div>
           </div>
         </div>
 
@@ -634,6 +648,7 @@ onUnmounted(() => {
             <AiAssistantPanel v-else-if="rightPanelType === 'ai'" :activeSessionId="activeSessionId" />
             <RedisManager v-else-if="rightPanelType === 'redis'" :activeSessionId="activeSessionId" />
             <SyncSettings v-else-if="rightPanelType === 'sync-settings'" :activeSessionId="activeSessionId" />
+            <ThemeSettings v-else-if="rightPanelType === 'theme-settings'" :activeSessionId="activeSessionId" />
           </div>
         </Transition>
       </div>

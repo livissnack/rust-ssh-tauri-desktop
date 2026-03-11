@@ -69,15 +69,15 @@ watch(() => props.currentServer?.id, async (newId) => {
 
 .status-bar {
   height: 30px;
-  background: base.$bg-sidebar; // 状态栏通常与侧边栏色调一致，保持底座稳重
-  border-top: 1px solid base.$border; // 修改：统一使用 $border 变量
+  background: var(--bg-sidebar);
+  border-top: 1px solid var(--border);
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 0 15px;
   font-size: 11px;
-  color: base.$text-dim;
-  user-select: none; // 状态栏建议禁止文本选中
+  color: var(--text-dim);
+  user-select: none;
 
   .status-left,
   .status-right {
@@ -86,9 +86,10 @@ watch(() => props.currentServer?.id, async (newId) => {
     align-items: center;
   }
 
-  /* 延迟显示：根据数值高低建议使用 $accent 或 $warning */
+  /* 延迟显示：根据数值高低建议使用强调色或警告色 */
   .latency {
-    color: base.$accent-orange; // 修改：使用主题中的橙色/警告色
+    // 假设 base.scss 映射了 --accent-orange，若无，请确保主题配置中包含该颜色
+    color: var(--accent-orange, #f97316);
     font-family: 'JetBrains Mono', monospace;
     font-weight: 500;
     display: flex;
@@ -97,8 +98,8 @@ watch(() => props.currentServer?.id, async (newId) => {
 
     i {
       font-size: 10px;
-      // 修改：发光颜色跟随变量
-      filter: drop-shadow(0 0 3px rgba(base.$accent-orange, 0.5));
+      // 修复点：使用预计算的带透明度的变量处理发光
+      filter: drop-shadow(0 0 3px var(--accent-orange-50, rgba(249, 115, 22, 0.5)));
     }
   }
 
@@ -109,7 +110,7 @@ watch(() => props.currentServer?.id, async (newId) => {
     transition: color 0.2s;
 
     &:hover {
-      color: base.$text-main;
+      color: var(--text-main);
     }
   }
 
@@ -118,13 +119,13 @@ watch(() => props.currentServer?.id, async (newId) => {
     width: 7px;
     height: 7px;
     border-radius: 50%;
-    background: base.$border; // 离线状态使用边框色或深色
+    background: var(--border); // 离线状态
 
     &.online {
-      background: base.$success;
-      // 修改：发光半径微调，使用 rgba 确保柔和
-      box-shadow: 0 0 8px rgba(base.$success, 0.6);
-      animation: status-pulse 3s infinite; // 增加一个极其微弱的呼吸感
+      background: var(--success);
+      // 修复点：使用预计算的 --success-60 处理发光
+      box-shadow: 0 0 8px var(--success-60, rgba(16, 185, 129, 0.6));
+      animation: status-pulse 3s infinite;
     }
   }
 }

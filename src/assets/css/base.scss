@@ -6,7 +6,7 @@
 // ============================================
 
 // 默认主题名称
-$active-theme: 'monokai-pro' !default;
+$active-theme: 'microsoft-dark' !default;
 
 // ============================================
 // 🌸 主题列表
@@ -177,8 +177,6 @@ $logo-text-color: #ffffff;
   --theme-name: '#{$active-theme}';
 }
 
-// ... 剩余的 body, 滚动条, file-icon 等样式保持不变 ...
-// 建议在引用变量时直接使用 $bg-primary 这种快捷映射，避免重复调用 theme() 函数
 body {
   margin: 0;
   padding: 0;
@@ -279,4 +277,90 @@ input, select, textarea {
 [draggable="true"] {
   user-select: none;
   -webkit-user-drag: element;
+}
+
+// ============================================
+// 动态主题类生成 (核心：让 class 覆盖 :root 变量)
+// ============================================
+@each $name, $map in $themes {
+  .#{$name}-theme {
+    // 1. 基础背景色
+    --bg-primary: #{map.get($map, 'bg-primary')};
+    --bg-secondary: #{map.get($map, 'bg-secondary')};
+    --bg-card: #{map.get($map, 'bg-card')};
+    --bg-input: #{map.get($map, 'bg-input')};
+    --bg-main: #{map.get($map, 'bg-primary')}; // 通常与主背景一致
+    --bg-sidebar: #{map.get($map, 'bg-secondary')};
+
+    // 2. 边框与阴影
+    --border: #{map.get($map, 'border')};
+    --border-color: #{map.get($map, 'border')};
+    --shadow: #{map.get($map, 'shadow')};
+
+    // 3. 文字颜色
+    --text-main: #{map.get($map, 'text-main')};
+    --text-dim: #{map.get($map, 'text-dim')};
+    --text-muted: #{map.get($map, 'text-dim')};
+
+    // 4. 品牌/强调色
+    $theme-accent: map.get($map, 'accent');
+    --accent: #{$theme-accent};
+    --accent-color: #{$theme-accent};
+    --accent-blue: #{map.get($map, 'accent')};
+    --accent-purple: #{map.get($map, 'accent-alt')};
+    --accent-orange: #{map.get($map, 'accent-orange')};
+    --accent-glow: #{color.change($theme-accent, $alpha: 0.2)};
+
+    // 5. 状态色
+    --success: #{map.get($map, 'success')};
+    --error: #{map.get($map, 'error')};
+    --danger: #{map.get($map, 'error')};
+    --warning: #{map.get($map, 'accent-orange')};
+
+    // 6. 滚动条适配
+    --scrollbar-thumb: #{map.get($map, 'border')};
+    --scrollbar-thumb-hover: #{color.mix(map.get($map, 'border'), #ffffff, 15%)};
+
+    // 7. 特殊图标颜色 (SFTP等使用)
+    --icon-folder: #{map.get($map, 'accent-orange')};
+    --icon-file: #{map.get($map, 'text-dim')};
+    --icon-up: #{map.get($map, 'success')};
+
+    // --- 新增：专门用于解决 rgba 报错的预计算透明变量 ---
+    --accent-05: #{color.change(map.get($map, 'accent'), $alpha: 0.05)};
+    --accent-08: #{color.change(map.get($map, 'accent'), $alpha: 0.08)};
+    --accent-10: #{color.change(map.get($map, 'accent'), $alpha: 0.1)};
+    --accent-12: #{color.change(map.get($map, 'accent'), $alpha: 0.12)};
+    --accent-15: #{color.change(map.get($map, 'accent'), $alpha: 0.15)};
+    --accent-20: #{color.change(map.get($map, 'accent'), $alpha: 0.2)};
+    --accent-30: #{color.change(map.get($map, 'accent'), $alpha: 0.3)};
+    --error-15: #{color.change(map.get($map, 'error'), $alpha: 0.15)};
+    --error-30: #{color.change(map.get($map, 'error'), $alpha: 0.3)};
+
+    // 面板背景专用 (带透明度)
+    --bg-card-95: #{color.change(map.get($map, 'bg-card'), $alpha: 0.95)};
+    --bg-secondary-60: #{color.change(map.get($map, 'bg-secondary'), $alpha: 0.6)};
+    --bg-secondary-95: #{color.change(map.get($map, 'bg-secondary'), $alpha: 0.95)};
+    --bg-primary-30: #{color.change(map.get($map, 'bg-primary'), $alpha: 0.3)};
+
+    // --- 补充缺失的透明阶梯 ---
+    // 用于状态灯和延迟显示的发光效果
+    --success-60: #{color.change(map.get($map, 'success'), $alpha: 0.6)};
+    --accent-orange-10: #{color.change(map.get($map, 'accent-orange'), $alpha: 0.1)};
+    --accent-orange-20: #{color.change(map.get($map, 'accent-orange'), $alpha: 0.2)};
+    --accent-orange-50: #{color.change(map.get($map, 'accent-orange'), $alpha: 0.5)};
+
+    // 用于 Tabs 的非激活态背景
+    --bg-primary-60: #{color.change(map.get($map, 'bg-primary'), $alpha: 0.6)};
+    --bg-primary-80: #{color.change(map.get($map, 'bg-primary'), $alpha: 0.8)};
+
+    // 用于边框的微妙层次感 (Workspace Header 使用过)
+    --border-50: #{color.change(map.get($map, 'border'), $alpha: 0.5)};
+
+    // 用于失焦状态的文字 (Titlebar 使用)
+    --text-dim-40: #{color.change(map.get($map, 'text-dim'), $alpha: 0.4)};
+
+    // 8. 标记当前主题名
+    --theme-name: '#{$name}';
+  }
 }

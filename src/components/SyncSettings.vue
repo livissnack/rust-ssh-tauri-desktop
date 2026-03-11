@@ -165,11 +165,11 @@ onMounted(loadSettings);
 .sync-panel {
   display: flex;
   flex-direction: column;
-  background: base.$bg-primary;
+  background: var(--bg-primary);
   border-radius: 10px;
-  border: 1px solid base.$border;
+  border: 1px solid var(--border);
   overflow: hidden;
-  box-shadow: 0 4px 25px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 4px 25px var(--shadow);
 }
 
 .panel-header {
@@ -177,8 +177,9 @@ onMounted(loadSettings);
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border-bottom: 1px solid base.$border;
-  background: rgba(base.$bg-secondary, 0.5);
+  border-bottom: 1px solid var(--border);
+  // 修复点：使用预计算的背景透明度变量
+  background: var(--bg-secondary-60);
 
   .title {
     display: flex;
@@ -186,14 +187,14 @@ onMounted(loadSettings);
     gap: 10px;
     font-size: 14px;
     font-weight: 600;
-    color: base.$accent;
+    color: var(--accent);
     i { font-size: 16px; }
   }
 }
 
 .sync-form {
   padding: 20px;
-  background: base.$bg-secondary;
+  background: var(--bg-secondary);
   display: flex;
   flex-direction: column;
   gap: 15px;
@@ -205,7 +206,7 @@ onMounted(loadSettings);
     flex: 1;
     label {
       font-size: 11px;
-      color: base.$text-muted;
+      color: var(--text-dim); // 统一使用 text-dim
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.5px;
@@ -215,35 +216,36 @@ onMounted(loadSettings);
   .input-row { display: flex; gap: 12px; }
 
   .form-input {
-    background: base.$bg-input; // 修改：使用统一输入框背景
-    border: 1px solid base.$border;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
     border-radius: 6px;
     padding: 10px;
-    color: base.$text-main;
+    color: var(--text-main);
     font-size: 13px;
     transition: all 0.2s;
 
     &:focus {
       outline: none;
-      border-color: base.$accent;
-      box-shadow: 0 0 0 2px rgba(base.$accent, 0.1);
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px var(--accent-10);
     }
 
     &::placeholder {
-      color: base.$text-dim;
+      color: var(--text-dim);
       opacity: 0.5;
     }
   }
 
-  /* 主密钥特殊样式 - 增加视觉权重 */
+  /* 主密钥特殊样式 */
   .master-key-box {
-    background: rgba(base.$accent, 0.05);
+    // 修复点：使用 accent 的透明变量
+    background: var(--accent-05);
     padding: 12px;
     border-radius: 8px;
-    border: 1px dashed rgba(base.$accent, 0.3);
+    border: 1px dashed var(--accent-30);
 
     .master-label {
-      color: base.$accent;
+      color: var(--accent);
       font-weight: 700;
       font-size: 12px;
       display: flex;
@@ -263,10 +265,10 @@ onMounted(loadSettings);
       position: absolute;
       right: 12px;
       font-size: 14px;
-      color: base.$text-dim;
+      color: var(--text-dim);
       cursor: pointer;
       transition: color 0.2s;
-      &:hover { color: base.$accent; }
+      &:hover { color: var(--accent); }
     }
   }
 
@@ -278,24 +280,24 @@ onMounted(loadSettings);
 
     .auto-sync {
       font-size: 12px;
-      color: base.$text-dim;
+      color: var(--text-dim);
       display: flex;
       align-items: center;
       gap: 8px;
       cursor: pointer;
       transition: color 0.2s;
 
-      &:hover { color: base.$text-main; }
+      &:hover { color: var(--text-main); }
 
       input {
         cursor: pointer;
-        accent-color: base.$accent; // 修改：复选框颜色跟随主题
+        accent-color: var(--accent);
       }
     }
 
     .btn-save {
-      background: base.$accent;
-      color: base.$bg-primary;
+      background: var(--accent);
+      color: var(--bg-primary);
       border: none;
       padding: 8px 18px;
       border-radius: 6px;
@@ -305,7 +307,7 @@ onMounted(loadSettings);
 
       &:hover {
         filter: brightness(1.1);
-        box-shadow: 0 4px 12px rgba(base.$accent, 0.3);
+        box-shadow: 0 4px 12px var(--accent-30);
       }
     }
   }
@@ -316,15 +318,15 @@ onMounted(loadSettings);
   display: flex;
   flex-direction: column;
   gap: 12px;
-  background: base.$bg-primary;
+  background: var(--bg-primary);
 
   .op-card {
     display: flex;
     align-items: center;
     gap: 15px;
     padding: 16px;
-    background: base.$bg-card; // 修改：使用卡片背景色
-    border: 1px solid base.$border;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
     border-radius: 10px;
     cursor: pointer;
     transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
@@ -336,18 +338,18 @@ onMounted(loadSettings);
     }
 
     &:hover {
-      background: rgba(base.$accent, 0.08);
-      border-color: base.$accent;
+      background: var(--accent-08);
+      border-color: var(--accent);
       transform: translateY(-2px);
-      box-shadow: 0 6px 15px rgba(0, 0, 0, 0.2);
+      box-shadow: 0 6px 15px var(--shadow);
 
-      .op-icon { color: base.$accent; }
-      .op-title { color: base.$accent; }
+      .op-icon { color: var(--accent); }
+      .op-title { color: var(--accent); }
     }
 
     .op-icon {
       font-size: 24px;
-      color: base.$text-dim;
+      color: var(--text-dim);
       transition: all 0.3s;
     }
 
@@ -356,40 +358,39 @@ onMounted(loadSettings);
       .op-title {
         font-size: 14px;
         font-weight: 600;
-        color: base.$text-main;
+        color: var(--text-main);
         transition: color 0.2s;
       }
       .op-desc {
         font-size: 11px;
-        color: base.$text-dim;
+        color: var(--text-dim);
         margin-top: 4px;
         line-height: 1.4;
       }
     }
 
-    /* 悬浮时的特定颜色微调 */
-    &.upload:hover .op-icon { color: base.$accent; }
-    &.download:hover .op-icon { color: base.$success; }
+    /* 悬浮时的特定颜色微调 - 建议 download 使用 success */
+    &.download:hover .op-icon { color: var(--success, #10b981); }
   }
 }
 
 .sync-footer {
   padding: 12px 18px;
   font-size: 11px;
-  color: base.$text-dim;
-  background: rgba(base.$bg-secondary, 0.3);
-  border-top: 1px solid base.$border;
+  color: var(--text-dim);
+  background: var(--bg-secondary-60);
+  border-top: 1px solid var(--border);
   display: flex;
   align-items: center;
   gap: 8px;
 
   i {
     font-size: 12px;
-    color: base.$success; // 同步成功的图标颜色
+    color: var(--success);
   }
 }
 
-/* 抽屉式动画 */
+/* 抽屉式动画保持逻辑不变 */
 .expand-container {
   display: grid;
   grid-template-rows: 0fr;
@@ -407,20 +408,20 @@ onMounted(loadSettings);
 .icon-btn {
   background: transparent;
   border: none;
-  color: base.$text-dim;
+  color: var(--text-dim);
   cursor: pointer;
   padding: 6px;
   border-radius: 50%;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 
   &:hover {
-    background: rgba(base.$text-dim, 0.1);
-    color: base.$text-main;
+    background: var(--accent-10);
+    color: var(--text-main);
   }
 
   &.is-active {
     transform: rotate(90deg);
-    color: base.$accent;
+    color: var(--accent);
   }
 }
 </style>

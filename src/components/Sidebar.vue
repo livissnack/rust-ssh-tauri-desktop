@@ -84,8 +84,8 @@ const handleDoubleClick = () => {
 
 .sidebar {
   width: 260px;
-  background-color: base.$bg-sidebar; // 侧边栏专属背景
-  border-right: 1px solid base.$border; // 修改：统一边框色
+  background-color: var(--bg-sidebar);
+  border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -100,20 +100,20 @@ const handleDoubleClick = () => {
     .logo-hex {
       width: 32px;
       height: 32px;
-      // 修改：渐变色采用主题强调色 + 辅助色
-      background: linear-gradient(135deg, base.$accent, base.$accent-purple);
+      // 修复点：使用 CSS 变量构建渐变，注意这里的 --accent-purple 需在 base.scss 中定义
+      background: linear-gradient(135deg, var(--accent), var(--accent-purple, #a78bfa));
       border-radius: 8px;
       display: flex;
       align-items: center;
       justify-content: center;
-      color: base.$logo-text-color; // Logo 文字建议使用深色背景形成反差
+      color: var(--bg-primary); // 通常 Logo 文字使用反差背景色
       font-weight: 800;
-      box-shadow: 0 4px 12px rgba(base.$accent, 0.3);
+      box-shadow: 0 4px 12px var(--accent-30); // 修复点
     }
 
     .brand-text {
       font-weight: 700;
-      color: base.$text-main; // 修改：跟随主题文字色
+      color: var(--text-main);
       font-size: 18px;
       letter-spacing: -0.5px;
     }
@@ -127,7 +127,7 @@ const handleDoubleClick = () => {
     /* 滚动条美化 */
     &::-webkit-scrollbar { width: 4px; }
     &::-webkit-scrollbar-thumb {
-      background: base.$border;
+      background: var(--border);
       border-radius: 4px;
     }
   }
@@ -135,8 +135,9 @@ const handleDoubleClick = () => {
   .sidebar-footer {
     flex-shrink: 0;
     padding: 16px 12px;
-    border-top: 1px solid base.$border;
-    background: rgba(0, 0, 0, 0.05); // 轻微加深底部
+    border-top: 1px solid var(--border);
+    // 修复点：使用预计算的透明背景
+    background: var(--bg-secondary-60);
   }
 }
 
@@ -153,8 +154,8 @@ const handleDoubleClick = () => {
   border: 1px solid transparent;
 
   &:hover {
-    background: base.$bg-secondary; // 修改：悬浮使用次要背景
-    border-color: base.$border;
+    background: var(--bg-secondary);
+    border-color: var(--border);
 
     .host-actions {
       opacity: 1;
@@ -163,32 +164,32 @@ const handleDoubleClick = () => {
   }
 
   &.active {
-    background: base.$bg-card; // 修改：激活态使用卡片背景
-    border-color: rgba(base.$accent, 0.3);
-    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+    background: var(--bg-card);
+    border-color: var(--accent-30); // 修复点
+    box-shadow: 0 8px 20px var(--shadow); // 修复点
 
     .host-icon-wrapper {
-      background: base.$accent;
-      color: base.$bg-primary;
+      background: var(--accent);
+      color: var(--bg-primary);
     }
 
     .pulse-ring {
-      display: block; // 仅在 active 时显示
+      display: block;
     }
 
-    .host-meta .name { color: base.$accent; }
+    .host-meta .name { color: var(--accent); }
   }
 
   .host-icon-wrapper {
     position: relative;
     width: 38px;
     height: 38px;
-    background: base.$bg-input; // 默认图标背景
+    background: var(--bg-input);
     border-radius: 10px;
     display: flex;
     align-items: center;
     justify-content: center;
-    color: base.$text-dim;
+    color: var(--text-dim);
     transition: all 0.2s;
   }
 
@@ -198,7 +199,7 @@ const handleDoubleClick = () => {
     .name {
       font-size: 13px;
       font-weight: 600;
-      color: base.$text-main;
+      color: var(--text-main);
       margin-bottom: 2px;
       white-space: nowrap;
       overflow: hidden;
@@ -207,7 +208,7 @@ const handleDoubleClick = () => {
 
     .ip {
       font-size: 11px;
-      color: base.$text-dim;
+      color: var(--text-dim);
       font-family: 'JetBrains Mono', monospace;
     }
   }
@@ -223,12 +224,12 @@ const handleDoubleClick = () => {
 
     .action-item {
       cursor: pointer;
-      color: base.$text-dim;
+      color: var(--text-dim);
       font-size: 14px;
       &:hover {
-        color: base.$accent;
+        color: var(--accent);
       }
-      &.del:hover { color: base.$error; }
+      &.del:hover { color: var(--error); }
     }
   }
 }
@@ -236,8 +237,8 @@ const handleDoubleClick = () => {
 .add-host-btn {
   width: 100%;
   background: transparent;
-  border: 1px dashed base.$border;
-  color: base.$text-dim;
+  border: 1px dashed var(--border);
+  color: var(--text-dim);
   padding: 12px;
   border-radius: 12px;
   cursor: pointer;
@@ -249,18 +250,18 @@ const handleDoubleClick = () => {
   font-size: 13px;
 
   &:hover {
-    border-color: base.$accent;
-    background: rgba(base.$accent, 0.05);
-    color: base.$accent;
+    border-color: var(--accent);
+    background: var(--accent-05); // 修复点
+    color: var(--accent);
   }
 }
 
 /* 激活态呼吸灯效果 */
 .pulse-ring {
-  display: none; // 默认隐藏
+  display: none;
   position: absolute;
   inset: 0;
-  border: 2px solid base.$accent;
+  border: 2px solid var(--accent);
   border-radius: 10px;
   animation: pulse 2s infinite;
 }
@@ -272,11 +273,11 @@ const handleDoubleClick = () => {
 
 .group-label {
   font-size: 10px;
-  color: base.$text-muted;
+  color: var(--text-dim); // 使用 text-dim 保持可读性
   text-transform: uppercase;
   letter-spacing: 1.5px;
   margin: 18px 0 8px 12px;
   font-weight: 700;
-  opacity: 0.8;
+  opacity: 0.6; // 通过 opacity 控制视觉强度
 }
 </style>

@@ -235,14 +235,39 @@ onUnmounted(() => {
       </div>
 
       <div class="input-bar">
-        <textarea
-            v-model="userInput"
-            placeholder="询问 Linux 相关问题..."
-            @keydown="handleKeydown"
-        ></textarea>
-        <button class="btn-send" @click="sendMessage" :disabled="isLoading || !userInput.trim()">
-          <i class="fas fa-paper-plane"></i>
-        </button>
+        <div class="input-inner-wrapper">
+    <textarea
+        class="input-textarea"
+        v-model="userInput"
+        placeholder="输入问题，Shift + Enter 换行..."
+        @keydown="handleKeydown"
+        :rows="userInput.split('\n').length > 3 ? 3 : 2"
+        spellcheck="false"
+    ></textarea>
+
+          <div class="input-actions">
+            <div class="input-info">
+        <span v-if="activeSessionId" class="status-tag">
+          <i class="fas fa-link"></i> 已挂载终端
+        </span>
+              <span v-else class="status-tag warning">
+          <i class="fas fa-unlink"></i> 未连接会话
+        </span>
+            </div>
+
+            <div class="action-right">
+              <span class="kb-hint">Enter 发送</span>
+              <button
+                  class="btn-send"
+                  @click="sendMessage"
+                  :disabled="isLoading || !userInput.trim()"
+                  :class="{ 'is-loading': isLoading }"
+              >
+                <i class="fas" :class="isLoading ? 'fa-circle-notch fa-spin' : 'fa-paper-plane'"></i>
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     </template>
   </div>
@@ -447,48 +472,146 @@ onUnmounted(() => {
 }
 
 .input-bar {
-  padding: 12px;
-  border-top: 1px solid var(--border);
-  display: flex;
-  gap: 10px;
-  align-items: flex-end;
-  background: var(--bg-secondary);
+  padding: 16px 20px;
+  background: var(--bg-primary);
+  border-top: 1px solid var(--border-50);
 
-  textarea {
-    flex: 1;
+  .input-inner-wrapper {
+    position: relative;
     background: var(--bg-input);
     border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 10px;
-    color: var(--text-main);
-    font-size: 12px;
-    height: 60px;
-    resize: none;
+    border-radius: 12px;
+    padding: 10px 14px 8px 14px;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 
-    &:focus {
-      outline: none;
+    /* 聚焦时的呼吸效果 */
+    &:focus-within {
       border-color: var(--accent);
+      background: var(--bg-primary);
+      box-shadow: 0 4px 20px var(--accent-15);
+      transform: translateY(-2px);
+    }
+
+    .input-textarea {
+      width: 100%;
+      min-height: 24px;
+      max-height: 150px;
+      background: transparent !important;
+
+      /* 彻底移除边框和点击时的蓝色外框 */
+      border: none !important;
+      outline: none !important;
+      box-shadow: none !important;
+      appearance: none !important;
+      -webkit-appearance: none !important;
+
+      padding: 4px 0;
+      color: var(--text-main);
+      font-size: 13.5px;
+      line-height: 1.6;
+      resize: none;
+      font-family: inherit;
+
+      /* 解决某些浏览器下的默认聚焦样式 */
+      &:focus {
+        border: none !important;
+        outline: none !important;
+        box-shadow: none !important;
+      }
+
+      &::placeholder {
+        color: var(--text-dim);
+        opacity: 0.4;
+      }
+    }
+
+    /* 底部操作条 */
+    .input-actions {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid var(--border-30);
+
+      .status-tag {
+        font-size: 10px;
+        color: var(--text-dim);
+        background: var(--accent-05);
+        padding: 2px 8px;
+        border-radius: 4px;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        opacity: 0.8;
+
+        i { font-size: 9px; }
+        &.warning { color: #e67e22; background: rgba(230, 126, 34, 0.1); }
+      }
+
+      .action-right {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+
+        .kb-hint {
+          font-size: 10px;
+          color: var(--text-dim);
+          opacity: 0.5;
+          letter-spacing: 0.5px;
+        }
+
+        .btn-send {
+          width: 30px;
+          height: 30px;
+          background: var(--accent);
+          color: var(--bg-primary); // 对比色
+          border: none;
+          border-radius: 8px;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+          box-shadow: 0 2px 6px var(--accent-20);
+
+          &:hover:not(:disabled) {
+            transform: scale(1.1);
+            filter: brightness(1.1);
+            box-shadow: 0 4px 12px var(--accent-40);
+          }
+
+          &:active:not(:disabled) {
+            transform: scale(0.9);
+          }
+
+          &:disabled {
+            background: var(--border);
+            color: var(--text-dim);
+            cursor: not-allowed;
+            box-shadow: none;
+            opacity: 0.6;
+          }
+
+          i { font-size: 13px; }
+
+          &.is-loading {
+            background: var(--accent-20);
+            color: var(--accent);
+          }
+        }
+      }
     }
   }
+}
 
-  .btn-send {
-    width: 40px;
-    height: 40px;
-    background: var(--accent);
-    color: var(--bg-primary);
-    border: none;
-    border-radius: 8px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: all 0.2s;
-
-    &:disabled {
-      background: var(--text-dim);
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
+/* 兼容深色/人民币主题的特别处理 */
+[data-theme='rmb-red'], .rmb-red-theme {
+  .input-inner-wrapper:focus-within {
+    box-shadow: 0 4px 20px rgba(230, 0, 0, 0.2);
   }
 }
 

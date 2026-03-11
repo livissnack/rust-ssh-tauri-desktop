@@ -51,9 +51,14 @@ const connectButtonIcon = computed(() => {
 <template>
   <header class="workspace-header">
     <div class="breadcrumb">
-      <span class="root">Hosts</span>
+      <div class="breadcrumb-item">
+        <span>Hosts</span>
+      </div>
       <span class="sep">/</span>
-      <span class="current">{{ displayServerName }}</span>
+      <div class="breadcrumb-item current">
+        <span class="status-indicator" v-if="activeSessionId"></span>
+        <span class="name">{{ displayServerName }}</span>
+      </div>
     </div>
     <div class="toolbar">
       <button
@@ -100,32 +105,48 @@ const connectButtonIcon = computed(() => {
   align-items: center;
   padding: 0 24px;
   flex-shrink: 0;
-  background: var(--bg-primary); // 保持与内容区连贯
+  background: var(--bg-primary);
 
   .breadcrumb {
-    font-size: 13px;
     display: flex;
     align-items: center;
+    gap: 4px; // 整体间距缩小，依靠 padding 撑开点击区域
+    font-family: 'Inter', sans-serif;
 
-    .root {
-      color: var(--text-dim);
-      transition: color 0.2s;
-      &:hover {
+    .breadcrumb-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      border-radius: 6px;
+      transition: all 0.2s ease;
+
+      &.current {
         color: var(--text-main);
-        cursor: pointer;
+        font-weight: 700;
+        letter-spacing: -0.2px; // 略微收紧字间距，更有现代感
+        font-size: 14px;
+
+        .status-indicator {
+          width: 6px;
+          height: 6px;
+          border-radius: 50%;
+          background: var(--success);
+          box-shadow: 0 0 8px var(--success-60);
+          margin-right: 4px;
+        }
       }
     }
 
     .sep {
-      color: var(--border);
-      margin: 0 10px;
-      font-size: 10px;
-    }
-
-    .current {
-      color: var(--text-main);
-      font-weight: 600;
-      letter-spacing: 0.3px;
+      color: var(--text-dim);
+      font-family: "JetBrains Mono", "Cascadia Code", monospace;
+      font-size: 14px;
+      font-weight: 300;
+      user-select: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
     }
   }
 }
@@ -135,7 +156,7 @@ const connectButtonIcon = computed(() => {
   align-items: center;
   gap: 8px;
   padding: 4px;
-  background: var(--bg-secondary); // 工具栏使用次要背景
+  background: var(--bg-secondary);
   border-radius: 10px;
   border: 1px solid var(--border);
 

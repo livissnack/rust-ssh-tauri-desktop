@@ -1,6 +1,7 @@
 @use "sass:color";
 @use 'base.scss' as base;
 
+// --- 基础布局 ---
 .termius-container {
   display: flex;
   flex-direction: column;
@@ -23,8 +24,11 @@
   flex-direction: column;
   background: var(--bg-primary);
   overflow: hidden;
+  position: relative;
+  margin-right: 50px;
 }
 
+// --- 终端样式 (Terminal) ---
 .terminal-shell {
   flex: 1;
   margin: 0 16px 16px;
@@ -34,166 +38,221 @@
   position: relative;
   overflow: hidden;
 
-  .terminal-wrapper {
+  .terminal-wrapper, .xterm-container {
     height: 100%;
+    width: 100%;
   }
 
   .xterm-container {
-    width: 100%;
-    height: 100%;
     padding: 10px;
     box-sizing: border-box;
-
     :deep(.xterm) {
       padding: 4px;
-
-      .xterm-viewport {
-        background-color: transparent !important;
-      }
+      .xterm-viewport { background-color: transparent !important; }
     }
   }
 
+  // 终端未连接状态
   .empty-state {
     height: 100%;
     display: flex;
-    flex-direction: column;
     align-items: center;
     justify-content: center;
-    color: var(--text-dim);
+    background: var(--bg-primary);
+    text-align: center;
+    padding: 20px 40px 40px 40px;
 
-    .empty-icon {
-      font-size: 48px;
-      opacity: 0.3;
+    .icon-stack {
+      position: relative;
+      margin-bottom: 24px;
+      .main-icon {
+        font-size: 56px;
+        color: var(--accent);
+        opacity: 0.8;
+        filter: drop-shadow(0 0 15px var(--accent-20));
+      }
+      .glow-ring {
+        position: absolute;
+        top: 50%; left: 50%;
+        transform: translate(-50%, -50%);
+        width: 100px; height: 100px;
+        background: radial-gradient(circle, var(--accent-10) 0%, transparent 70%);
+        border-radius: 50%;
+        animation: pulse-ring 4s infinite ease-in-out;
+      }
+    }
+
+    .empty-title { font-size: 18px; font-weight: 600; margin-bottom: 8px; }
+    .empty-description { font-size: 13px; color: var(--text-dim); line-height: 1.6; margin-bottom: 24px; }
+
+    .create-btn {
+      /* 核心修复：确保按钮自身作为 flex 项目居中 */
+      display: inline-flex; // 使用 inline-flex 紧贴内容
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+
+      margin: 0 auto; // 强制水平外边距居中
+      padding: 12px 24px;
+      background: var(--accent-10);
+      border: 1px solid var(--accent-20);
+      border-radius: 10px;
+      color: var(--accent);
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+
+      &:hover {
+        background: var(--accent);
+        color: #ffffff;
+        transform: translateY(-3px);
+        box-shadow: 0 6px 16px var(--accent-30);
+      }
+
+      &:active {
+        transform: translateY(-1px);
+      }
     }
   }
 }
 
+// --- SFTP 文件管理器 ---
 .sftp-wrapper {
-  // 必须确保它占据父级高度，且自身不溢出
   height: 100%;
   display: flex;
   flex-direction: column;
-  overflow: hidden; // 关键：阻止子元素撑开自己
+  overflow: hidden;
 }
 
 .sftp-manager {
   display: flex;
   height: 100%;
   background: var(--bg-primary);
-  overflow: hidden;
 
   .file-pane {
     flex: 1;
     display: flex;
     flex-direction: column;
-    height: 100%;
-    min-height: 0;
     min-width: 0;
     border-right: 1px solid var(--border);
 
     .pane-header {
-      flex-shrink: 0;
       padding: 10px 12px;
       background: var(--bg-secondary);
-      display: flex;
-      align-items: center;
-      gap: 8px;
-
+      display: flex; align-items: center; gap: 8px;
       .path-input {
-        background: transparent;
-        border: none;
-        color: var(--accent);
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 11px;
-        width: 100%;
-
-        &:focus {
-          outline: none;
-          background: var(--accent-05);
-        }
+        background: transparent; border: none; color: var(--accent);
+        font-family: 'JetBrains Mono', monospace; font-size: 11px; width: 100%;
+        &:focus { outline: none; background: var(--accent-05); }
       }
     }
 
     .file-list {
-      flex: 1;
-      overflow-y: auto;
-      padding: 4px 0;
+      flex: 1; overflow-y: auto;
       scrollbar-gutter: stable;
-      transition: background-color 0.2s;
-      &::-webkit-scrollbar {
-        width: 6px;
-      }
-      &::-webkit-scrollbar-thumb {
-        background: var(--border);
-        border-radius: 10px;
-        &:hover {
-          background: var(--accent-30);
-        }
-      }
-
-      &.drag-over {
-        background-color: var(--accent-10);
-        outline: 2px dashed var(--accent);
-        outline-offset: -4px;
-      }
+      &.drag-over { background: var(--accent-10); outline: 2px dashed var(--accent); outline-offset: -4px; }
 
       .file-item {
-        display: flex;
-        align-items: center;
-        padding: 6px 12px;
-        font-size: 13px;
-        border-bottom: 1px solid var(--border-color);
+        display: flex; align-items: center;
+        padding: 8px 12px; font-size: 13px;
+        border-bottom: 1px solid var(--border-30);
         cursor: pointer;
-        transition: background 0.2s;
-
-        &:hover {
-          background: var(--accent-08);
+        &:hover { background: var(--accent-08); }
+        .file-icon { width: 24px; margin-right: 8px; text-align: center;
+          i.fa-folder { color: var(--accent-orange); }
+          i.fa-file-alt { color: var(--accent); }
         }
-
-        .file-icon {
-          width: 20px;
-          margin-right: 10px;
-          text-align: center;
-
-          i.fa-folder {
-            color: var(--accent-orange);
-          }
-
-          i.fa-file-alt {
-            color: var(--accent);
-          }
-
-          i.fa-level-up-alt {
-            color: var(--success);
-          }
+        .file-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+          &.is-dir { color: var(--accent); font-weight: 500; }
         }
-
-        .file-name {
-          flex: 1;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-
-          &.is-dir {
-            color: var(--accent);
-            font-weight: 500;
-          }
-        }
-
-        .file-size {
-          color: var(--text-dim);
-          font-size: 11px;
-          margin-left: 8px;
-        }
+        .file-size { color: var(--text-dim); font-size: 11px; }
       }
     }
   }
 }
 
+// --- 右侧停靠栏 (Right Dock & AI Panel) ---
+.right-dock {
+  display: flex;
+  flex-direction: row-reverse; // 关键：图标栏靠最右，面板紧贴其左侧
+  position: absolute;
+  top: 0; right: 0; bottom: 0;
+  z-index: 1000;
+  pointer-events: none; // 默认不拦截点击，防止遮挡终端
+
+  .icon-bar {
+    pointer-events: auto;
+    width: 48px;
+    height: 100%;
+    background: var(--bg-sidebar);
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 0;
+    z-index: 1005;
+
+    .icon-item {
+      position: relative;
+      width: 36px; height: 36px;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--text-dim);
+      cursor: pointer;
+      border-radius: 8px;
+      margin-bottom: 12px;
+      transition: all 0.2s ease;
+
+      &:hover { background: var(--accent-10); color: var(--accent); }
+      &.active {
+        color: var(--accent);
+        background: var(--accent-15);
+        &::after {
+          content: ''; position: absolute; right: -7px;
+          width: 3px; height: 18px;
+          background: var(--accent);
+          border-radius: 4px 0 0 4px;
+          box-shadow: 0 0 8px var(--accent-40);
+        }
+      }
+      i { font-size: 16px; }
+    }
+
+    .bottom-group {
+      padding: 0 0 20px 0;
+    }
+  }
+
+  .floating-panel {
+    pointer-events: auto;
+    position: relative;
+    height: 100%;
+    background: var(--bg-card-95);
+    backdrop-filter: blur(12px);
+    border-left: 1px solid var(--border);
+    box-shadow: -10px 0 30px rgba(0, 0, 0, 0.2);
+    display: flex;
+    flex-direction: column;
+    z-index: 1001;
+    overflow: visible;
+
+    .panel-resizer {
+      position: absolute;
+      left: -4px; top: 0; bottom: 0;
+      width: 8px;
+      cursor: col-resize;
+      z-index: 1010;
+      &:hover { background: var(--accent-30); }
+    }
+
+    .panel-content-wrapper { flex: 1; overflow: hidden; }
+  }
+}
+
+// --- 弹窗与悬浮组件 (Transfer, Menu) ---
 .transfer-status {
-  position: fixed;
-  bottom: 60px;
-  right: 25px;
+  position: fixed; bottom: 60px; right: 25px;
   width: 320px;
   background: var(--bg-card-95);
   backdrop-filter: blur(12px);
@@ -206,192 +265,61 @@
   .status-header {
     padding: 12px 16px;
     background: var(--bg-secondary-60);
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
+    display: flex; justify-content: space-between; align-items: center;
     border-bottom: 1px solid var(--border);
-
-    .header-left {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      color: var(--accent);
-      font-size: 13px;
-      font-weight: bold;
-    }
-
+    .header-left { display: flex; align-items: center; gap: 10px; color: var(--accent); font-weight: bold; }
     .header-status-dot.is-syncing {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: var(--accent);
-      box-shadow: 0 0 8px var(--accent);
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--accent); box-shadow: 0 0 8px var(--accent);
       animation: pulse 1.5s infinite;
     }
   }
 
   .task-row {
-    background: var(--bg-primary-30);
-    padding: 10px;
-    border-radius: 8px;
-    margin: 8px;
-
-    &.status-success {
-      border-left: 3px solid var(--success);
-
-      .task-percent {
-        color: var(--success);
-      }
-    }
-
-    &.status-error {
-      border-left: 3px solid var(--error);
-
-      .task-percent {
-        color: var(--error);
-      }
-    }
-
+    background: var(--bg-primary-30); padding: 10px; border-radius: 8px; margin: 8px;
+    &.status-success { border-left: 3px solid var(--success); .task-percent { color: var(--success); } }
+    &.status-error { border-left: 3px solid var(--error); .task-percent { color: var(--error); } }
     .progress-bar {
-      height: 4px;
-      background: var(--accent);
-      border-radius: 2px;
-      position: relative;
-
+      height: 4px; background: var(--accent); border-radius: 2px;
       &.transferring::after {
-        content: "";
-        position: absolute;
-        inset: 0;
+        content: ""; position: absolute; inset: 0;
         background-image: linear-gradient(-45deg, rgba(255, 255, 255, 0.2) 25%, transparent 25%, transparent 50%, rgba(255, 255, 255, 0.2) 50%, rgba(255, 255, 255, 0.2) 75%, transparent 75%);
-        background-size: 20px 20px;
-        animation: move-stripes 2s linear infinite;
+        background-size: 20px 20px; animation: move-stripes 2s linear infinite;
       }
     }
   }
 }
 
 .context-menu {
-  position: fixed;
-  z-index: 9999;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  box-shadow: 0 4px 12px var(--shadow);
-  padding: 4px;
-  min-width: 160px;
+  position: fixed; z-index: 9999;
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 6px; box-shadow: 0 4px 12px var(--shadow);
+  padding: 4px; min-width: 160px;
 
   .menu-item {
-    padding: 8px 12px;
-    font-size: 13px;
-    border-radius: 4px;
-    color: var(--text-main);
-    cursor: pointer;
-
-    &:hover {
-      background: var(--accent-15);
-      color: var(--accent);
-    }
-
-    &.danger:hover {
-      background: var(--error-15);
-      color: var(--error);
-    }
-
-    &.divider {
-      height: 1px;
-      background: var(--border);
-      margin: 6px 4px;
-    }
+    padding: 8px 12px; font-size: 13px; border-radius: 4px;
+    &:hover { background: var(--accent-15); color: var(--accent); }
+    &.danger:hover { background: var(--error-15); color: var(--error); }
+    &.divider { height: 1px; background: var(--border); margin: 6px 4px; }
   }
 }
 
-.right-dock {
-  display: flex;
-  position: relative;
-  z-index: 100;
-
-  .icon-bar {
-    width: 48px;
-    background: var(--bg-sidebar);
-    border-left: 1px solid var(--border);
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-    align-items: center;
-    padding: 16px 0;
-
-    .icon-item {
-      width: 34px;
-      height: 34px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: var(--text-dim);
-      cursor: pointer;
-      border-radius: 8px;
-      margin-bottom: 10px;
-      transition: all 0.25s ease;
-
-      &:hover {
-        background: var(--accent-05);
-        color: var(--accent);
-      }
-
-      &.active {
-        color: var(--accent);
-        background: var(--accent-12);
-
-        &::after {
-          content: '';
-          position: absolute;
-          right: -1px;
-          width: 3px;
-          height: 16px;
-          background: var(--accent);
-          border-radius: 4px 0 0 4px;
-          box-shadow: 0 0 8px var(--accent);
-        }
-      }
-    }
-  }
-
-  .floating-panel {
-    position: absolute;
-    top: 0;
-    right: 48px;
-    width: 320px;
-    height: 100%;
-    background: var(--bg-secondary-95);
-    backdrop-filter: blur(12px);
-    border-left: 1px solid var(--border);
-    box-shadow: -10px 0 30px var(--shadow);
-
-    &.is-redis {
-      width: 420px;
-    }
-  }
+// --- 动画定义 ---
+@keyframes pulse-ring {
+  0%, 100% { transform: translate(-50%, -50%) scale(0.8); opacity: 0.5; }
+  50% { transform: translate(-50%, -50%) scale(1.2); opacity: 0.8; }
 }
 
-.redis-icon {
-  color: var(--error);
-  vertical-align: middle;
-  filter: drop-shadow(0 0 2px var(--error-30));
+@keyframes move-stripes { from { background-position: 0 0; } to { background-position: 40px 0; } }
+
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+.panel-slide-enter-active, .panel-slide-leave-active {
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease;
+}
+.panel-slide-enter-from, .panel-slide-leave-to {
+  transform: translateX(100%); opacity: 0;
 }
 
-@keyframes move-stripes {
-  from {
-    background-position: 0 0;
-  }
-  to {
-    background-position: 40px 0;
-  }
-}
-
-@keyframes pulse {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.4;
-  }
-}
+// --- 杂项 ---
+.redis-icon { color: var(--error); vertical-align: middle; filter: drop-shadow(0 0 2px var(--error-30)); }

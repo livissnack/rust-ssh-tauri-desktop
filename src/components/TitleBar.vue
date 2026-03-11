@@ -3,6 +3,10 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 
 const appWindow = getCurrentWindow();
 
+const props = defineProps<{
+  activeSessionId?: string | null;
+}>();
+
 const minimize = () => appWindow.minimize();
 const toggleMaximize = () => appWindow.toggleMaximize();
 const closeApp = () => appWindow.close();
@@ -17,7 +21,14 @@ const closeApp = () => appWindow.close();
         <div class="dot minimize" @click="minimize"></div>
         <div class="dot maximize" @click="toggleMaximize"></div>
       </div>
-      <div class="title-text">Hiphup Terminal</div>
+<!--      <div class="title-text">Hiphup Terminal</div>-->
+      <div class="title-text-container">
+        <div class="app-icon">
+          <i class="fas fa-terminal"></i>
+        </div>
+        <div class="title-main">Hiphup Terminal</div>
+        <div class="session-badge" v-if="activeSessionId">SSH</div>
+      </div>
       <div class="titlebar-spacer"></div>
     </div>
   </header>
@@ -30,13 +41,12 @@ const closeApp = () => appWindow.close();
 .titlebar {
   height: 38px;
   background-color: var(--bg-sidebar);
-  border-bottom: 1px solid var(--border-50); // 修复点：使用预计算的 50% 透明边框
+  border-bottom: 1px solid var(--border-50);
   position: relative;
   z-index: 1000;
   flex-shrink: 0;
   user-select: none;
 
-  /* Tauri 拖拽层 */
   .titlebar-drag-handle {
     position: absolute;
     top: 0;
@@ -46,7 +56,6 @@ const closeApp = () => appWindow.close();
     z-index: 10;
   }
 
-  /* 交互层 */
   .titlebar-ui-layer {
     position: absolute;
     top: 0;
@@ -58,12 +67,12 @@ const closeApp = () => appWindow.close();
     justify-content: space-between;
     padding: 0 15px;
     z-index: 20;
-    pointer-events: none; // 关键：允许点击穿透到下方的拖拽层
+    pointer-events: none;
 
     .window-controls {
       display: flex;
       gap: 8px;
-      pointer-events: auto; // 恢复控件区域的交互
+      pointer-events: auto;
 
       .dot {
         width: 12px;
@@ -76,7 +85,6 @@ const closeApp = () => appWindow.close();
         align-items: center;
         justify-content: center;
 
-        /* 标准 macOS 风格配色：通过 filter 替代 Sass 函数实现动态变色 */
         &.close {
           background: #ff5f56;
           &:hover { filter: brightness(1.1); }
@@ -108,14 +116,57 @@ const closeApp = () => appWindow.close();
       opacity: 0.8;
       transition: color 0.3s ease;
 
-      // 修复点：配合 CSS 变量处理失焦状态
       .is-inactive & {
         color: var(--text-dim-40);
       }
     }
 
+    .title-text-container {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      pointer-events: none;
+
+      .app-icon {
+        font-size: 14px;
+        color: var(--accent);
+        filter: drop-shadow(0 0 4px var(--accent-30));
+        opacity: 0.9;
+      }
+
+      .title-main {
+        font-size: 12px;
+        color: var(--text-main);
+        font-weight: 600;
+        letter-spacing: 0.5px;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+      }
+
+      .session-badge {
+        font-size: 9px;
+        padding: 1px 6px;
+        border-radius: 4px;
+        background: var(--accent-15);
+        color: var(--accent);
+        border: 1px solid var(--accent-20);
+        text-transform: uppercase;
+        font-weight: 800;
+        letter-spacing: 1px;
+      }
+    }
+
+    .is-inactive .title-text-container {
+      opacity: 0.5;
+      filter: grayscale(1);
+      transition: all 0.4s ease;
+    }
+
     .titlebar-spacer {
-      width: 60px; // 视觉平衡块
+      width: 60px;
     }
   }
 }

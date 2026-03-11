@@ -113,40 +113,56 @@ onMounted(() => {
     <div class="rd-mg-expand-panel" :class="{'is-open': isConnectPanelVisible}">
       <div class="rd-mg-form-scroll">
         <div class="rd-mg-form-vertical">
+          <div class="form-header-hint">
+            <div class="dot-deco"></div>
+            <span>实例连接配置</span>
+          </div>
+
           <div class="rd-mg-field">
-            <label>连接名称</label>
-            <input v-model="connForm.name" placeholder="请输入连接名称..." />
+            <label><i class="fas fa-tag"></i> 连接名称</label>
+            <div class="input-control">
+              <input v-model="connForm.name" placeholder="例如：生产环境主库" />
+            </div>
+          </div>
+
+          <div class="rd-mg-field-row group-box">
+            <div class="rd-mg-field flex-3">
+              <label><i class="fas fa-network-wired"></i> 主机地址</label>
+              <div class="input-control">
+                <input v-model="connForm.host" placeholder="127.0.0.1" />
+              </div>
+            </div>
+            <div class="rd-mg-field flex-1">
+              <label><i class="fas fa-door-open"></i> 端口</label>
+              <div class="input-control">
+                <input v-model.number="connForm.port" type="number" placeholder="6379" />
+              </div>
+            </div>
           </div>
 
           <div class="rd-mg-field-row">
-            <div class="rd-mg-field">
-              <label>主机地址</label>
-              <input v-model="connForm.host" placeholder="127.0.0.1" />
+            <div class="rd-mg-field" style="width: 140px; flex: none;">
+              <label><i class="fas fa-layer-group"></i> 数据库</label>
+              <div class="input-control">
+                <input v-model.number="connForm.db" type="number" min="0" max="15" />
+              </div>
             </div>
-            <div class="rd-mg-field" style="width: 120px; flex: none;">
-              <label>端口</label>
-              <input v-model.number="connForm.port" type="number" />
-            </div>
-          </div>
 
-          <div class="rd-mg-field">
-            <label>数据库 (Database Index)</label>
-            <input v-model.number="connForm.db" type="number" min="0" max="15" />
-          </div>
-
-          <div class="rd-mg-field">
-            <label>访问密码</label>
-            <div class="rd-mg-password-box">
-              <input :type="showPassword ? 'text' : 'password'" v-model="connForm.password" placeholder="若无密码请留空" />
-              <button class="rd-mg-eye-btn" @click="showPassword = !showPassword">
-                <i class="fas" :class="showPassword ? 'fa-eye-slash' : 'fa-eye'"></i>
-              </button>
+            <div class="rd-mg-field flex-1">
+              <label><i class="fas fa-key"></i> 访问密码</label>
+              <div class="input-control rd-mg-password-box">
+                <input :type="showPassword ? 'text' : 'password'" v-model="connForm.password" placeholder="若无密码请留空" />
+                <button class="rd-mg-eye-btn" @click="showPassword = !showPassword">
+                  <i class="fas" :class="showPassword ? 'fa-eye-slash' : 'fa-eye'"></i>
+                </button>
+              </div>
             </div>
           </div>
 
           <div class="rd-mg-form-footer">
-            <button class="rd-mg-btn-submit" @click="handleConnect">
-              <i class="fas fa-paper-plane"></i> 测试并连接
+            <button class="rd-mg-btn-submit" @click="handleConnect" :disabled="isConnecting">
+              <i class="fas" :class="isConnecting ? 'fa-circle-notch fa-spin' : 'fa-bolt'"></i>
+              <span>{{ isConnecting ? '正在连接...' : '测试并连接' }}</span>
             </button>
           </div>
         </div>
@@ -232,19 +248,178 @@ onMounted(() => {
     .rd-mg-form-scroll { max-height: 450px; overflow-y: auto; padding: 20px 0; }
 
     .rd-mg-form-vertical {
-      max-width: 480px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px;
-      padding: 0 20px;
+      max-width: 540px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 24px; // 增加整体呼吸感
+      padding: 0 16px;
 
-      .rd-mg-field-row { display: flex; gap: 12px; }
+      /* 装饰性头部 */
+      .form-header-hint {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: -8px;
 
+        .dot-deco {
+          width: 4px; height: 16px;
+          background: var(--accent);
+          border-radius: 2px;
+          box-shadow: 0 0 8px var(--accent-30);
+        }
+        span {
+          font-size: 12px;
+          font-weight: 800;
+          color: var(--text-dim);
+          text-transform: uppercase;
+          letter-spacing: 1.5px;
+        }
+      }
+
+      /* 行布局控制器 */
+      .rd-mg-field-row {
+        display: flex;
+        gap: 12px;
+        align-items: flex-end;
+        width: 100%; // 强制宽度
+        box-sizing: border-box;
+
+        &.group-box {
+          background: var(--bg-primary-30);
+          padding: 12px; // 稍微收紧内边距
+          border-radius: 10px;
+          border: 1px solid var(--border-50);
+          margin: 0; // 【关键修复】移除负 margin，改为 0，防止撑破容器
+          width: 100%;
+        }
+        .flex-3 {
+          flex: 3; // 恢复 3:1 或 2:1，确保比例协调
+          min-width: 0; // 防止内容撑开 flex 项
+        }
+        .flex-1 {
+          flex: 1;
+          min-width: 80px; // 给端口一个最小宽度，防止在窄屏下消失
+        }
+      }
+
+      /* 核心字段样式 */
       .rd-mg-field {
-        display: flex; flex-direction: column; gap: 8px;
-        label { font-size: 12px; font-weight: 600; color: var(--text-dim); }
-        input {
-          height: 36px; padding: 0 12px; background: var(--bg-input);
-          border: 1px solid var(--border); color: var(--text-main); border-radius: 6px;
-          font-size: 13px; transition: all 0.2s ease;
-          &:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px var(--accent-15); }
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+
+        label {
+          font-size: 11px;
+          font-weight: 700;
+          color: var(--text-dim);
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          padding-left: 4px;
+
+          i {
+            font-size: 10px;
+            color: var(--accent);
+            opacity: 0.6;
+          }
+        }
+
+        .input-control {
+          position: relative;
+          display: flex;
+
+          input {
+            width: 100%;
+            box-sizing: border-box;
+            height: 40px;
+            padding: 0 14px;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            border-radius: 8px;
+            font-size: 13px;
+            font-family: 'Inter', system-ui;
+            transition: all 0.25s ease;
+
+            &::placeholder { color: var(--text-dim); opacity: 0.3; }
+
+            &:focus {
+              background: var(--bg-primary);
+              border-color: var(--accent);
+              box-shadow: 0 0 0 4px var(--accent-15);
+              outline: none;
+              transform: translateY(-1px); // 增加浮动感
+            }
+          }
+        }
+      }
+
+      /* 密码查看按钮特化 */
+      .rd-mg-password-box {
+        input { padding-right: 40px !important; }
+        .rd-mg-eye-btn {
+          position: absolute; right: 0; top: 0; bottom: 0; width: 40px;
+          background: transparent; border: none; color: var(--text-dim);
+          cursor: pointer; display: flex; align-items: center; justify-content: center;
+          transition: color 0.2s;
+          &:hover { color: var(--accent); }
+        }
+      }
+
+      /* 提交区域容器 */
+      .rd-mg-form-footer {
+        margin-top: 8px;
+        padding-top: 16px;
+        border-top: 1px solid var(--border-50); // 增加一条极细的分隔线，增强区域感
+        display: flex;
+        justify-content: flex-end; // 改为右对齐，符合操作逻辑
+      }
+
+      /* 按钮样式精修 */
+      .rd-mg-btn-submit {
+        /* 修复核心：宽度不再霸屏 */
+        width: auto !important;
+        min-width: 120px; // 保持一个最小宽度，避免文字变动时按钮闪烁
+        height: 32px !important; // 同步输入框高度，极致对齐
+
+        padding: 0 20px;
+        background: var(--accent);
+        color: var(--bg-primary);
+        border: none;
+        border-radius: 6px; // 匹配输入框的 6px 倒角
+        font-weight: 600;
+        font-size: 12px; // 略微缩小字号，显得更专业
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+
+        /* 阴影收敛：不再扩散，更显沉稳 */
+        box-shadow: 0 4px 10px var(--accent-15);
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+
+        &:hover:not(:disabled) {
+          filter: brightness(1.1);
+          transform: translateY(-1px);
+          box-shadow: 0 6px 15px var(--accent-25);
+        }
+
+        &:active {
+          transform: translateY(0);
+        }
+
+        &:disabled {
+          opacity: 0.5;
+          background: var(--text-dim);
+          cursor: not-allowed;
+          box-shadow: none;
+        }
+
+        i {
+          font-size: 13px;
+          opacity: 0.9;
         }
       }
     }

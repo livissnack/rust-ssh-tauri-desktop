@@ -100,7 +100,9 @@ const closeModal = () => {
             <label>Password</label>
             <div class="password-wrapper">
               <input v-model="formData.password" :type="showPassword ? 'text' : 'password'" />
-              <button type="button" class="eye-btn" @click="showPassword = !showPassword">👁️</button>
+              <button type="button" class="eye-btn" @click="showPassword = !showPassword">
+                <i class="fas" :class="showPassword ? 'fa-eye-slash' : 'fa-eye'"></i>
+              </button>
             </div>
           </div>
           <div v-else class="form-group">

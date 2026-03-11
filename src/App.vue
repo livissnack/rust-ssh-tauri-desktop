@@ -456,8 +456,44 @@ watch(activeSessionId, (newId) => {
   if (newId) focusTerminal(newId);
 });
 
+const panelWidth = ref(400); // 默认宽度
+const isResizing = ref(false);
+
+const startResizing = (e: MouseEvent) => {
+  isResizing.value = true;
+  const startX = e.clientX;
+  const startWidth = panelWidth.value;
+
+  const doResize = (moveEvent: MouseEvent) => {
+    if (!isResizing.value) return;
+    // 因为面板在右侧，向左拖动（delta为负）应该是增加宽度
+    const delta = moveEvent.clientX - startX;
+    const newWidth = startWidth - delta;
+
+    // 限制最小和最大宽度
+    if (newWidth > 300 && newWidth < 800) {
+      panelWidth.value = newWidth;
+    }
+  };
+
+  const stopResizing = () => {
+    isResizing.value = false;
+    document.removeEventListener('mousemove', doResize);
+    document.removeEventListener('mouseup', stopResizing);
+    document.body.style.cursor = 'default';
+    // 可以在这里把宽度存入 localStorage，下次打开自动恢复
+    localStorage.setItem('right-panel-width', String(panelWidth.value));
+  };
+
+  document.addEventListener('mousemove', doResize);
+  document.addEventListener('mouseup', stopResizing);
+  document.body.style.cursor = 'col-resize';
+};
+
 onMounted(async () => {
   window.addEventListener("resize", handleResize);
+  const saved = localStorage.getItem('right-panel-width');
+  if (saved) panelWidth.value = parseInt(saved);
   loadServers();
   unlisten = await listen("ssh-output", (event) => {
     const payload = event.payload as { session_id: string, data: string };
@@ -485,7 +521,7 @@ onUnmounted(() => {
 
 <template>
   <div class="termius-container">
-    <TitleBar/>
+    <TitleBar :active-session-id="activeSessionId" />
     <div class="main-layout">
       <Sidebar
           v-model:active-id="activeId"
@@ -529,8 +565,18 @@ onUnmounted(() => {
               ></div>
             </div>
             <div v-else class="empty-state">
-              <div class="empty-icon">🛰️</div>
-              <p>No active sessions.</p>
+              <div class="empty-state-content">
+                <div class="icon-stack">
+                  <i class="fas fa-terminal main-icon"></i>
+                  <div class="glow-ring"></div>
+                </div>
+                <h3 class="empty-title">Ready to Connect</h3>
+                <p class="empty-description">Select a server from the sidebar or create a new connection to start your session.</p>
+                <button class="create-btn" @click="openAddModal">
+                  <i class="fas fa-plus"></i>
+                  New Connection
+                </button>
+              </div>
             </div>
           </div>
 
@@ -643,12 +689,21 @@ onUnmounted(() => {
         </div>
 
         <Transition name="panel-slide">
-          <div v-if="rightPanelVisible" class="floating-panel" :class="{ 'is-redis': rightPanelType === 'redis' }">
-            <QuickCommandPanel v-if="rightPanelType === 'quick'" :activeSessionId="activeSessionId" />
-            <AiAssistantPanel v-else-if="rightPanelType === 'ai'" :activeSessionId="activeSessionId" />
-            <RedisManager v-else-if="rightPanelType === 'redis'" :activeSessionId="activeSessionId" />
-            <SyncSettings v-else-if="rightPanelType === 'sync-settings'" :activeSessionId="activeSessionId" />
-            <ThemeSettings v-else-if="rightPanelType === 'theme-settings'" :activeSessionId="activeSessionId" />
+          <div
+              v-if="rightPanelVisible"
+              class="floating-panel"
+              :class="{ 'is-redis': rightPanelType === 'redis' }"
+              :style="{ width: panelWidth + 'px' }"
+          >
+            <div class="panel-resizer" @mousedown="startResizing"></div>
+
+            <div class="panel-content-wrapper">
+              <QuickCommandPanel v-if="rightPanelType === 'quick'" :activeSessionId="activeSessionId" />
+              <AiAssistantPanel v-else-if="rightPanelType === 'ai'" :activeSessionId="activeSessionId" />
+              <RedisManager v-else-if="rightPanelType === 'redis'" :activeSessionId="activeSessionId" />
+              <SyncSettings v-else-if="rightPanelType === 'sync-settings'" :activeSessionId="activeSessionId" />
+              <ThemeSettings v-else-if="rightPanelType === 'theme-settings'" :activeSessionId="activeSessionId" />
+            </div>
           </div>
         </Transition>
       </div>

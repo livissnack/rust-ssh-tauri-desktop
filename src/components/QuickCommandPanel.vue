@@ -296,7 +296,7 @@ onMounted(loadCommands);
 .command-list {
   flex: 1;
   overflow-y: auto;
-  padding: 0 12px 12px;
+  padding: 12px 12px 12px 12px;
 
   /* 滚动条跟随主题 */
   &::-webkit-scrollbar { width: 4px; }

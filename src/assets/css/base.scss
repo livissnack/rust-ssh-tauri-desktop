@@ -1,20 +1,9 @@
 @use "sass:color";
 @use "sass:map";
 
-// ============================================
-// 🎨 主题配色系统
-// ============================================
-
-// 默认主题名称
 $active-theme: 'microsoft-dark' !default;
 
-// ============================================
-// 🌸 主题列表
-// ============================================
 $themes: (
-  // --------------------------------------------
-  // 🌙 暗色主题系列
-  // --------------------------------------------
         'tokyo-night': (
                 'is-light': false,
                 'bg-primary': #1a1b26, // 主背景
@@ -46,6 +35,57 @@ $themes: (
                 'success': #a9dc76,
                 'error': #ff6188,
                 'shadow': rgba(0, 0, 0, 0.4)
+        ),
+
+        'catppuccin': (
+                'is-light': false,
+                'bg-primary': #24273a,
+                'bg-secondary': #1e2030,
+                'bg-card': #363a4f,
+                'bg-input': #181926,
+                'border': #494d64,
+                'text-main': #cad3f5,
+                'text-dim': #8087a2,
+                'accent': #8aadf4, // 柔和蓝
+                'accent-alt': #f5bde6, // 粉紫色
+                'accent-orange': #f5a97f,
+                'success': #a6da95,
+                'error': #ed8796,
+                'shadow': rgba(0, 0, 0, 0.3)
+        ),
+
+        'one-hunter': (
+                'is-light': false,
+                'bg-primary': #101419,
+                'bg-secondary': #0c0e12,
+                'bg-card': #171c23,
+                'bg-input': #090b0e,
+                'border': #232a33,
+                'text-main': #abb2bf,
+                'text-dim': #5c6370,
+                'accent': #4db6ac, // 薄荷绿
+                'accent-alt': #c678dd,
+                'accent-orange': #d19a66,
+                'success': #98c379,
+                'error': #e06c75,
+                'shadow': rgba(0, 0, 0, 0.6)
+        ),
+
+        'github-light': (
+                'is-light': true,
+                'bg-primary': #ffffff,
+                'bg-secondary': #f6f8fa,
+                'bg-card': #ffffff,
+                'bg-input': #ffffff,
+                'border': #d0d7de,
+                'text-main': #24292f,
+                'text-dim': #57606a,
+                'accent': #0969da,
+                'accent-alt': #8250df,
+                'accent-orange': #bc4c00,
+                'success': #1a7f37,
+                'error': #cf222e,
+                'shadow': rgba(140, 149, 159, 0.2)
         ),
   // --------------------------------------------
   // ☀️ 亮色主题系列 (New!)
@@ -82,6 +122,77 @@ $themes: (
                 'error': #f1707a,
                 'shadow': rgba(0, 0, 0, 0.4)
         ),
+
+        'rmb-red': (
+                'is-light': false,
+                'bg-primary': #1a0f0f,     // 极深红黑
+                'bg-secondary': #261515,
+                'bg-card': #331a1a,
+                'bg-input': #120808,
+                'border': #4d2626,
+                'text-main': #f5e6e6,
+                'text-dim': #a67373,
+                'accent': #ff4d4f,         // 人民币百元正红
+                'accent-alt': #ffbb96,
+                'accent-orange': #ffa940,
+                'success': #9ece6a,
+                'error': #ff4d4f,
+                'shadow': rgba(255, 77, 79, 0.1)
+        ),
+
+  // 2. [50元] 翠绿 (专业、冷静、极客范)
+        'rmb-green': (
+                'is-light': false,
+                'bg-primary': #0a1410,     // 墨绿底色
+                'bg-secondary': #0f1f18,
+                'bg-card': #162e24,
+                'bg-input': #050a08,
+                'border': #1d3d30,
+                'text-main': #e6f5ef,
+                'text-dim': #6e9987,
+                'accent': #40c0a0,         // 五十元翠绿
+                'accent-alt': #b5f5ec,
+                'accent-orange': #ffd666,
+                'success': #40c0a0,
+                'error': #ff7875,
+                'shadow': rgba(64, 192, 160, 0.15)
+        ),
+
+  // 3. [20元] 荷花褐 (新中式、雅致、暖色调)
+        'rmb-brown': (
+                'is-light': false,
+                'bg-primary': #171412,     // 焦糖深褐
+                'bg-secondary': #1f1b18,
+                'bg-card': #2e2621,
+                'bg-input': #0d0b0a,
+                'border': #473a30,
+                'text-main': #f7f1ed,
+                'text-dim': #a38d7d,
+                'accent': #d4a017,         // 二十元荷花金/褐
+                'accent-alt': #ffbb96,
+                'accent-orange': #faad14,
+                'success': #b7eb8f,
+                'error': #ff7875,
+                'shadow': rgba(212, 160, 23, 0.2)
+        ),
+
+  // 4. [10元] 玫瑰蓝 (清爽、干练、科技感)
+        'rmb-blue': (
+                'is-light': false,
+                'bg-primary': #0f121a,     // 深海蓝
+                'bg-secondary': #151926,
+                'bg-card': #1e2433,
+                'bg-input': #080a0f,
+                'border': #26304d,
+                'text-main': #e6ebf5,
+                'text-dim': #7382a6,
+                'accent': #4a90e2,         // 十元玫瑰蓝
+                'accent-alt': #adc6ff,
+                'accent-orange': #ff9c6e,
+                'success': #95de64,
+                'error': #ff7875,
+                'shadow': rgba(74, 144, 226, 0.15)
+        )
 );
 
 // 获取当前主题 (使用 map.get)

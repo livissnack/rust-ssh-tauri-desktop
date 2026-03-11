@@ -1,16 +1,5 @@
-
-// ============================================
-// 🎨 变量定义
-// ============================================
-$bg-dark: #0f111a;
-$bg-pane: #1a1b26;
-$bg-header: #16161e;
-$border-color: #292e42;
-$text-main: #a9b1d6;
-$text-dim: #565f89;
-$accent: #7aa2f7;
-$success: #73daca;
-$error: #f7768e;
+@use "sass:color";
+@use 'base.scss' as base;
 
 // ============================================
 // 🏗️ 基础布局
@@ -20,8 +9,8 @@ $error: #f7768e;
   flex-direction: column;
   height: 100vh;
   width: 100vw;
-  background-color: $bg-dark;
-  color: $text-main;
+  background-color: base.$bg-primary;
+  color: base.$text-main;
 }
 
 .main-layout {
@@ -35,7 +24,7 @@ $error: #f7768e;
   flex: 1;
   display: flex;
   flex-direction: column;
-  background: $bg-dark;
+  background: base.$bg-primary;
   overflow: hidden;
 }
 
@@ -45,14 +34,13 @@ $error: #f7768e;
 .terminal-shell {
   flex: 1;
   margin: 0 16px 16px;
-  background: $bg-pane;
+  background: base.$bg-secondary; // 终端背景使用次要背景色
   border-radius: 12px;
-  border: 1px solid $border-color;
+  border: 1px solid base.$border;
   position: relative;
   overflow: hidden;
 
-  .terminal-wrapper, .sftp-wrapper, .terminal-multi-wrapper {
-    width: 100%;
+  .terminal-wrapper {
     height: 100%;
   }
 
@@ -77,7 +65,7 @@ $error: #f7768e;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    color: $text-dim;
+    color: base.$text-dim;
 
     .empty-icon {
       font-size: 48px;
@@ -92,7 +80,7 @@ $error: #f7768e;
 .sftp-manager {
   display: flex;
   height: 100%;
-  background: $bg-pane;
+  background: base.$bg-primary;
   overflow: hidden;
 
   .file-pane {
@@ -101,12 +89,12 @@ $error: #f7768e;
     flex-direction: column;
     height: 100%;
     min-width: 0;
-    border-right: 1px solid #24283b;
+    border-right: 1px solid base.$border;
 
     .pane-header {
       flex-shrink: 0;
       padding: 10px 12px;
-      background: $bg-header;
+      background: base.$bg-secondary;
       display: flex;
       align-items: center;
       gap: 8px;
@@ -114,14 +102,14 @@ $error: #f7768e;
       .path-input {
         background: transparent;
         border: none;
-        color: $accent;
+        color: base.$accent;
         font-family: 'JetBrains Mono', monospace;
         font-size: 11px;
         width: 100%;
 
         &:focus {
           outline: none;
-          background: $bg-pane;
+          background: rgba(base.$accent, 0.05);
         }
       }
     }
@@ -134,12 +122,9 @@ $error: #f7768e;
       transition: background-color 0.2s;
 
       &.drag-over {
-        background-color: rgba($accent, 0.1);
-        outline: 2px dashed $accent;
+        background-color: rgba(base.$accent, 0.1);
+        outline: 2px dashed base.$accent;
         outline-offset: -4px;
-        .file-item {
-          pointer-events: none;
-        }
       }
 
       .file-item {
@@ -147,12 +132,13 @@ $error: #f7768e;
         align-items: center;
         padding: 6px 12px;
         font-size: 13px;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.02);
+        border-bottom: 1px solid rgba(base.$border, 0.3);
         cursor: pointer;
         user-select: none;
+        transition: background 0.2s;
 
         &:hover {
-          background: #2f334d;
+          background: rgba(base.$accent, 0.08);
         }
 
         .file-icon {
@@ -161,15 +147,16 @@ $error: #f7768e;
           text-align: center;
 
           i.fa-folder {
-            color: #e0af68;
+            color: base.$accent-orange;
           }
 
+          // 文件夹使用主题橙色
           i.fa-file-alt {
-            color: $accent;
+            color: base.$accent;
           }
 
           i.fa-level-up-alt {
-            color: #9ece6a;
+            color: base.$success;
           }
         }
 
@@ -180,13 +167,13 @@ $error: #f7768e;
           white-space: nowrap;
 
           &.is-dir {
-            color: $accent;
+            color: base.$accent;
             font-weight: 500;
           }
         }
 
         .file-size {
-          color: #444b6a;
+          color: base.$text-dim;
           font-size: 11px;
           margin-left: 8px;
         }
@@ -203,9 +190,9 @@ $error: #f7768e;
   bottom: 60px;
   right: 25px;
   width: 320px;
-  background: rgba(22, 22, 30, 0.95);
+  background: rgba(base.$bg-card, 0.95);
   backdrop-filter: blur(12px);
-  border: 1px solid $border-color;
+  border: 1px solid base.$border;
   border-radius: 12px;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
   z-index: 2000;
@@ -213,147 +200,68 @@ $error: #f7768e;
 
   .status-header {
     padding: 12px 16px;
-    background: rgba(41, 46, 66, 0.4);
+    background: rgba(base.$bg-secondary, 0.6);
     display: flex;
     justify-content: space-between;
     align-items: center;
-    border-bottom: 1px solid rgba(65, 72, 104, 0.3);
+    border-bottom: 1px solid base.$border;
 
     .header-left {
       display: flex;
       align-items: center;
       gap: 10px;
-      color: $accent;
+      color: base.$accent;
       font-size: 13px;
       font-weight: bold;
     }
 
-    .header-status-dot {
+    .header-status-dot.is-syncing {
       width: 8px;
       height: 8px;
       border-radius: 50%;
-      background: #414868;
-
-      &.is-syncing {
-        background: $accent;
-        box-shadow: 0 0 8px $accent;
-        animation: pulse 1.5s infinite;
-      }
-    }
-  }
-
-  .task-list-wrapper {
-    max-height: 280px;
-    overflow-y: auto;
-    padding: 8px;
-
-    &::-webkit-scrollbar {
-      width: 4px;
-    }
-
-    &::-webkit-scrollbar-thumb {
-      background: #414868;
-      border-radius: 10px;
+      background: base.$accent;
+      box-shadow: 0 0 8px base.$accent;
+      animation: pulse 1.5s infinite;
     }
   }
 
   .task-row {
-    background: rgba(255, 255, 255, 0.03);
+    background: rgba(base.$bg-primary, 0.3);
     padding: 10px;
     border-radius: 8px;
-    margin-bottom: 8px;
-    transition: all 0.3s ease;
+    margin: 8px;
 
     &.status-success {
-      border-left: 3px solid $success;
+      border-left: 3px solid base.$success;
 
       .task-percent {
-        color: $success;
+        color: base.$success;
       }
     }
 
     &.status-error {
-      border-left: 3px solid $error;
+      border-left: 3px solid base.$error;
 
       .task-percent {
-        color: $error;
+        color: base.$error;
       }
     }
 
-    .task-info {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 6px;
-
-      .name-box {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        flex: 1;
-        min-width: 0;
-
-        .task-name {
-          font-size: 12px;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-        }
-      }
-
-      .task-actions {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-
-        .cancel-btn {
-          background: rgba($error, 0.1);
-          border: none;
-          color: $text-dim;
-          cursor: pointer;
-          padding: 4px;
-          border-radius: 4px;
-          transition: all 0.2s ease;
-
-          &:hover {
-            color: $error;
-            background: rgba($error, 0.2);
-            transform: rotate(90deg);
-          }
-        }
-
-        .task-percent {
-          font-size: 11px;
-          font-family: 'JetBrains Mono', monospace;
-          min-width: 35px;
-          text-align: right;
-        }
-      }
-    }
-
-    .progress-container {
+    .progress-bar {
       height: 4px;
-      background: rgba(0, 0, 0, 0.2);
+      background: base.$accent;
       border-radius: 2px;
-      overflow: hidden;
+      transition: width 0.4s ease;
+      position: relative;
 
-      .progress-bar {
-        height: 100%;
-        background: $accent;
-        transition: width 0.4s ease;
-        position: relative;
-
-        &.transferring::after {
-          content: "";
-          position: absolute;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
-          background-image: linear-gradient(-45deg, rgba(255, 255, 255, 0.2) 25%, transparent 25%, transparent 50%, rgba(255, 255, 255, 0.2) 50%, rgba(255, 255, 255, 0.2) 75%, transparent 75%);
-          background-size: 20px 20px;
-          animation: move-stripes 2s linear infinite;
-        }
+      &.transferring::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        // 使用白色半透明条纹，自动适配底层背景色
+        background-image: linear-gradient(-45deg, rgba(255, 255, 255, 0.2) 25%, transparent 25%, transparent 50%, rgba(255, 255, 255, 0.2) 50%, rgba(255, 255, 255, 0.2) 75%, transparent 75%);
+        background-size: 20px 20px;
+        animation: move-stripes 2s linear infinite;
       }
     }
   }
@@ -365,8 +273,8 @@ $error: #f7768e;
 .context-menu {
   position: fixed;
   z-index: 9999;
-  background: #24283b;
-  border: 1px solid #414868;
+  background: base.$bg-card;
+  border: 1px solid base.$border;
   border-radius: 6px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
   padding: 4px;
@@ -374,33 +282,26 @@ $error: #f7768e;
 
   .menu-item {
     padding: 8px 12px;
-    display: flex;
-    align-items: center;
-    cursor: pointer;
     font-size: 13px;
     border-radius: 4px;
+    color: base.$text-main;
+    cursor: pointer;
 
     &:hover {
-      background: #3b4261;
-      color: $accent;
+      background: rgba(base.$accent, 0.15);
+      color: base.$accent;
     }
 
     &.danger:hover {
-      background: #44232f;
-      color: $error;
+      background: rgba(base.$error, 0.15);
+      color: base.$error;
     }
 
     &.divider {
       height: 1px;
-      background: #414868;
+      background: base.$border;
       margin: 6px 4px;
-      padding: 0;
-      cursor: default;
       pointer-events: none;
-
-      &:hover {
-        background: #414868;
-      }
     }
   }
 }
@@ -413,31 +314,16 @@ $error: #f7768e;
   position: relative;
   z-index: 100;
 
-  // 假设你的变量定义如下 (基于 Tokyo Night)
-  $bg-header: #1a1b26;
-  $border-color: #292e42;
-  $text-dim: #565f89;
-  $text-main: #a9b1d6;
-  $accent: #bb9af7; // 紫色强调色
-  $accent-blue: #7aa2f7; // 蓝色
-
   .icon-bar {
-    width: 46px; // 稍微加宽一点点，比例更协调
-    background: $bg-header;
-    border-left: 1px solid $border-color;
+    width: 48px;
+    background: base.$bg-sidebar;
+    border-left: 1px solid base.$border;
     display: flex;
     flex-direction: column;
-    justify-content: space-between; // 关键：让顶部和底部图标自动分开
+    justify-content: space-between;
     align-items: center;
-    padding: 16px 0; // 上下留白平衡
+    padding: 16px 0;
     user-select: none;
-
-    .top-group, .bottom-group {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      width: 100%;
-    }
 
     .icon-item {
       width: 34px;
@@ -445,42 +331,32 @@ $error: #f7768e;
       display: flex;
       align-items: center;
       justify-content: center;
-      color: $text-dim;
+      color: base.$text-dim;
       cursor: pointer;
-      border-radius: 8px; // 圆角大一点更有现代感
+      border-radius: 8px;
       margin-bottom: 10px;
-      position: relative; // 为伪元素定位
+      position: relative;
       transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 
-      i {
-        font-size: 16px;
-      }
-
       &:hover {
-        background: rgba($text-main, 0.05);
-        color: $accent-blue;
-        transform: translateY(-1px); // 鼠标悬停微小的上浮感
+        background: rgba(base.$text-main, 0.05);
+        color: base.$accent;
       }
 
       &.active {
-        color: $accent;
-        background: rgba($accent, 0.12);
+        color: base.$accent;
+        background: rgba(base.$accent, 0.12);
 
-        // 增加一个右侧/左侧的小指示条（根据你的边栏位置决定）
         &::after {
           content: '';
           position: absolute;
-          right: -1px; // 如果在右边，贴着边框
+          right: -1px;
           width: 3px;
           height: 16px;
-          background: $accent;
+          background: base.$accent;
           border-radius: 4px 0 0 4px;
-          box-shadow: 0 0 8px $accent; // 侧边微发光
+          box-shadow: 0 0 8px base.$accent;
         }
-      }
-
-      &:active {
-        transform: scale(0.92); // 点击下去的物理阻尼感
       }
     }
   }
@@ -488,13 +364,14 @@ $error: #f7768e;
   .floating-panel {
     position: absolute;
     top: 0;
-    right: 40px;
+    right: 48px;
     width: 320px;
     height: 100%;
-    background: rgba($bg-pane, 0.95);
+    background: rgba(base.$bg-secondary, 0.95);
     backdrop-filter: blur(12px);
-    border-left: 1px solid $border-color;
+    border-left: 1px solid base.$border;
     box-shadow: -10px 0 30px rgba(0, 0, 0, 0.5);
+
     &.is-redis {
       width: 420px;
     }
@@ -502,8 +379,17 @@ $error: #f7768e;
 }
 
 // ============================================
-// 🎭 动画关键帧
+// 🍎 特定图标颜色修正
 // ============================================
+.redis-icon {
+  // 不再硬编码 #DC382D，改用主题的 error 色（通常 Redis 为红色）
+  // 或者如果主题定义了 accent-orange/red，也可以使用
+  color: base.$error;
+  vertical-align: middle;
+  filter: drop-shadow(0 0 2px rgba(base.$error, 0.3));
+}
+
+// 动画部分保持不变...
 @keyframes move-stripes {
   from {
     background-position: 0 0;
@@ -520,42 +406,4 @@ $error: #f7768e;
   50% {
     opacity: 0.4;
   }
-}
-
-// ============================================
-// 🎬 Vue 过渡动画
-// ============================================
-.panel-slide-enter-active,
-.panel-slide-leave-active {
-  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s;
-}
-
-.panel-slide-enter-from,
-.panel-slide-leave-to {
-  transform: translateX(20px);
-  opacity: 0;
-}
-
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.2s;
-}
-
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
-}
-
-.task-list-enter-from {
-  opacity: 0;
-  transform: translateX(30px);
-}
-
-.task-list-leave-to {
-  opacity: 0;
-  transform: scale(0.9);
-}
-.redis-icon {
-  color: #DC382D;
-  vertical-align: middle;
 }

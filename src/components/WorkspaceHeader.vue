@@ -90,9 +90,8 @@ const connectButtonIcon = computed(() => {
 </template>
 
 <style lang="scss" scoped>
-$accent: #7aa2f7;
-$border-color: #292e42;
-$text-dim: #565f89;
+@use "sass:color";
+@use '../assets/css/base.scss';
 
 .workspace-header {
   height: 56px;
@@ -101,23 +100,29 @@ $text-dim: #565f89;
   align-items: center;
   padding: 0 24px;
   flex-shrink: 0;
-  background: #0f111a;
+  background: base.$bg-primary; // 修改：使用主背景色，确保与内容区连贯
 
   .breadcrumb {
     font-size: 13px;
+    display: flex;
+    align-items: center;
 
-    .current {
-      color: #fff;
-      font-weight: 600;
+    .root {
+      color: base.$text-dim;
+      transition: color 0.2s;
+      &:hover { color: base.$text-main; cursor: pointer; }
     }
 
     .sep {
-      color: $text-dim;
-      margin: 0 8px;
+      color: base.$border;
+      margin: 0 10px;
+      font-size: 10px;
     }
 
-    .root {
-      color: $text-dim;
+    .current {
+      color: base.$text-main; // 修改：跟随主题文字色
+      font-weight: 600;
+      letter-spacing: 0.3px;
     }
   }
 }
@@ -127,15 +132,16 @@ $text-dim: #565f89;
   align-items: center;
   gap: 8px;
   padding: 4px;
-  background: rgba(26, 27, 38, 0.5);
+  background: base.$bg-secondary; // 修改：使用次要背景色营造工具栏感
   border-radius: 10px;
-  border: 1px solid $border-color;
+  border: 1px solid base.$border;
 
   .separator {
     width: 1px;
-    height: 20px;
-    background: $border-color;
+    height: 18px;
+    background: base.$border;
     margin: 0 4px;
+    opacity: 0.6;
   }
 
   .action-btn {
@@ -146,38 +152,39 @@ $text-dim: #565f89;
     border-radius: 6px;
     border: 1px solid transparent;
     background: transparent;
-    color: #a9b1d6;
+    color: base.$text-muted;
     font-size: 12px;
     font-weight: 500;
     cursor: pointer;
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 
-    i {
-      font-size: 14px;
-    }
+    i { font-size: 14px; }
 
     &:hover:not(:disabled) {
-      background: rgba(122, 162, 247, 0.1);
-      color: $accent;
-      border-color: rgba(122, 162, 247, 0.2);
+      background: rgba(base.$accent, 0.1);
+      color: base.$accent;
+      border-color: rgba(base.$accent, 0.15);
     }
 
     &:disabled {
       opacity: 0.3;
       cursor: not-allowed;
     }
-  }
 
-  .mode-toggle.is-sftp {
-    background: rgba(224, 175, 104, 0.1);
-    color: #e0af68;
-    border-color: rgba(224, 175, 104, 0.3);
+    /* SFTP 模式特定样式 - 使用主题橙色/警告色 */
+    &.mode-toggle.is-sftp {
+      background: rgba(base.$accent-orange, 0.1);
+      color: base.$accent-orange;
+      border-color: rgba(base.$accent-orange, 0.2);
 
-    &:hover {
-      background: rgba(224, 175, 104, 0.2);
+      &:hover {
+        background: rgba(base.$accent-orange, 0.2);
+        border-color: base.$accent-orange;
+      }
     }
   }
 
+  /* 主连接按钮 */
   .connect-btn {
     display: flex;
     align-items: center;
@@ -185,29 +192,31 @@ $text-dim: #565f89;
     padding: 6px 16px;
     border-radius: 6px;
     border: none;
-    background: $accent;
-    color: #fff;
+    background: base.$accent;
+    color: base.$bg-primary; // 修改：按钮文字使用背景深色以获得最高对比度
     font-size: 12px;
-    font-weight: 600;
+    font-weight: 700;
     cursor: pointer;
     transition: all 0.2s;
-    box-shadow: 0 2px 8px rgba(122, 162, 247, 0.3);
+    box-shadow: 0 4px 12px rgba(base.$accent, 0.2);
 
     &:hover:not(:disabled) {
-      background: #89ddff;
+      filter: brightness(1.1);
       transform: translateY(-1px);
-      box-shadow: 0 4px 12px rgba(122, 162, 247, 0.4);
+      box-shadow: 0 6px 16px rgba(base.$accent, 0.3);
     }
 
     &:active {
       transform: translateY(0);
+      filter: brightness(0.9);
     }
 
     &:disabled {
-      background: #24283b;
-      color: $text-dim;
+      background: base.$bg-input;
+      color: base.$text-dim;
       box-shadow: none;
       cursor: not-allowed;
+      opacity: 0.6;
     }
 
     &.loading i {
@@ -217,11 +226,7 @@ $text-dim: #565f89;
 }
 
 @keyframes spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 </style>

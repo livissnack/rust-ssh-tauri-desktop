@@ -249,111 +249,275 @@ onUnmounted(() => {
 </template>
 
 <style lang="scss" scoped>
-$bg-main: #1a1b26;
-$bg-alt: #16161e;
-$accent: #bb9af7;
-$border: #292e42;
-$text-muted: #565f89;
+@use '../assets/css/base.scss';
 
 /* 覆盖样式以穿透 v-html (深度选择器) */
 :deep(.markdown-body) {
   font-size: 13px;
   line-height: 1.6;
-  color: #a9b1d6;
+  color: base.$text-main; // 修改：跟随主题主文字颜色
 
   p { margin: 0 0 8px 0; }
 
   code {
-    background: rgba($accent, 0.15);
-    color: $accent;
+    background: rgba(base.$accent, 0.15);
+    color: base.$accent;
     padding: 2px 4px;
     border-radius: 4px;
     font-family: 'Fira Code', monospace;
   }
 
   pre {
-    background: #0d0e14 !important;
+    background: base.$bg-dark !important; // 修改：使用主题最深背景
     padding: 12px;
     border-radius: 8px;
-    border: 1px solid $border;
+    border: 1px solid base.$border;
     margin: 10px 0;
     overflow-x: auto;
 
     code {
       background: transparent;
       padding: 0;
-      color: #e0afaf; /* 代码文字颜色 */
+      color: base.$text-main; // 修改：代码文字跟随主题
     }
   }
 
   ul, ol { padding-left: 20px; margin-bottom: 8px; }
-  a { color: $accent; text-decoration: none; &:hover { text-decoration: underline; } }
+  a {
+    color: base.$accent;
+    text-decoration: none;
+    &:hover { text-decoration: underline; }
+  }
 }
 
 .ai-panel {
-  display: flex; flex-direction: column; height: 100%; background: $bg-main; color: #a9b1d6;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: base.$bg-primary; // 修改：通常面板使用主背景
+  color: base.$text-main;
 }
 
 .panel-header {
-  padding: 14px 16px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid $border;
-  .title { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 600; color: $accent; }
+  padding: 14px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid base.$border;
+  background: base.$bg-header; // 建议增加 header 背景映射
+
+  .title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+    font-weight: 600;
+    color: base.$accent;
+  }
 }
 
-.icon-btn { background: transparent; border: none; color: $text-muted; cursor: pointer; &:hover, &.active { color: $accent; } }
+.icon-btn {
+  background: transparent;
+  border: none;
+  color: base.$text-dim; // 修改：使用更淡的文字色
+  cursor: pointer;
+  transition: color 0.2s;
+
+  &:hover, &.active { color: base.$accent; }
+}
 
 .config-container {
-  flex: 1; padding: 20px; display: flex; flex-direction: column; gap: 18px; background: $bg-alt;
+  flex: 1;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  background: base.$bg-secondary; // 修改：配置区使用次要背景
+
   .config-group {
-    display: flex; flex-direction: column; gap: 8px;
-    label { font-size: 11px; color: $text-muted; font-weight: bold; text-transform: uppercase; }
-    input, select {
-      background: $bg-main; border: 1px solid $border; border-radius: 6px; padding: 10px; color: #c0caf5; font-size: 12px;
-      &:focus { border-color: $accent; outline: none; }
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+
+    label {
+      font-size: 11px;
+      color: base.$text-muted;
+      font-weight: bold;
+      text-transform: uppercase;
     }
-    .input-with-icon { position: relative; input { width: 100%; padding-right: 35px; box-sizing: border-box; } i { position: absolute; right: 12px; top: 12px; color: $text-muted; font-size: 12px; } }
+
+    input, select {
+      background: base.$bg-input; // 修改：使用专门的输入框背景
+      border: 1px solid base.$border;
+      border-radius: 6px;
+      padding: 10px;
+      color: base.$text-main;
+      font-size: 12px;
+
+      &:focus {
+        border-color: base.$accent;
+        outline: none;
+        box-shadow: 0 0 0 2px rgba(base.$accent, 0.2); // 增加聚焦发光
+      }
+    }
+
+    .input-with-icon {
+      position: relative;
+      input { width: 100%; padding-right: 35px; box-sizing: border-box; }
+      i { position: absolute; right: 12px; top: 12px; color: base.$text-dim; font-size: 12px; }
+    }
   }
+
   .btn-save-config {
-    margin-top: 10px; padding: 12px; background: $accent; color: $bg-main; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;
+    margin-top: 10px;
+    padding: 12px;
+    background: base.$accent;
+    color: base.$bg-primary; // 修改：按钮文字使用背景色以形成反差
+    border: none;
+    border-radius: 6px;
+    font-weight: bold;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: opacity 0.2s;
+
     &:hover { opacity: 0.9; }
   }
 }
 
 .chat-viewport {
-  flex: 1; overflow-y: auto; padding: 15px; display: flex; flex-direction: column; gap: 20px;
+  flex: 1;
+  overflow-y: auto;
+  padding: 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  background: base.$bg-primary;
+
   .msg-row {
-    display: flex; flex-direction: column; max-width: 85%;
-    &.user { align-self: flex-end; .msg-bubble { background: #3b4261; border-radius: 12px 12px 2px 12px; } }
-    &.assistant { align-self: flex-start; .msg-bubble { background: $bg-alt; border: 1px solid $border; border-radius: 12px 12px 12px 2px; } }
+    display: flex;
+    flex-direction: column;
+    max-width: 85%;
+
+    &.user {
+      align-self: flex-end;
+      .msg-bubble {
+        background: rgba(base.$accent, 0.2); // 修改：用户气泡使用强调色的透明色
+        border: 1px solid rgba(base.$accent, 0.3);
+        color: base.$text-main;
+        border-radius: 12px 12px 2px 12px;
+      }
+    }
+
+    &.assistant {
+      align-self: flex-start;
+      .msg-bubble {
+        background: base.$bg-card; // 修改：助手使用卡片背景色
+        border: 1px solid base.$border;
+        color: base.$text-main;
+        border-radius: 12px 12px 12px 2px;
+      }
+    }
   }
+
   .msg-bubble {
-    padding: 10px 14px; font-size: 12.5px;
+    padding: 10px 14px;
+    font-size: 12.5px;
+
     .btn-execute {
-      margin-top: 10px; width: 100%; padding: 6px; background: rgba($accent, 0.1); border: 1px dashed $accent; color: $accent; border-radius: 4px; cursor: pointer; font-size: 11px;
-      &:hover { background: $accent; color: $bg-main; }
+      margin-top: 10px;
+      width: 100%;
+      padding: 6px;
+      background: rgba(base.$accent, 0.1);
+      border: 1px dashed base.$accent;
+      color: base.$accent;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 11px;
+      transition: all 0.2s;
+
+      &:hover {
+        background: base.$accent;
+        color: base.$bg-primary;
+      }
     }
   }
 }
 
 .input-bar {
-  padding: 12px; border-top: 1px solid $border; display: flex; gap: 10px; align-items: flex-end; background: $bg-alt;
+  padding: 12px;
+  border-top: 1px solid base.$border;
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  background: base.$bg-secondary;
+
   textarea {
-    flex: 1; background: $bg-main; border: 1px solid $border; border-radius: 8px; padding: 10px; color: #a9b1d6; font-size: 12px; height: 60px; resize: none;
-    &:focus { outline: none; border-color: $accent; }
+    flex: 1;
+    background: base.$bg-input;
+    border: 1px solid base.$border;
+    border-radius: 8px;
+    padding: 10px;
+    color: base.$text-main;
+    font-size: 12px;
+    height: 60px;
+    resize: none;
+
+    &:focus {
+      outline: none;
+      border-color: base.$accent;
+    }
   }
-  .btn-send { width: 40px; height: 40px; background: $accent; color: $bg-main; border: none; border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; &:disabled { background: $text-muted; cursor: not-allowed; } }
+
+  .btn-send {
+    width: 40px;
+    height: 40px;
+    background: base.$accent;
+    color: base.$bg-primary;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+
+    &:disabled {
+      background: base.$text-dim;
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+  }
 }
 
 .ai-typing {
-  display: flex; gap: 4px; padding: 10px;
-  .dot { width: 6px; height: 6px; background: $accent; border-radius: 50%; animation: blink 1.4s infinite; }
+  display: flex;
+  gap: 4px;
+  padding: 10px;
+
+  .dot {
+    width: 6px;
+    height: 6px;
+    background: base.$accent;
+    border-radius: 50%;
+    animation: blink 1.4s infinite;
+  }
   .dot:nth-child(2) { animation-delay: 0.2s; }
   .dot:nth-child(3) { animation-delay: 0.4s; }
 }
 
 @keyframes blink { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
 
+/* 使用 base.scss 中定义的滚动条变量或直接映射 */
 .custom-scrollbar {
   &::-webkit-scrollbar { width: 4px; }
-  &::-webkit-scrollbar-thumb { background: $border; border-radius: 4px; }
+  &::-webkit-scrollbar-track { background: transparent; }
+  &::-webkit-scrollbar-thumb {
+    background: base.$border;
+    border-radius: 4px;
+    &:hover { background: base.$text-dim; }
+  }
 }
 </style>

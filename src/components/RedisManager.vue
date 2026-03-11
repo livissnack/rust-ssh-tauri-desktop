@@ -317,19 +317,11 @@ onMounted(() => {
 
 <style lang="scss" scoped>
 @use "sass:color";
-
-$bg-primary: #1a1b26;
-$bg-secondary: #16161e;
-$accent: #7aa2f7;
-$border: #292e42;
-$text-main: #c0caf5;
-$text-dim: #565f89;
-$success: #9ece6a;
-$danger: #f7768e;
+@use '../assets/css/base.scss';
 
 .redis-manager {
   height: 100%; width: 100%; display: flex; flex-direction: column;
-  background: $bg-primary; color: $text-main; overflow: hidden;
+  background: base.$bg-primary; color: base.$text-main; overflow: hidden;
   position: absolute; top: 0; left: 0;
   * { box-sizing: border-box; }
 }
@@ -337,34 +329,76 @@ $danger: #f7768e;
 /* Header */
 .panel-header {
   padding: 12px 18px; display: flex; justify-content: space-between; align-items: center;
-  border-bottom: 1px solid $border; background: $bg-secondary;
-  .title { display: flex; align-items: center; gap: 10px; color: $accent; font-weight: 600; font-size: 14px; }
+  border-bottom: 1px solid base.$border;
+  background: base.$bg-secondary; // 使用次要背景色区分头部
+
+  .title {
+    display: flex; align-items: center; gap: 10px;
+    color: base.$accent; font-weight: 600; font-size: 14px;
+  }
   .actions { display: flex; gap: 8px; }
 }
 
 /* Sidebar */
 .sidebar-header-actions {
   padding: 12px; display: flex; gap: 8px;
-  .search-box { flex: 1; position: relative;
-    input { width: 100%; background: $bg-secondary; border: 1px solid $border; border-radius: 6px; padding: 8px 12px; color: $text-main; font-size: 12px; }
-    i { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: $text-dim; font-size: 11px; }
+
+  .search-box {
+    flex: 1; position: relative;
+    input {
+      width: 100%;
+      background: base.$bg-input; // 使用输入框专用背景
+      border: 1px solid base.$border;
+      border-radius: 6px;
+      padding: 8px 12px;
+      color: base.$text-main;
+      font-size: 12px;
+      &:focus { border-color: base.$accent; outline: none; }
+    }
+    i { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: base.$text-dim; font-size: 11px; }
   }
+
   .add-key-btn {
-    background: rgba($accent, 0.1); border: 1px solid rgba($accent, 0.3); color: $accent;
-    width: 32px; height: 32px; border-radius: 6px; cursor: pointer; transition: all 0.2s;
-    &:hover { background: $accent; color: $bg-primary; }
+    background: rgba(base.$accent, 0.1);
+    border: 1px solid rgba(base.$accent, 0.3);
+    color: base.$accent;
+    width: 32px; height: 32px; border-radius: 6px;
+    cursor: pointer; transition: all 0.2s;
+    display: flex; align-items: center; justify-content: center;
+    &:hover { background: base.$accent; color: base.$bg-primary; }
   }
 }
 
 .main-content {
   flex: 1; display: flex; overflow: hidden;
+
   .sidebar {
-    width: 220px; border-right: 1px solid $border; display: flex; flex-direction: column;
-    .sidebar-info { padding: 6px 15px; font-size: 10px; color: $text-dim; border-bottom: 1px solid $border; }
-    .key-list { flex: 1; overflow-y: auto;
+    width: 220px; border-right: 1px solid base.$border; display: flex; flex-direction: column;
+    background: base.$bg-sidebar; // 使用侧边栏专用背景
+
+    .sidebar-info {
+      padding: 6px 15px; font-size: 10px; color: base.$text-dim;
+      border-bottom: 1px solid base.$border;
+    }
+
+    .key-list {
+      flex: 1; overflow-y: auto;
+
+      &::-webkit-scrollbar { width: 4px; }
+      &::-webkit-scrollbar-thumb { background: base.$border; border-radius: 4px; }
+
       .key-item {
-        padding: 10px 15px; font-size: 13px; display: flex; align-items: center; gap: 10px; cursor: pointer;
-        &.is-active { background: rgba($accent, 0.12); color: $accent; border-left: 3px solid $accent; }
+        padding: 10px 15px; font-size: 13px; display: flex; align-items: center; gap: 10px;
+        cursor: pointer; color: base.$text-muted; transition: all 0.2s;
+
+        &:hover { background: rgba(base.$accent, 0.05); color: base.$text-main; }
+
+        &.is-active {
+          background: rgba(base.$accent, 0.12);
+          color: base.$accent;
+          border-left: 3px solid base.$accent;
+        }
+
         .key-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       }
     }
@@ -372,46 +406,61 @@ $danger: #f7768e;
 
   /* Detail View */
   .detail-view {
-    flex: 1; display: flex; flex-direction: column; background: $bg-primary; height: 100%; min-width: 0;
-    .detail-header { padding: 14px 20px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid $border;
-      h3 { font-size: 14px; margin: 0; flex: 1; font-family: monospace; width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
-      .tag { background: rgba($accent, 0.15); color: $accent; padding: 2px 8px; border-radius: 4px; font-size: 10px; }
-      .delete-btn { background: transparent; border: none; color: $text-dim; cursor: pointer; &:hover { color: $danger; } }
+    flex: 1; display: flex; flex-direction: column; background: base.$bg-primary; height: 100%; min-width: 0;
+
+    .detail-header {
+      padding: 14px 20px; display: flex; align-items: center; gap: 12px;
+      border-bottom: 1px solid base.$border;
+
+      h3 {
+        font-size: 14px; margin: 0; flex: 1; font-family: 'JetBrains Mono', monospace;
+        color: base.$text-main; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      }
+      .tag {
+        background: rgba(base.$accent, 0.15); color: base.$accent;
+        padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: bold;
+      }
+      .delete-btn {
+        background: transparent; border: none; color: base.$text-dim;
+        cursor: pointer; transition: color 0.2s;
+        &:hover { color: base.$error; }
+      }
     }
-    .value-editor { flex: 1; min-height: 0; textarea { width: 100%; height: 100%; background: transparent; border: none; color: $success; font-family: monospace; padding: 20px; resize: none; outline: none; } }
+
+    .value-editor {
+      flex: 1; min-height: 0;
+      textarea {
+        width: 100%; height: 100%; background: transparent; border: none;
+        color: base.$success; // 代码值通常用绿色系
+        font-family: 'JetBrains Mono', monospace; padding: 20px;
+        resize: none; outline: none;
+      }
+    }
+
     .detail-footer {
-      padding: 12px 20px 28px; border-top: 1px solid $border; background: color.adjust($bg-secondary, $lightness: 1%); display: flex; justify-content: flex-end;
-      .btn-save { background: $accent; color: $bg-primary; border: none; padding: 10px 24px; border-radius: 6px; font-weight: bold; cursor: pointer; &:hover { transform: translateY(-2px); } }
+      padding: 12px 20px 28px; border-top: 1px solid base.$border;
+      background: base.$bg-secondary;
+      display: flex; justify-content: flex-end;
+
+      .btn-save {
+        background: base.$accent; color: base.$bg-primary;
+        border: none; padding: 10px 24px; border-radius: 6px;
+        font-weight: bold; cursor: pointer; transition: all 0.2s;
+        &:hover { transform: translateY(-2px); filter: brightness(1.1); }
+      }
     }
   }
-}
-
-.modal-form {
-  display: flex; flex-direction: column; gap: 14px;
-  .modal-input-group {
-    display: flex; flex-direction: column; gap: 6px;
-    label { font-size: 11px; color: $text-dim; font-weight: bold; }
-    .value-area { height: 100px; resize: none; font-family: monospace; }
-  }
-}
-
-.modal-footer-btns {
-  padding: 15px 20px; background: rgba(0, 0, 0, 0.15); display: flex; justify-content: space-between; align-items: center;
-  .type-hint { font-size: 10px; color: $text-dim; font-style: italic; }
-  .btns-row { display: flex; gap: 10px; }
-  .btn-cancel { background: transparent; border: 1px solid $border; color: $text-main; padding: 8px 16px; border-radius: 6px; cursor: pointer; }
-  .btn-confirm { background: $accent; color: $bg-primary; border: none; padding: 8px 20px; border-radius: 6px; font-weight: bold; cursor: pointer; }
 }
 
 /* 已保存配置下拉列表 */
 .saved-configs-dropdown {
-  background: $bg-secondary;
-  border: 1px solid $border;
+  background: base.$bg-card; // 使用卡片背景色
+  border: 1px solid base.$border;
   border-radius: 8px;
   margin: 10px 18px;
   max-height: 200px;
   overflow-y: auto;
-  box-shadow: 0 10px 20px rgba(0,0,0,0.3);
+  box-shadow: 0 10px 20px rgba(0,0,0,0.4);
 
   .config-item {
     padding: 10px 15px;
@@ -419,38 +468,68 @@ $danger: #f7768e;
     justify-content: space-between;
     align-items: center;
     cursor: pointer;
-    border-bottom: 1px solid rgba($border, 0.5);
-    &:hover { background: rgba($accent, 0.1); }
+    border-bottom: 1px solid rgba(base.$border, 0.5);
+    transition: background 0.2s;
+
+    &:hover { background: rgba(base.$accent, 0.1); }
 
     .cfg-info {
       display: flex;
       flex-direction: column;
-      .cfg-name { font-size: 13px; font-weight: bold; color: $accent; }
-      .cfg-addr { font-size: 11px; color: $text-dim; }
+      .cfg-name { font-size: 13px; font-weight: bold; color: base.$accent; }
+      .cfg-addr { font-size: 11px; color: base.$text-dim; }
     }
 
     .delete-cfg-icon {
-      color: $text-dim;
+      color: base.$text-dim;
       font-size: 14px;
       opacity: 0;
-      transition: opacity 0.2s;
-      &:hover { color: $danger; }
+      transition: all 0.2s;
+      &:hover { color: base.$error; transform: scale(1.1); }
     }
     &:hover .delete-cfg-icon { opacity: 1; }
   }
 
-  .empty-hint { padding: 20px; text-align: center; color: $text-dim; font-size: 12px; }
+  .empty-hint { padding: 20px; text-align: center; color: base.$text-dim; font-size: 12px; }
+}
+
+/* Shared Components & Screens */
+.welcome-screen {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  background: base.$bg-primary;
+  .hint-card {
+    text-align: center;
+    .brand-logo { font-size: 48px; color: rgba(base.$accent, 0.1); margin-bottom: 20px; }
+    p { color: base.$text-dim; font-size: 13px; }
+  }
+}
+
+.config-form {
+  padding: 20px; background: base.$bg-secondary;
+  border-bottom: 1px solid base.$border;
+  display: flex; flex-direction: column; gap: 15px;
+
+  .input-row { display: flex; gap: 12px; }
+  .input-group {
+    display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 0;
+    label { font-size: 11px; color: base.$text-muted; font-weight: 600; }
+  }
+  .form-input {
+    background: base.$bg-input; border: 1px solid base.$border;
+    border-radius: 6px; padding: 10px; color: base.$text-main; width: 100%;
+    &:focus { outline: none; border-color: base.$accent; box-shadow: 0 0 0 2px rgba(base.$accent, 0.1); }
+  }
+}
+
+.status-tag {
+  font-size: 12px; color: base.$text-dim; display: flex; align-items: center; gap: 6px;
+  &.connected i { color: base.$success; }
 }
 
 /* Animations */
 .animate-slide { animation: slideDown 0.2s ease-out; }
-@keyframes slideDown { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
-
-/* Shared Components */
-.welcome-screen { flex: 1; display: flex; align-items: center; justify-content: center; .hint-card { text-align: center; .brand-logo { font-size: 40px; color: rgba($accent, 0.15); margin-bottom: 20px; } } }
-.config-form { padding: 20px; background: color.adjust($bg-secondary, $lightness: 2%); border-bottom: 1px solid $border; display: flex; flex-direction: column; gap: 15px; .input-row { display: flex; gap: 12px; } .input-group { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 0; label { font-size: 11px; color: $text-dim; font-weight: 600; } } .form-input { background: $bg-primary; border: 1px solid $border; border-radius: 6px; padding: 10px; color: $text-main; width: 100%; &:focus { outline: none; border-color: $accent; } } .form-actions { display: flex; justify-content: space-between; align-items: center; } }
-.icon-btn { background: transparent; border: none; color: $text-dim; cursor: pointer; padding: 8px; border-radius: 6px; &.is-active { color: $accent; background: rgba($accent, 0.1); } }
-.btn-connect { background: $accent; color: $bg-primary; border: none; padding: 8px 20px; border-radius: 6px; font-weight: bold; cursor: pointer; &:disabled { opacity: 0.5; } }
-.status-tag { font-size: 12px; color: $text-dim; display: flex; align-items: center; gap: 6px; &.connected i { color: $success; } }
-.expand-container { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 0.35s ease; overflow: hidden; &.is-expanded { grid-template-rows: 1fr; } .expand-content { min-height: 0; } }
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 </style>

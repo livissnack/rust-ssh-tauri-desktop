@@ -130,99 +130,258 @@ const handleConfirm = () => {
 </template>
 
 <style lang="scss" scoped>
-$bg-card: #1f2335;
-$bg-input: #16161e;
-$border-color: #292e42;
-$text-main: #c0caf5;
-$text-dim: #565f89;
-$accent: #7aa2f7;
+@use "sass:color";
+@use '../assets/css/base.scss';
 
 /* 基础结构 */
 .modal-overlay {
-  position: fixed; inset: 0; background: rgba(0, 0, 0, 0.75);
-  backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 9999;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75); // 遮罩层通常保持深色以聚焦内容
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
 }
+
 .modal-card {
-  background: $bg-card; width: 460px; border-radius: 12px; border: 1px solid $border-color;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5); display: flex; flex-direction: column; overflow: hidden;
+  background: base.$bg-card;
+  width: 460px;
+  border-radius: 12px;
+  border: 1px solid base.$border;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 /* Header & Body */
 .modal-header {
-  padding: 16px 20px; background: rgba(0, 0, 0, 0.2); border-bottom: 1px solid $border-color;
-  display: flex; justify-content: space-between; align-items: center;
-  .title { display: flex; align-items: center; gap: 10px; font-size: 14px; color: $accent; font-weight: 600; }
-  .close-x { background: none; border: none; color: $text-dim; font-size: 22px; cursor: pointer; &:hover { color: #f7768e; } }
+  padding: 16px 20px;
+  background: rgba(0, 0, 0, 0.2);
+  border-bottom: 1px solid base.$border;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+
+  .title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 14px;
+    color: base.$accent;
+    font-weight: 600;
+  }
+
+  .close-x {
+    background: none;
+    border: none;
+    color: base.$text-dim;
+    font-size: 22px;
+    cursor: pointer;
+    transition: color 0.2s;
+
+    &:hover { color: base.$error; } // 修改：使用主题错误色
+  }
 }
+
 .modal-body { padding: 20px; }
 
-/* 类型选择 */
+/* 类型选择器 */
 .type-selector {
-  display: flex; gap: 4px; background: $bg-input; padding: 4px; border-radius: 8px; margin-bottom: 20px;
+  display: flex;
+  gap: 4px;
+  background: base.$bg-input;
+  padding: 4px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+
   .type-item {
-    flex: 1; text-align: center; padding: 8px; border-radius: 6px; font-size: 11px; font-weight: bold;
-    color: $text-dim; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px;
-    &.active { background: $border-color; color: $accent; }
-    .dot { width: 6px; height: 6px; border-radius: 50%; }
+    flex: 1;
+    text-align: center;
+    padding: 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: bold;
+    color: base.$text-dim;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    transition: all 0.2s;
+
+    &.active {
+      background: base.$bg-card; // 使用略浅的背景突出
+      color: base.$accent;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    }
+
+    &:hover:not(.active) {
+      color: base.$text-main;
+    }
   }
 }
 
 /* 表单布局 */
 .modal-form {
-  display: flex; flex-direction: column; gap: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+
   .input-row { display: flex; gap: 12px; .flex-3 { flex: 3; } .flex-2 { flex: 2; } }
+
   .form-group {
-    display: flex; flex-direction: column; gap: 8px;
-    label { font-size: 10px; color: $text-dim; font-weight: bold; text-transform: uppercase; .hint { font-weight: normal; opacity: 0.5; text-transform: none; } }
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+
+    label {
+      font-size: 10px;
+      color: base.$text-muted;
+      font-weight: bold;
+      text-transform: uppercase;
+
+      .hint {
+        font-weight: normal;
+        color: base.$text-dim;
+        opacity: 0.6;
+        text-transform: none;
+        margin-left: 4px;
+      }
+    }
   }
 }
 
 .dark-input {
-  width: 100%; background: $bg-input !important; border: 1px solid $border-color;
-  border-radius: 6px; padding: 10px 12px; color: $text-main; font-size: 13px; outline: none;
+  width: 100%;
+  background: base.$bg-input !important;
+  border: 1px solid base.$border;
+  border-radius: 6px;
+  padding: 10px 12px;
+  color: base.$text-main;
+  font-size: 13px;
+  outline: none;
   transition: all 0.2s;
-  &:focus { border-color: $accent; background: rgba($accent, 0.02) !important; }
+
+  &:focus {
+    border-color: base.$accent;
+    background: rgba(base.$accent, 0.02) !important;
+    box-shadow: 0 0 0 2px rgba(base.$accent, 0.1);
+  }
 }
 
 /* TTL 数字输入框专项美化 */
 .ttl-input-container {
-  position: relative; display: flex; align-items: center;
-  .clock-icon { position: absolute; right: 12px; font-size: 12px; color: $text-dim; pointer-events: none; }
-  &:focus-within .clock-icon { color: $accent; }
+  position: relative;
+  display: flex;
+  align-items: center;
+
+  .clock-icon {
+    position: absolute;
+    right: 12px;
+    font-size: 12px;
+    color: base.$text-dim;
+    pointer-events: none;
+  }
+
+  &:focus-within .clock-icon { color: base.$accent; }
 }
 
 .ttl-input {
   padding-right: 32px !important;
-  /* 针对 Chrome/Edge/Safari 优化箭头样式 */
+
+  /* 针对 Chrome/Edge/Safari 优化箭头样式，使其自适应强调色 */
   &::-webkit-inner-spin-button {
-    opacity: 1;
+    opacity: 0.7;
     cursor: pointer;
-    filter: invert(0.8) sepia(1) saturate(5) hue-rotate(175deg); /* 使箭头在暗色下变为亮蓝色/白色 */
-    height: 20px;
+    /* 利用滤镜让系统默认箭头变亮，呈现类似主题色的质感 */
+    filter: invert(1) brightness(1.5);
+    height: 18px;
   }
-  /* 火狐隐藏默认箭头保持整洁 */
-  -moz-appearance: textfield;
+
+  -moz-appearance: textfield; /* 火狐隐藏默认箭头 */
 }
 
-.value-area { height: 120px; resize: none; font-family: 'Fira Code', monospace; line-height: 1.5; }
+.value-area {
+  height: 120px;
+  resize: none;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  line-height: 1.5;
+}
 
-/* 展开动画 */
+/* 展开动画容器 */
 .expand-wrapper {
-  display: grid; grid-template-rows: 0fr; transition: grid-template-rows 0.3s cubic-bezier(0.4, 0, 0.2, 1); overflow: hidden;
-  &.is-open { grid-template-rows: 1fr; margin-bottom: 4px; }
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+
+  &.is-open {
+    grid-template-rows: 1fr;
+    margin-bottom: 4px;
+  }
+
   .expand-content { min-height: 0; }
 }
 
 /* Footer */
 .modal-footer {
-  padding: 15px 20px; background: rgba(0, 0, 0, 0.15); border-top: 1px solid $border-color;
-  display: flex; justify-content: space-between; align-items: center;
-  .type-hint { font-size: 11px; color: $text-dim; display: flex; align-items: center; gap: 6px; font-style: italic; }
+  padding: 15px 20px;
+  background: rgba(0, 0, 0, 0.15);
+  border-top: 1px solid base.$border;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+
+  .type-hint {
+    font-size: 11px;
+    color: base.$text-dim;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-style: italic;
+  }
+
   .btns { display: flex; gap: 10px; }
-  .btn-cancel { background: transparent; border: 1px solid $border-color; color: $text-dim; padding: 8px 18px; border-radius: 6px; cursor: pointer; &:hover { color: $text-main; } }
-  .btn-confirm { background: $accent; color: #1a1b26; border: none; padding: 8px 22px; border-radius: 6px; font-weight: bold; cursor: pointer; &:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba($accent, 0.3); } }
+
+  .btn-cancel {
+    background: transparent;
+    border: 1px solid base.$border;
+    color: base.$text-muted;
+    padding: 8px 18px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+
+    &:hover {
+      color: base.$text-main;
+      background: rgba(base.$text-main, 0.05);
+    }
+  }
+
+  .btn-confirm {
+    background: base.$accent;
+    color: base.$bg-primary; // 修改：按钮文字使用主题背景深色
+    border: none;
+    padding: 8px 22px;
+    border-radius: 6px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.2s;
+
+    &:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(base.$accent, 0.3);
+      filter: brightness(1.1);
+    }
+
+    &:active { transform: translateY(0); }
+  }
 }
 
+/* 弹窗渐变动画 */
 .modal-fade-enter-active, .modal-fade-leave-active { transition: opacity 0.3s ease; }
 .modal-fade-enter-from, .modal-fade-leave-to { opacity: 0; }
 </style>

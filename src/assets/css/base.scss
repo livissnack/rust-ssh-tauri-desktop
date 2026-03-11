@@ -1,17 +1,184 @@
-:root {
-  --bg-main: #0f111a;
-  --scrollbar-track: transparent;
-  --scrollbar-thumb: #292e42;
-  --scrollbar-thumb-hover: #3b4261;
-  --accent-color: #7aa2f7;
-  --accent-glow: rgba(122, 162, 247, 0.2);
+@use "sass:color";
+@use "sass:map";
 
-  /* 图标专属颜色 */
-  --icon-folder: #e0af68;
-  --icon-file: #7aa2f7;
-  --icon-up: #9ece6a;
+// ============================================
+// 🎨 主题配色系统
+// ============================================
+
+// 默认主题名称
+$active-theme: 'monokai-pro' !default;
+
+// ============================================
+// 🌸 主题列表
+// ============================================
+$themes: (
+  // --------------------------------------------
+  // 🌙 暗色主题系列
+  // --------------------------------------------
+        'tokyo-night': (
+                'is-light': false,
+                'bg-primary': #1a1b26, // 主背景
+                'bg-secondary': #16161e, // 侧边栏/头部
+                'bg-card': #24283b, // 卡片/弹窗
+                'bg-input': #0f111a, // 输入框
+                'border': #292e42, // 边框
+                'text-main': #c0caf5, // 主文字
+                'text-dim': #565f89, // 次要文字 (暗)
+                'accent': #7aa2f7, // 品牌色 (蓝)
+                'accent-alt': #bb9af7, // 品牌色 (紫)
+                'accent-orange': #e0af68, // 警告/SFTP文件夹
+                'success': #9ece6a, // 成功
+                'error': #f7768e, // 错误/Redis
+                'shadow': rgba(0, 0, 0, 0.5)
+        ),
+        'monokai-pro': (
+                'is-light': false,
+                'bg-primary': #2d2a2e,
+                'bg-secondary': #221f22,
+                'bg-card': #3a3a3a,
+                'bg-input': #19181a,
+                'border': #403e41,
+                'text-main': #fcfcfa,
+                'text-dim': #939293,
+                'accent': #ffd866, // 黄色系
+                'accent-alt': #ab9df2,
+                'accent-orange': #fc9867,
+                'success': #a9dc76,
+                'error': #ff6188,
+                'shadow': rgba(0, 0, 0, 0.4)
+        ),
+  // --------------------------------------------
+  // ☀️ 亮色主题系列 (New!)
+  // --------------------------------------------
+        'azure-light': (
+                'is-light': true,
+                'bg-primary': #ffffff, // 主工作区：纯白
+                'bg-secondary': #f3f2f1, // 侧边栏/头部：淡灰 (Azure Header 风格)
+                'bg-card': #ffffff, // 弹窗/卡片
+                'bg-input': #ffffff, // 输入框
+                'border': #e1dfdd, // 极细边框
+                'text-main': #323130, // 主文字：深炭灰
+                'text-dim': #605e5d, // 次要文字
+                'accent': #0078d4, // 微软标准蓝
+                'accent-alt': #5c2d91, // 微软紫色
+                'accent-orange': #d83b01, // 微软橙 (用于警告/文件夹)
+                'success': #107c10, // 微软绿
+                'error': #a4262c, // 微软红
+                'shadow': rgba(0, 0, 0, 0.05)
+        ),
+        'microsoft-dark': (
+                'is-light': false,
+                'bg-primary': #1b1a19, // 经典的 Carbon 背景
+                'bg-secondary': #252423, // 侧边栏
+                'bg-card': #2d2c2c, // 浮窗
+                'bg-input': #323130, // 输入框
+                'border': #484644, // 中灰色边框
+                'text-main': #ffffff,
+                'text-dim': #a19f9d,
+                'accent': #2886de,
+                'accent-alt': #a67af4,
+                'accent-orange': #f7630c,
+                'success': #bad80a,
+                'error': #f1707a,
+                'shadow': rgba(0, 0, 0, 0.4)
+        ),
+);
+
+// 获取当前主题 (使用 map.get)
+$current-theme: map.get($themes, $active-theme);
+
+$is-light: map.get($current-theme, 'is-light');
+
+
+// 主题变量混合器 (使用 map.get)
+@function theme($key) {
+  @return map.get($current-theme, $key);
 }
 
+// 快捷变量映射
+$bg-dark: theme('bg-dark');
+$bg-primary: theme('bg-primary');
+$bg-secondary: theme('bg-secondary');
+$bg-pane: theme('bg-pane');
+$bg-header: theme('bg-header');
+$bg-sidebar: theme('bg-sidebar');
+$bg-card: theme('bg-card');
+$bg-input: theme('bg-input');
+$bg-alt: theme('bg-alt');
+$bg-main: $bg-dark;
+
+$border: theme('border');
+$border-color: theme('border-color');
+
+$text-main: theme('text-main');
+$text-muted: theme('text-muted');
+$text-dim: theme('text-dim');
+
+$accent: theme('accent');
+$accent-blue: theme('accent-blue');
+$accent-purple: theme('accent-purple');
+$accent-orange: theme('accent-orange');
+
+$success: theme('success');
+$error: theme('error');
+$danger: theme('danger');
+$warning: theme('warning');
+$shadow: theme('shadow');
+
+$icon-folder: theme('icon-folder');
+$icon-file: theme('icon-file');
+$icon-up: theme('icon-up');
+
+$logo-text-color: #ffffff;
+@if not $is-light {
+  $logo-text-color: $text-main;
+}
+
+// ============================================
+// 🎯 CSS 变量定义
+// ============================================
+:root {
+  --bg-main: #{$bg-dark};
+  --bg-primary: #{$bg-primary};
+  --bg-secondary: #{$bg-secondary};
+  --bg-sidebar: #{$bg-sidebar};
+  --bg-card: #{$bg-card};
+  --bg-input: #{$bg-input};
+
+  --border: #{$border};
+  --border-color: #{$border-color};
+
+  --text-main: #{$text-main};
+  --text-muted: #{$text-muted};
+  --text-dim: #{$text-dim};
+
+  --accent: #{$accent};
+  --accent-blue: #{$accent-blue};
+  --accent-purple: #{$accent-purple};
+
+  --success: #{$success};
+  --error: #{$error};
+  --danger: #{$danger};
+  --warning: #{$warning};
+
+  --scrollbar-track: transparent;
+  --scrollbar-thumb: #{$border};
+  // 使用 color.mix 替换全局 mix
+  --scrollbar-thumb-hover: #{color.mix($border, #ffffff, 15%)};
+
+  --accent-color: #{$accent};
+  // 使用更简洁的 color.change 替换复杂的 rgba 提取
+  --accent-glow: #{color.change($accent, $alpha: 0.2)};
+
+  --icon-folder: #{$icon-folder};
+  --icon-file: #{$icon-file};
+  --icon-up: #{$icon-up};
+
+  --theme-name: '#{$active-theme}';
+}
+
+// ... 剩余的 body, 滚动条, file-icon 等样式保持不变 ...
+// 建议在引用变量时直接使用 $bg-primary 这种快捷映射，避免重复调用 theme() 函数
 body {
   margin: 0;
   padding: 0;
@@ -42,7 +209,6 @@ body {
   }
 }
 
-// 表单元素交互
 input, select, textarea {
   transition: border-color 0.2s, box-shadow 0.2s;
 
@@ -53,7 +219,6 @@ input, select, textarea {
   }
 }
 
-// 文件图标系统
 .file-icon {
   width: 24px;
   display: inline-flex;
@@ -83,7 +248,34 @@ input, select, textarea {
   }
 }
 
-// 防止拖拽时的默认蓝色阴影
+@mixin ms-card {
+  background: $bg-card;
+  border: 1px solid $border;
+  @if $is-light {
+    box-shadow: 0 1.6px 3.6px 0 $shadow, 0 0.3px 0.9px 0 $shadow; // 微软经典的浅层阴影
+  } @else {
+    box-shadow: 0 8px 16px $shadow;
+  }
+}
+
+@mixin ms-button-primary {
+  background: $accent;
+  color: #ffffff;
+  border: none;
+  &:hover {
+    filter: brightness(1.1);
+    box-shadow: 0 4px 8px rgba($accent, 0.3);
+  }
+}
+
+@mixin hover-effect {
+  @if $is-light {
+    background: #f3f2f1; // 微软悬停灰
+  } @else {
+    background: rgba(255, 255, 255, 0.08);
+  }
+}
+
 [draggable="true"] {
   user-select: none;
   -webkit-user-drag: element;

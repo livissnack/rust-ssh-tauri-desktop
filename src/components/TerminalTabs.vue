@@ -35,55 +35,88 @@ const activeSessionId = computed({
 </template>
 
 <style lang="scss" scoped>
-$bg-sidebar: #16161e;
-$accent: #7aa2f7;
-$text-dim: #565f89;
+@use "sass:color";
+@use '../assets/css/base.scss';
 
 .session-tabs {
   height: 44px;
-  background: $bg-sidebar;
+  background: base.$bg-sidebar; // 选项卡槽背景，通常与侧边栏一致
   display: flex;
   align-items: flex-end;
   padding-left: 10px;
   gap: 4px;
   flex-shrink: 0;
+  border-bottom: 1px solid base.$border; // 增加底部细线，增强与内容区的隔离感
 
   .tab-item {
     height: 34px;
     padding: 0 15px;
-    background: #1a1b26;
-    border-radius: 10px 10px 0 0;
+    background: rgba(base.$bg-primary, 0.4); // 非激活状态略透明
+    border: 1px solid base.$border;
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
     display: flex;
     align-items: center;
     gap: 8px;
     font-size: 12px;
-    color: $text-dim;
+    color: base.$text-dim;
     cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    top: 1px; // 压在 border-bottom 上
+
+    &:hover {
+      background: rgba(base.$bg-primary, 0.8);
+      color: base.$text-main;
+    }
 
     &.active {
-      background: #0f111a;
-      color: $accent;
-      border-bottom: 2px solid $accent;
+      background: base.$bg-primary; // 激活态与主内容区背景融合
+      color: base.$accent;
+      height: 35px; // 略高一点点，覆盖住底边框
+      font-weight: 600;
+      border-color: base.$border;
+
+      // 使用伪元素做顶部发光条，比直接底边框更符合现代 IDE 审美
+      &::before {
+        content: '';
+        position: absolute;
+        top: 0; left: 0; right: 0;
+        height: 2px;
+        background: base.$accent;
+        border-radius: 8px 8px 0 0;
+      }
     }
 
     .tab-close {
-      font-size: 16px;
+      font-size: 14px;
       margin-left: 5px;
+      padding: 2px;
+      border-radius: 4px;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
 
       &:hover {
-        color: #ff5f56;
+        background: rgba(base.$error, 0.15);
+        color: base.$error; // 修改：使用主题错误色
       }
     }
   }
 
   .tab-add {
-    padding: 0 12px 10px;
-    color: $text-dim;
+    height: 34px;
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    color: base.$text-dim;
     cursor: pointer;
-    font-size: 20px;
+    font-size: 18px;
+    transition: color 0.2s;
 
     &:hover {
-      color: $accent;
+      color: base.$accent;
     }
   }
 }

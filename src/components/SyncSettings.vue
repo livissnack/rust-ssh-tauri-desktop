@@ -159,24 +159,17 @@ onMounted(loadSettings);
 </template>
 
 <style lang="scss" scoped>
-/* 变量定义 */
-$bg-primary: #1a1b26;
-$bg-secondary: #16161e;
-$accent: #bb9af7;
-$border: #292e42;
-$text-main: #c0caf5;
-$text-dim: #565f89;
-$success: #9ece6a;
-$warning: #e0af68;
+@use "sass:color";
+@use '../assets/css/base.scss';
 
 .sync-panel {
   display: flex;
   flex-direction: column;
-  background: $bg-primary;
+  background: base.$bg-primary;
   border-radius: 10px;
-  border: 1px solid $border;
+  border: 1px solid base.$border;
   overflow: hidden;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 4px 25px rgba(0, 0, 0, 0.4);
 }
 
 .panel-header {
@@ -184,8 +177,8 @@ $warning: #e0af68;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border-bottom: 1px solid $border;
-  background: rgba($bg-secondary, 0.5);
+  border-bottom: 1px solid base.$border;
+  background: rgba(base.$bg-secondary, 0.5);
 
   .title {
     display: flex;
@@ -193,14 +186,14 @@ $warning: #e0af68;
     gap: 10px;
     font-size: 14px;
     font-weight: 600;
-    color: $accent;
+    color: base.$accent;
     i { font-size: 16px; }
   }
 }
 
 .sync-form {
   padding: 20px;
-  background: $bg-secondary;
+  background: base.$bg-secondary;
   display: flex;
   flex-direction: column;
   gap: 15px;
@@ -210,44 +203,70 @@ $warning: #e0af68;
     flex-direction: column;
     gap: 6px;
     flex: 1;
-    label { font-size: 12px; color: $text-dim; font-weight: 500; }
+    label {
+      font-size: 11px;
+      color: base.$text-muted;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
   }
 
   .input-row { display: flex; gap: 12px; }
 
   .form-input {
-    background: $bg-primary;
-    border: 1px solid $border;
+    background: base.$bg-input; // 修改：使用统一输入框背景
+    border: 1px solid base.$border;
     border-radius: 6px;
     padding: 10px;
-    color: $text-main;
+    color: base.$text-main;
     font-size: 13px;
     transition: all 0.2s;
-    &:focus { outline: none; border-color: $accent; box-shadow: 0 0 0 2px rgba($accent, 0.2); }
-    &::placeholder { color: #414868; }
+
+    &:focus {
+      outline: none;
+      border-color: base.$accent;
+      box-shadow: 0 0 0 2px rgba(base.$accent, 0.1);
+    }
+
+    &::placeholder {
+      color: base.$text-dim;
+      opacity: 0.5;
+    }
   }
 
-  /* 主密钥特殊样式 */
+  /* 主密钥特殊样式 - 增加视觉权重 */
   .master-key-box {
-    background: rgba($accent, 0.05);
+    background: rgba(base.$accent, 0.05);
     padding: 12px;
     border-radius: 8px;
-    border: 1px dashed rgba($accent, 0.3);
-    .master-label { color: $accent; font-weight: 600; }
+    border: 1px dashed rgba(base.$accent, 0.3);
+
+    .master-label {
+      color: base.$accent;
+      font-weight: 700;
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
   }
 
   .password-wrapper {
     position: relative;
     display: flex;
     align-items: center;
+
     .form-input { width: 100%; padding-right: 35px; }
+
     i {
       position: absolute;
       right: 12px;
       font-size: 14px;
-      color: $text-dim;
+      color: base.$text-dim;
       cursor: pointer;
-      &:hover { color: $accent; }
+      transition: color 0.2s;
+      &:hover { color: base.$accent; }
     }
   }
 
@@ -256,15 +275,38 @@ $warning: #e0af68;
     justify-content: space-between;
     align-items: center;
     margin-top: 10px;
+
     .auto-sync {
-      font-size: 12px; color: $text-dim; display: flex; align-items: center; gap: 6px; cursor: pointer;
-      input { cursor: pointer; accent-color: $accent; }
+      font-size: 12px;
+      color: base.$text-dim;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      transition: color 0.2s;
+
+      &:hover { color: base.$text-main; }
+
+      input {
+        cursor: pointer;
+        accent-color: base.$accent; // 修改：复选框颜色跟随主题
+      }
     }
+
     .btn-save {
-      background: $accent; color: $bg-primary; border: none;
-      padding: 8px 16px; border-radius: 6px; font-weight: 700; cursor: pointer;
-      transition: opacity 0.2s;
-      &:hover { opacity: 0.9; }
+      background: base.$accent;
+      color: base.$bg-primary;
+      border: none;
+      padding: 8px 18px;
+      border-radius: 6px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s;
+
+      &:hover {
+        filter: brightness(1.1);
+        box-shadow: 0 4px 12px rgba(base.$accent, 0.3);
+      }
     }
   }
 }
@@ -274,64 +316,111 @@ $warning: #e0af68;
   display: flex;
   flex-direction: column;
   gap: 12px;
+  background: base.$bg-primary;
 
   .op-card {
     display: flex;
     align-items: center;
     gap: 15px;
     padding: 16px;
-    background: rgba(255, 255, 255, 0.02);
-    border: 1px solid $border;
+    background: base.$bg-card; // 修改：使用卡片背景色
+    border: 1px solid base.$border;
     border-radius: 10px;
     cursor: pointer;
     transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 
-    &.is-disabled { opacity: 0.5; pointer-events: none; }
-
-    &:hover {
-      background: rgba($accent, 0.08);
-      border-color: $accent;
-      transform: translateY(-2px);
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-      .op-icon { color: $accent; }
+    &.is-disabled {
+      opacity: 0.4;
+      pointer-events: none;
+      filter: grayscale(1);
     }
 
-    .op-icon { font-size: 22px; color: $text-dim; transition: color 0.2s; }
-    .op-title { font-size: 14px; font-weight: 600; color: #c0caf5; }
-    .op-desc { font-size: 11px; color: $text-dim; margin-top: 4px; line-height: 1.4; }
+    &:hover {
+      background: rgba(base.$accent, 0.08);
+      border-color: base.$accent;
+      transform: translateY(-2px);
+      box-shadow: 0 6px 15px rgba(0, 0, 0, 0.2);
 
-    &.upload:hover .op-icon { color: #7aa2f7; }
-    &.download:hover .op-icon { color: $success; }
+      .op-icon { color: base.$accent; }
+      .op-title { color: base.$accent; }
+    }
+
+    .op-icon {
+      font-size: 24px;
+      color: base.$text-dim;
+      transition: all 0.3s;
+    }
+
+    .op-info {
+      flex: 1;
+      .op-title {
+        font-size: 14px;
+        font-weight: 600;
+        color: base.$text-main;
+        transition: color 0.2s;
+      }
+      .op-desc {
+        font-size: 11px;
+        color: base.$text-dim;
+        margin-top: 4px;
+        line-height: 1.4;
+      }
+    }
+
+    /* 悬浮时的特定颜色微调 */
+    &.upload:hover .op-icon { color: base.$accent; }
+    &.download:hover .op-icon { color: base.$success; }
   }
 }
 
 .sync-footer {
-  padding: 10px 18px;
+  padding: 12px 18px;
   font-size: 11px;
-  color: $text-dim;
-  background: rgba($bg-secondary, 0.3);
-  border-top: 1px solid $border;
+  color: base.$text-dim;
+  background: rgba(base.$bg-secondary, 0.3);
+  border-top: 1px solid base.$border;
   display: flex;
   align-items: center;
   gap: 8px;
-  i { font-size: 12px; }
+
+  i {
+    font-size: 12px;
+    color: base.$success; // 同步成功的图标颜色
+  }
 }
 
-/* 抽屉式动画逻辑 */
+/* 抽屉式动画 */
 .expand-container {
   display: grid;
   grid-template-rows: 0fr;
   transition: grid-template-rows 0.35s cubic-bezier(0.4, 0, 0.2, 1);
   overflow: hidden;
+
   &.is-expanded { grid-template-rows: 1fr; }
-  .expand-content { min-height: 0; width: 100%; }
+
+  .expand-content {
+    min-height: 0;
+    width: 100%;
+  }
 }
 
 .icon-btn {
-  background: transparent; border: none; color: $text-dim; cursor: pointer;
-  padding: 6px; border-radius: 50%;
-  transition: all 0.3s ease;
-  &:hover { background: rgba($text-dim, 0.1); color: $text-main; }
-  &.is-active { transform: rotate(90deg); color: $accent; }
+  background: transparent;
+  border: none;
+  color: base.$text-dim;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 50%;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+
+  &:hover {
+    background: rgba(base.$text-dim, 0.1);
+    color: base.$text-main;
+  }
+
+  &.is-active {
+    transform: rotate(90deg);
+    color: base.$accent;
+  }
 }
 </style>

@@ -128,18 +128,17 @@ const closeModal = () => {
 </template>
 
 <style lang="scss" scoped>
-$bg-dark: #0f111a;
-$border-color: #292e42;
-$accent: #7aa2f7;
-$text-dim: #565f89;
+@use "sass:color";
+@use '../assets/css/base.scss';
 
+/* 遮罩层 */
 .modal-overlay {
   position: fixed;
   top: 0;
   left: 0;
   width: 100vw;
   height: 100vh;
-  background: rgba(0, 0, 0, 0.7);
+  background: rgba(0, 0, 0, 0.7); // 保持深色背景以聚焦内容
   backdrop-filter: blur(8px);
   display: flex;
   align-items: center;
@@ -147,31 +146,38 @@ $text-dim: #565f89;
   z-index: 2000;
 }
 
+/* 弹窗主体 */
 .modal-content {
   width: 440px;
-  background: #1a1b26;
-  border: 1px solid $border-color;
+  background: base.$bg-primary;
+  border: 1px solid base.$border; // 使用统一 border 变量
   border-radius: 20px;
   max-height: 90vh;
   display: flex;
   flex-direction: column;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
 
   .modal-header {
     padding: 20px 24px;
     display: flex;
     justify-content: space-between;
+    align-items: center;
+    background: rgba(0, 0, 0, 0.1); // 轻微区分头部
 
     h3 {
       margin: 0;
-      color: #fff;
+      font-size: 16px;
+      color: base.$text-main; // 修改：跟随主题文字色
     }
 
     .close-btn {
       background: none;
       border: none;
-      color: #fff;
+      color: base.$text-dim;
       font-size: 20px;
       cursor: pointer;
+      transition: color 0.2s;
+      &:hover { color: base.$error; } // 修改：悬浮变错误色
     }
   }
 
@@ -186,24 +192,30 @@ $text-dim: #565f89;
       label {
         display: block;
         font-size: 11px;
-        color: $text-dim;
+        color: base.$text-muted; // 使用 muted 更符合标签感
+        font-weight: 600;
+        text-transform: uppercase;
         margin-bottom: 8px;
+        letter-spacing: 0.5px;
       }
 
       input,
       .styled-select {
         width: 100%;
-        background: $bg-dark;
-        border: 1px solid $border-color;
+        background: base.$bg-input; // 修改：使用统一输入框背景
+        border: 1px solid base.$border;
         padding: 12px;
         border-radius: 10px;
-        color: #c0caf5;
+        color: base.$text-main;
+        font-size: 13px;
         outline: none;
         box-sizing: border-box;
+        transition: all 0.2s ease;
 
         &:focus {
-          border-color: $accent !important;
-          box-shadow: 0 0 0 2px rgba(122, 162, 247, 0.2);
+          border-color: base.$accent !important;
+          background: rgba(base.$accent, 0.02);
+          box-shadow: 0 0 0 3px rgba(base.$accent, 0.1); // 使用动态透明度
         }
       }
     }
@@ -211,86 +223,89 @@ $text-dim: #565f89;
     .form-row {
       display: flex;
       gap: 15px;
-
-      .flex-3 {
-        flex: 3;
-      }
-
-      .flex-1 {
-        flex: 1;
-      }
+      .flex-3 { flex: 3; }
+      .flex-1 { flex: 1; }
     }
 
+    /* 文件选择器 (如 SSH Key 选择) */
     .file-picker {
       display: flex;
       gap: 8px;
 
-      input {
-        flex: 1;
-      }
+      input { flex: 1; }
 
       button {
-        background: #24283b;
-        border: 1px solid $border-color;
-        color: #c0caf5;
+        background: base.$bg-secondary; // 修改：按钮背景跟随主题
+        border: 1px solid base.$border;
+        color: base.$text-main;
         padding: 0 15px;
         border-radius: 10px;
         cursor: pointer;
+        transition: all 0.2s;
+        &:hover {
+          background: rgba(base.$accent, 0.1);
+          border-color: base.$accent;
+          color: base.$accent;
+        }
       }
     }
   }
 
   .modal-footer {
     padding: 20px 24px;
-    background: #16161e;
+    background: base.$bg-secondary; // 修改：底部背景跟随主题
     display: flex;
     justify-content: flex-end;
     gap: 12px;
     border-radius: 0 0 20px 20px;
+    border-top: 1px solid base.$border;
 
     button {
-      padding: 10px 20px;
+      padding: 10px 22px;
       border-radius: 8px;
       cursor: pointer;
+      font-size: 13px;
+      transition: all 0.2s;
     }
 
     .cancel-btn {
       background: transparent;
-      border: 1px solid $border-color;
-      color: #a9b1d6;
+      border: 1px solid base.$border;
+      color: base.$text-muted;
+      &:hover {
+        background: rgba(base.$text-main, 0.05);
+        color: base.$text-main;
+      }
     }
 
     .save-btn {
-      background: $accent;
+      background: base.$accent;
       border: none;
-      color: #fff;
+      color: base.$bg-primary; // 修改：按钮文字使用主题深色
       font-weight: 600;
+      &:hover {
+        filter: brightness(1.1);
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(base.$accent, 0.3);
+      }
+      &:active { transform: translateY(0); }
     }
   }
 }
 
-.scale-enter-active,
-.scale-leave-active {
-  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-.scale-enter-from,
-.scale-leave-to {
-  opacity: 0;
-  transform: scale(0.9);
-}
-
+/* 端口输入框微调组件 */
 .port-input-wrapper {
   display: flex;
   align-items: center;
-  background: $bg-dark;
-  border: 1px solid $border-color;
-  border-radius: 8px;
+  background: base.$bg-input;
+  border: 1px solid base.$border;
+  border-radius: 10px;
   overflow: hidden;
-  transition: border-color 0.2s;
+  transition: all 0.2s;
 
   &:focus-within {
-    border-color: $accent;
+    border-color: base.$accent;
+    box-shadow: 0 0 0 3px rgba(base.$accent, 0.1);
   }
 
   input {
@@ -299,28 +314,31 @@ $text-dim: #565f89;
     padding: 10px 0 !important;
     width: 100%;
     background: transparent !important;
+    color: base.$accent !important; // 端口号突出显示
+    font-weight: bold;
+    font-family: 'JetBrains Mono', monospace;
 
-    &:focus {
-      outline: none;
-    }
+    &:focus { outline: none; }
   }
 
   .port-btn {
     background: transparent;
-    color: $text-dim;
+    color: base.$text-dim;
     padding: 0 10px;
     font-size: 14px;
     height: 100%;
     cursor: pointer;
     border: none;
+    transition: all 0.2s;
 
     &:hover {
-      color: $accent;
-      background: rgba(122, 162, 247, 0.1);
+      color: base.$accent;
+      background: rgba(base.$accent, 0.1);
     }
   }
 }
 
+/* 密码显隐组件 */
 .password-wrapper {
   position: relative;
   display: flex;
@@ -339,25 +357,35 @@ $text-dim: #565f89;
     padding: 4px;
     cursor: pointer;
     font-size: 16px;
+    color: base.$text-dim; // 修改：图标颜色跟随主题
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: transform 0.1s;
+    transition: all 0.2s;
 
     &:hover {
+      color: base.$accent;
       transform: scale(1.1);
     }
   }
 }
 
-/* 隐藏数字输入框的箭头 */
+/* 动画效果 */
+.scale-enter-active,
+.scale-leave-active {
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.scale-enter-from,
+.scale-leave-to {
+  opacity: 0;
+  transform: scale(0.9);
+}
+
+/* 数字输入框清除默认样式 */
 input::-webkit-outer-spin-button,
 input::-webkit-inner-spin-button {
   -webkit-appearance: none;
   margin: 0;
 }
-
-input[type="number"] {
-  -moz-appearance: textfield;
-}
+input[type="number"] { -moz-appearance: textfield; }
 </style>

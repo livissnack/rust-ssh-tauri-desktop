@@ -64,36 +64,41 @@ watch(() => props.currentServer?.id, async (newId) => {
 </template>
 
 <style lang="scss" scoped>
-$bg-sidebar: #16161e;
-$border-color: #292e42;
-$text-dim: #565f89;
-$success: #9ece6a;
+@use "sass:color";
+@use '../assets/css/base.scss';
 
 .status-bar {
   height: 30px;
-  background: $bg-sidebar;
-  border-top: 1px solid $border-color;
+  background: base.$bg-sidebar; // 状态栏通常与侧边栏色调一致，保持底座稳重
+  border-top: 1px solid base.$border; // 修改：统一使用 $border 变量
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 0 15px;
   font-size: 11px;
-  color: $text-dim;
+  color: base.$text-dim;
+  user-select: none; // 状态栏建议禁止文本选中
 
   .status-left,
   .status-right {
     display: flex;
     gap: 15px;
+    align-items: center;
   }
 
+  /* 延迟显示：根据数值高低建议使用 $accent 或 $warning */
   .latency {
-    color: #e0af68;
+    color: base.$accent-orange; // 修改：使用主题中的橙色/警告色
     font-family: 'JetBrains Mono', monospace;
     font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 4px;
 
     i {
       font-size: 10px;
-      filter: drop-shadow(0 0 2px rgba(224, 175, 104, 0.4));
+      // 修改：发光颜色跟随变量
+      filter: drop-shadow(0 0 3px rgba(base.$accent-orange, 0.5));
     }
   }
 
@@ -101,18 +106,33 @@ $success: #9ece6a;
     display: flex;
     align-items: center;
     gap: 6px;
+    transition: color 0.2s;
+
+    &:hover {
+      color: base.$text-main;
+    }
   }
 
+  /* 状态指示灯 */
   .dot {
     width: 7px;
     height: 7px;
     border-radius: 50%;
-    background: #414868;
+    background: base.$border; // 离线状态使用边框色或深色
 
     &.online {
-      background: $success;
-      box-shadow: 0 0 8px $success;
+      background: base.$success;
+      // 修改：发光半径微调，使用 rgba 确保柔和
+      box-shadow: 0 0 8px rgba(base.$success, 0.6);
+      animation: status-pulse 3s infinite; // 增加一个极其微弱的呼吸感
     }
   }
+}
+
+/* 状态栏专用微弱动画 */
+@keyframes status-pulse {
+  0% { opacity: 1; }
+  50% { opacity: 0.7; }
+  100% { opacity: 1; }
 }
 </style>

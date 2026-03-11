@@ -129,20 +129,14 @@ onMounted(loadCommands);
 </template>
 
 <style lang="scss" scoped>
-// --- 变量定义 ---
-$bg-primary: #1a1b26;
-$bg-secondary: #16161e;
-$accent: #7aa2f7;
-$border: #292e42;
-$text-dim: #565f89;
-$error: #f7768e;
+@use '../assets/css/base.scss';
 
 .quick-command-panel {
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: $bg-primary;
-  color: #a9b1d6;
+  background: base.$bg-primary;
+  color: base.$text-main; // 修改：使用主题主文字色
 }
 
 .panel-header {
@@ -150,7 +144,8 @@ $error: #f7768e;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border-bottom: 1px solid $border;
+  border-bottom: 1px solid base.$border;
+  background: base.$bg-header; // 建议增加背景以增加层级感
   z-index: 10;
 
   .title {
@@ -159,14 +154,14 @@ $error: #f7768e;
     gap: 8px;
     font-size: 13px;
     font-weight: 600;
-    color: $accent;
+    color: base.$accent;
   }
 }
 
 .icon-btn {
   background: transparent;
   border: none;
-  color: $text-dim;
+  color: base.$text-dim;
   cursor: pointer;
   width: 24px;
   height: 24px;
@@ -175,11 +170,11 @@ $error: #f7768e;
   justify-content: center;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 
-  &:hover { color: $accent; }
+  &:hover { color: base.$accent; }
 
   &.is-active {
-    color: $error;
-    transform: rotate(135deg); // 旋转成叉号
+    color: base.$error;
+    transform: rotate(135deg);
   }
 }
 
@@ -189,8 +184,8 @@ $error: #f7768e;
   grid-template-rows: 0fr;
   transition: grid-template-rows 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s;
   overflow: hidden;
-  background: $bg-secondary;
-  border-bottom: 0 solid $border;
+  background: base.$bg-secondary;
+  border-bottom: 0 solid base.$border;
   opacity: 0;
 
   &.is-expanded {
@@ -211,30 +206,32 @@ $error: #f7768e;
   gap: 10px;
 
   .form-input, .form-textarea {
-    background: $bg-primary;
-    border: 1px solid $border;
+    background: base.$bg-input; // 修改：使用专用的输入框背景
+    border: 1px solid base.$border;
     border-radius: 6px;
     padding: 10px;
-    color: #a9b1d6;
+    color: base.$text-main;
     font-size: 12px;
     transition: all 0.2s;
+
     &:focus {
       outline: none;
-      border-color: $accent;
-      background: rgba($accent, 0.05);
+      border-color: base.$accent;
+      background: rgba(base.$accent, 0.05); // 聚焦时轻微渗入主题色
     }
   }
 
   .form-textarea {
     height: 80px;
     resize: none;
-    font-family: 'JetBrains Mono', monospace;
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
   }
 
   .form-actions {
     display: flex;
     justify-content: flex-end;
     gap: 8px;
+
     button {
       padding: 6px 14px;
       border-radius: 4px;
@@ -244,14 +241,24 @@ $error: #f7768e;
       transition: opacity 0.2s;
       &:hover { opacity: 0.8; }
     }
-    .btn-cancel { background: #292e42; color: #a9b1d6; }
-    .btn-save { background: $accent; color: #1a1b26; font-weight: bold; }
+
+    .btn-cancel {
+      background: base.$bg-card; // 修改：取消按钮使用卡片背景色
+      color: base.$text-muted;
+    }
+
+    .btn-save {
+      background: base.$accent;
+      color: base.$bg-primary; // 修改：强调色背景上使用暗色文字
+      font-weight: bold;
+    }
   }
 }
 
 .search-section {
   padding: 12px;
   box-sizing: border-box;
+
   .search-wrapper {
     position: relative;
     width: 100%;
@@ -261,7 +268,7 @@ $error: #f7768e;
     i {
       position: absolute;
       left: 12px;
-      color: $text-dim;
+      color: base.$text-dim;
       font-size: 12px;
       z-index: 1;
     }
@@ -269,14 +276,19 @@ $error: #f7768e;
     input {
       width: 100%;
       box-sizing: border-box;
-      background: $bg-secondary;
-      border: 1px solid $border;
+      background: base.$bg-secondary;
+      border: 1px solid base.$border;
       border-radius: 20px;
       padding: 8px 12px 8px 32px;
-      color: #a9b1d6;
+      color: base.$text-main;
       font-size: 11px;
-      transition: border-color 0.2s;
-      &:focus { outline: none; border-color: $accent; }
+      transition: all 0.2s;
+
+      &:focus {
+        outline: none;
+        border-color: base.$accent;
+        background: base.$bg-input;
+      }
     }
   }
 }
@@ -286,12 +298,17 @@ $error: #f7768e;
   overflow-y: auto;
   padding: 0 12px 12px;
 
+  /* 滚动条跟随主题 */
   &::-webkit-scrollbar { width: 4px; }
-  &::-webkit-scrollbar-thumb { background: $border; border-radius: 4px; }
+  &::-webkit-scrollbar-thumb {
+    background: base.$border;
+    border-radius: 4px;
+    &:hover { background: base.$text-dim; }
+  }
 
   .command-card {
-    background: rgba(255, 255, 255, 0.02);
-    border: 1px solid $border;
+    background: rgba(base.$bg-card, 0.4); // 修改：基于卡片色半透明
+    border: 1px solid base.$border;
     border-radius: 8px;
     padding: 12px;
     margin-bottom: 8px;
@@ -301,21 +318,26 @@ $error: #f7768e;
     transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 
     &:hover {
-      background: rgba($accent, 0.08);
-      border-color: rgba($accent, 0.5);
+      background: rgba(base.$accent, 0.08); // 修改：悬浮时渗入强调色
+      border-color: rgba(base.$accent, 0.5);
       transform: translateY(-1px);
 
-      .execute-icon { color: $accent; }
+      .execute-icon { color: base.$accent; }
       .delete-btn { opacity: 0.6; transform: translateX(0); }
     }
 
     .card-content {
       flex: 1;
       min-width: 0;
-      .cmd-name { font-size: 12px; font-weight: 600; color: #c0caf5; margin-bottom: 4px; }
+      .cmd-name {
+        font-size: 12px;
+        font-weight: 600;
+        color: base.$text-main;
+        margin-bottom: 4px;
+      }
       .cmd-code {
         font-size: 10px;
-        color: $text-dim;
+        color: base.$text-dim;
         font-family: 'JetBrains Mono', monospace;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -334,7 +356,7 @@ $error: #f7768e;
         transform: translateX(5px);
         background: transparent;
         border: none;
-        color: $text-dim;
+        color: base.$text-dim;
         cursor: pointer;
         font-size: 13px;
         padding: 4px;
@@ -342,15 +364,16 @@ $error: #f7768e;
 
         &:hover {
           opacity: 1 !important;
-          color: $error;
+          color: base.$error;
           transform: scale(1.15);
         }
       }
 
       .execute-icon {
-        color: #414868;
+        color: base.$text-dim; // 修改：默认图标颜色变淡
+        opacity: 0.5;
         font-size: 12px;
-        transition: color 0.2s;
+        transition: all 0.2s;
         pointer-events: none;
       }
     }
@@ -360,8 +383,13 @@ $error: #f7768e;
 .empty-state {
   text-align: center;
   padding-top: 50px;
-  color: $text-dim;
-  i { font-size: 28px; margin-bottom: 12px; opacity: 0.5; }
+  color: base.$text-dim;
+  i {
+    font-size: 28px;
+    margin-bottom: 12px;
+    color: base.$accent; // 增加图标的主题色暗示
+    opacity: 0.3;
+  }
   p { font-size: 12px; }
 }
 </style>

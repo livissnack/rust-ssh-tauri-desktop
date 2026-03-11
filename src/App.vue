@@ -680,7 +680,7 @@ onUnmounted(() => {
               <i class="fas fa-list-check"></i>
             </div>
             <div class="icon-item" title="同步设置" :class="{ active: rightPanelVisible && rightPanelType === 'sync-settings' }" @click="toggleRightPanel('sync-settings')">
-              <i class="fas fa-cog"></i>
+              <i class="fas fa-sync-alt"></i>
             </div>
             <div class="icon-item" title="主题设置" :class="{ active: rightPanelVisible && rightPanelType === 'theme-settings' }" @click="toggleRightPanel('theme-settings')">
               <i class="fas fa-palette"></i>

@@ -6,8 +6,9 @@ import {FitAddon} from "xterm-addon-fit";
 import "xterm/css/xterm.css";
 import {invoke} from "@tauri-apps/api/core";
 import {listen, UnlistenFn} from "@tauri-apps/api/event";
-import { ask } from '@tauri-apps/plugin-dialog';
-import { toast } from './utils/toast.ts';
+import {ask} from '@tauri-apps/plugin-dialog';
+import {toast} from './utils/toast.ts';
+import {throttle} from "./utils/async";
 
 // 组件导入
 import Sidebar from "./components/Sidebar.vue";
@@ -78,16 +79,18 @@ const hasActiveTasks = computed(() =>
     transferTasks.value.some(t => t.status === 'transferring')
 );
 
-// --- 交互逻辑 ---
 
-const toggleRightPanel = (type: any) => {
+const handleToggle = (type: any) => {
   if (rightPanelVisible.value && rightPanelType.value === type) {
     rightPanelVisible.value = false;
   } else {
     rightPanelType.value = type;
     rightPanelVisible.value = true;
   }
-};
+}
+
+const toggleRightPanel = throttle(handleToggle, 300);
+
 
 const handleContextMenu = (e: MouseEvent, file: any, source: 'local' | 'remote') => {
   e.preventDefault();
@@ -364,12 +367,16 @@ const toggleViewMode = async () => {
 const refreshLocalFiles = async () => {
   try {
     localFiles.value = await invoke("list_local_dir", {path: localPath.value});
-  } catch (e) { console.error(e); }
+  } catch (e) {
+    console.error(e);
+  }
 };
 const refreshRemoteFiles = async () => {
   try {
     remoteFiles.value = await invoke("list_remote_dir", {sessionId: activeSessionId.value, path: remotePath.value});
-  } catch (e) { console.error(e); }
+  } catch (e) {
+    console.error(e);
+  }
 };
 
 const cloneSession = async () => {
@@ -384,7 +391,9 @@ const cloneSession = async () => {
     await initTerminal(newSessionId);
     try {
       await invoke("connect_ssh", {serverId: server.id, sessionId: newSessionId});
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error(err);
+    }
   }
 };
 
@@ -401,7 +410,17 @@ const handleResize = () => {
 
 const openAddModal = () => {
   isEditing.value = false;
-  newHost.value = {id: "", name: "", host: "", username: "root", port: 22, auth_type: "password", password: "", private_key_path: "", jump_host_id: ""};
+  newHost.value = {
+    id: "",
+    name: "",
+    host: "",
+    username: "root",
+    port: 22,
+    auth_type: "password",
+    password: "",
+    private_key_path: "",
+    jump_host_id: ""
+  };
   isModalOpen.value = true;
 };
 
@@ -449,16 +468,16 @@ const cancelTask = async (taskId: string) => {
     setTimeout(() => {
       transferTasks.value = transferTasks.value.filter(t => t.id !== taskId);
     }, 3000);
-  } catch (err) { console.error(err); }
+  } catch (err) {
+    console.error(err);
+  }
 };
 
 const formatSize = (bytes: number) => {
   if (bytes === 0) return '0 B';
   const k = 1024;
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-  // 计算指数偏移
   const i = Math.floor(Math.log(bytes) / Math.log(k));
-  // 格式化输出，如果是 B 则不带小数，其他保留一位小数
   return parseFloat((bytes / Math.pow(k, i)).toFixed(i > 0 ? 1 : 0)) + ' ' + sizes[i];
 };
 
@@ -466,7 +485,7 @@ watch(activeSessionId, (newId) => {
   if (newId) focusTerminal(newId);
 });
 
-const panelWidth = ref(400); // 默认宽度
+const panelWidth = ref(420);
 const isResizing = ref(false);
 
 const startResizing = (e: MouseEvent) => {
@@ -476,12 +495,13 @@ const startResizing = (e: MouseEvent) => {
 
   const doResize = (moveEvent: MouseEvent) => {
     if (!isResizing.value) return;
-    // 因为面板在右侧，向左拖动（delta为负）应该是增加宽度
     const delta = moveEvent.clientX - startX;
     const newWidth = startWidth - delta;
 
-    // 限制最小和最大宽度
-    if (newWidth > 300 && newWidth < 800) {
+    const maxWidth = window.innerWidth - 300;
+    const minWidth = 300;
+
+    if (newWidth >= minWidth && newWidth <= maxWidth) {
       panelWidth.value = newWidth;
     }
   };
@@ -491,7 +511,6 @@ const startResizing = (e: MouseEvent) => {
     document.removeEventListener('mousemove', doResize);
     document.removeEventListener('mouseup', stopResizing);
     document.body.style.cursor = 'default';
-    // 可以在这里把宽度存入 localStorage，下次打开自动恢复
     localStorage.setItem('right-panel-width', String(panelWidth.value));
   };
 
@@ -531,7 +550,7 @@ onUnmounted(() => {
 
 <template>
   <div class="termius-container">
-    <TitleBar :active-session-id="activeSessionId" />
+    <TitleBar :active-session-id="activeSessionId"/>
     <div class="main-layout">
       <Sidebar
           v-model:active-id="activeId"
@@ -581,7 +600,8 @@ onUnmounted(() => {
                   <div class="glow-ring"></div>
                 </div>
                 <h3 class="empty-title">Ready to Connect</h3>
-                <p class="empty-description">Select a server from the sidebar or create a new connection to start your session.</p>
+                <p class="empty-description">Select a server from the sidebar or create a new connection to start your
+                  session.</p>
                 <button class="create-btn" @click="openAddModal">
                   <i class="fas fa-plus"></i>
                   New Connection
@@ -610,7 +630,8 @@ onUnmounted(() => {
                        @dblclick.stop="handleFileDblClick(file, 'local')"
                        @contextmenu="handleContextMenu($event, file, 'local')">
                     <span class="file-icon">
-                      <i class="fas" :class="file.name === '..' ? 'fa-level-up-alt' : (file.is_dir ? 'fa-folder' : 'fa-file-alt')"></i>
+                      <i class="fas"
+                         :class="file.name === '..' ? 'fa-level-up-alt' : (file.is_dir ? 'fa-folder' : 'fa-file-alt')"></i>
                     </span>
                     <span class="file-name">{{ file.name }}</span>
                     <span class="file-size" v-if="!file.is_dir">
@@ -638,7 +659,8 @@ onUnmounted(() => {
                        @dblclick.stop="handleFileDblClick(file, 'remote')"
                        @contextmenu="handleContextMenu($event, file, 'remote')">
                     <span class="file-icon">
-                      <i class="fas" :class="file.name === '..' ? 'fa-level-up-alt' : (file.is_dir ? 'fa-folder' : 'fa-file-alt')"></i>
+                      <i class="fas"
+                         :class="file.name === '..' ? 'fa-level-up-alt' : (file.is_dir ? 'fa-folder' : 'fa-file-alt')"></i>
                     </span>
                     <span class="file-name">{{ file.name }}</span>
                     <span class="file-size" v-if="!file.is_dir">{{ (file.size / 1024).toFixed(1) }} KB</span>
@@ -648,16 +670,22 @@ onUnmounted(() => {
 
               <div class="transfer-status" v-if="transferTasks.length > 0">
                 <div class="status-header">
-                  <div class="header-left"><i class="fas fa-layer-group"></i><span>传输队列 ({{ transferTasks.length }})</span></div>
+                  <div class="header-left"><i class="fas fa-layer-group"></i><span>传输队列 ({{
+                      transferTasks.length
+                    }})</span></div>
                   <div class="header-status-dot" :class="{ 'is-syncing': hasActiveTasks }"></div>
                 </div>
                 <div class="task-list-wrapper">
                   <TransitionGroup name="task-list">
-                    <div v-for="task in transferTasks" :key="task.id" class="task-row" :class="[`status-${task.status}`]">
+                    <div v-for="task in transferTasks" :key="task.id" class="task-row"
+                         :class="[`status-${task.status}`]">
                       <div class="task-info">
-                        <div class="name-box" :title="task.name"><i :class="getTaskIcon(task)" class="type-icon"></i><span class="task-name">{{ task.name }}</span></div>
+                        <div class="name-box" :title="task.name"><i :class="getTaskIcon(task)"
+                                                                    class="type-icon"></i><span
+                            class="task-name">{{ task.name }}</span></div>
                         <div class="task-actions">
-                          <button v-if="task.status === 'transferring'" class="cancel-btn" @click.stop="cancelTask(task.id)"><i class="fas fa-times"></i></button>
+                          <button v-if="task.status === 'transferring'" class="cancel-btn"
+                                  @click.stop="cancelTask(task.id)"><i class="fas fa-times"></i></button>
                           <span class="task-percent">{{ task.progress }}%</span>
                         </div>
                       </div>
@@ -677,24 +705,36 @@ onUnmounted(() => {
       <div class="right-dock">
         <div class="icon-bar">
           <div class="top-group">
-            <div class="icon-item" title="快捷命令" :class="{ active: rightPanelVisible && rightPanelType === 'quick' }" @click="toggleRightPanel('quick')">
+            <div class="icon-item" title="快捷命令" :class="{ active: rightPanelVisible && rightPanelType === 'quick' }"
+                 @click="toggleRightPanel('quick')">
               <i class="fas fa-bolt"></i>
             </div>
-            <div class="icon-item" title="AI 助手" :class="{ active: rightPanelVisible && rightPanelType === 'ai' }" @click="toggleRightPanel('ai')">
+            <div class="icon-item" title="AI 助手" :class="{ active: rightPanelVisible && rightPanelType === 'ai' }"
+                 @click="toggleRightPanel('ai')">
               <i class="fas fa-robot"></i>
             </div>
-            <div class="icon-item" title="Redis 数据库" :class="{ active: rightPanelVisible && rightPanelType === 'redis' }" @click="toggleRightPanel('redis')">
-              <svg class="redis-icon" viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+            <div class="icon-item" title="Redis 数据库"
+                 :class="{ active: rightPanelVisible && rightPanelType === 'redis' }"
+                 @click="toggleRightPanel('redis')">
+              <svg class="redis-icon" viewBox="0 0 24 24" width="18" height="18">
+                <path fill="currentColor" d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+              </svg>
             </div>
           </div>
           <div class="bottom-group">
-            <div class="icon-item" title="操作审计" :class="{ active: rightPanelVisible && rightPanelType === 'history' }" @click="toggleRightPanel('history')">
+            <div class="icon-item" title="操作审计"
+                 :class="{ active: rightPanelVisible && rightPanelType === 'history' }"
+                 @click="toggleRightPanel('history')">
               <i class="fas fa-list-check"></i>
             </div>
-            <div class="icon-item" title="同步设置" :class="{ active: rightPanelVisible && rightPanelType === 'sync-settings' }" @click="toggleRightPanel('sync-settings')">
+            <div class="icon-item" title="同步设置"
+                 :class="{ active: rightPanelVisible && rightPanelType === 'sync-settings' }"
+                 @click="toggleRightPanel('sync-settings')">
               <i class="fas fa-sync-alt"></i>
             </div>
-            <div class="icon-item" title="主题设置" :class="{ active: rightPanelVisible && rightPanelType === 'theme-settings' }" @click="toggleRightPanel('theme-settings')">
+            <div class="icon-item" title="主题设置"
+                 :class="{ active: rightPanelVisible && rightPanelType === 'theme-settings' }"
+                 @click="toggleRightPanel('theme-settings')">
               <i class="fas fa-palette"></i>
             </div>
           </div>
@@ -710,21 +750,23 @@ onUnmounted(() => {
             <div class="panel-resizer" @mousedown="startResizing"></div>
 
             <div class="panel-content-wrapper">
-              <QuickCommandPanel v-if="rightPanelType === 'quick'" :activeSessionId="activeSessionId" />
-              <AiAssistantPanel v-else-if="rightPanelType === 'ai'" :activeSessionId="activeSessionId" />
-              <RedisManager v-else-if="rightPanelType === 'redis'" :activeSessionId="activeSessionId" />
-              <SyncSettings v-else-if="rightPanelType === 'sync-settings'" :activeSessionId="activeSessionId" />
-              <ThemeSettings v-else-if="rightPanelType === 'theme-settings'" :activeSessionId="activeSessionId" />
+              <QuickCommandPanel v-if="rightPanelType === 'quick'" :activeSessionId="activeSessionId"/>
+              <AiAssistantPanel v-else-if="rightPanelType === 'ai'" :activeSessionId="activeSessionId"/>
+              <RedisManager v-else-if="rightPanelType === 'redis'" :activeSessionId="activeSessionId"/>
+              <SyncSettings v-else-if="rightPanelType === 'sync-settings'" :activeSessionId="activeSessionId"/>
+              <ThemeSettings v-else-if="rightPanelType === 'theme-settings'" :activeSessionId="activeSessionId"/>
             </div>
           </div>
         </Transition>
       </div>
     </div>
 
-    <ServerModal :is-open="isModalOpen" :is-editing="isEditing" :server="newHost" :servers="servers" @close="closeModal" @save="saveHost"/>
+    <ServerModal :is-open="isModalOpen" :is-editing="isEditing" :server="newHost" :servers="servers" @close="closeModal"
+                 @save="saveHost"/>
 
     <Transition name="menu-scale">
-      <div v-if="menuVisible" class="context-menu" :style="{ top: menuPos.y + 'px', left: menuPos.x + 'px' }" @click.stop>
+      <div v-if="menuVisible" class="context-menu" :style="{ top: menuPos.y + 'px', left: menuPos.x + 'px' }"
+           @click.stop>
         <div class="menu-item" @click="handleMenuAction('transfer')">
           <i class="fas" :class="contextSource === 'local' ? 'fa-cloud-upload-alt' : 'fa-cloud-download-alt'"></i>
           <span class="menu-text">

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref } from "vue";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 const appWindow = getCurrentWindow();
@@ -6,6 +7,8 @@ const appWindow = getCurrentWindow();
 const props = defineProps<{
   activeSessionId?: string | null;
 }>();
+
+const controlsHover = ref(false);
 
 const minimize = () => appWindow.minimize();
 const toggleMaximize = () => appWindow.toggleMaximize();
@@ -16,12 +19,17 @@ const closeApp = () => appWindow.close();
   <header class="titlebar">
     <div class="titlebar-drag-handle" data-tauri-drag-region></div>
     <div class="titlebar-ui-layer">
-      <div class="window-controls">
-        <div class="dot close" @click="closeApp"></div>
-        <div class="dot minimize" @click="minimize"></div>
-        <div class="dot maximize" @click="toggleMaximize"></div>
+      <div class="window-controls" @mouseenter="controlsHover = true" @mouseleave="controlsHover = false">
+        <div class="dot close" @click="closeApp">
+          <i v-show="controlsHover" class="fas fa-times"></i>
+        </div>
+        <div class="dot minimize" @click="minimize">
+          <i v-show="controlsHover" class="fas fa-minus"></i>
+        </div>
+        <div class="dot maximize" @click="toggleMaximize">
+          <i v-show="controlsHover" class="fas fa-expand-alt"></i>
+        </div>
       </div>
-<!--      <div class="title-text">Hiphup Terminal</div>-->
       <div class="title-text-container">
         <div class="app-icon">
           <i class="fas fa-terminal"></i>
@@ -74,35 +82,40 @@ const closeApp = () => appWindow.close();
       gap: 8px;
       pointer-events: auto;
 
+      &:hover .dot i {
+        opacity: 1;
+      }
+
       .dot {
         width: 12px;
         height: 12px;
         border-radius: 50%;
-        cursor: pointer;
-        transition: all 0.2s ease;
-        position: relative;
         display: flex;
         align-items: center;
         justify-content: center;
+        position: relative;
+        border: 0.5px solid rgba(0, 0, 0, 0.12); // macOS 特有的微细边框
+
+        i {
+          font-size: 7px; // 符号非常小
+          opacity: 0; // 默认隐藏
+          color: rgba(0, 0, 0, 0.5); // 符号颜色是半透明黑
+          transition: opacity 0.1s ease;
+        }
 
         &.close {
-          background: #ff5f56;
-          &:hover { filter: brightness(1.1); }
+          background: #ff5f57;
+          &:active { background: #bf4942; } // 点击时变深
         }
 
         &.minimize {
-          background: #ffbd2e;
-          &:hover { filter: brightness(1.1); }
+          background: #febc2e;
+          &:active { background: #be8e25; }
         }
 
         &.maximize {
-          background: #27c93f;
-          &:hover { filter: brightness(1.1); }
-        }
-
-        &:active {
-          transform: scale(0.9);
-          filter: brightness(0.8);
+          background: #28c840;
+          &:active { background: #1e9530; }
         }
       }
     }

@@ -1,11 +1,14 @@
 mod sync;
+mod security;
 mod redis_manager;
 use crate::sync::{
     get_sync_settings,
     save_sync_settings,
     sync_to_cloud,
-    sync_from_cloud
+    sync_from_cloud,
+    trigger_auto_sync
 };
+use security::{encrypt_secret, decrypt_secret};
 use redis_manager::{redis_connect, redis_get_keys, redis_get_value, redis_set_value, redis_del_key, redis_rename_key, redis_get_ttl, redis_get_type, save_redis_config, get_redis_configs, delete_redis_config, clear_all_redis_configs};
 use async_trait::async_trait;
 use russh::*;
@@ -27,11 +30,11 @@ use serde_json::json;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
-pub const SERVERS_TABLE: TableDefinition<&str, &str> = TableDefinition::new("servers");
+pub const SERVERS_TABLE: TableDefinition<&str, &str> = TableDefinition::new("ssh_servers");
 pub const COMMANDS_TABLE: TableDefinition<&str, &str> = TableDefinition::new("quick_commands");
 pub const AI_CONFIG_TABLE: TableDefinition<&str, &str> = TableDefinition::new("ai_settings");
 pub const SYNC_CONFIG_TABLE: TableDefinition<&str, &str> = TableDefinition::new("sync_config");
-pub const REDIS_CONN_TABLE: TableDefinition<&str, &str> = TableDefinition::new("sync_config");
+pub const REDIS_CONN_TABLE: TableDefinition<&str, &str> = TableDefinition::new("redis_connections");
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ServerConfig {
@@ -124,8 +127,18 @@ pub struct ActiveSession {
 
 pub struct AppState {
     pub sessions: Arc<Mutex<HashMap<String, ActiveSession>>>,
-    pub db: Arc<Database>,
+    pub db: Arc<redb::Database>,
     pub cancelled_tasks: Arc<Mutex<HashSet<String>>>,
+}
+
+impl Clone for AppState {
+    fn clone(&self) -> Self {
+        Self {
+            sessions: self.sessions.clone(), // 这只是增加引用计数，开销极小
+            db: self.db.clone(),
+            cancelled_tasks: self.cancelled_tasks.clone(),
+        }
+    }
 }
 
 async fn authenticate<R: Runtime>(
@@ -219,7 +232,13 @@ async fn get_servers(state: State<'_, AppState>) -> Result<Vec<ServerConfig>, St
     let mut servers = Vec::new();
     for result in table.iter().map_err(|e| e.to_string())? {
         let (_key, value) = result.map_err(|e| e.to_string())?;
-        let server: ServerConfig = serde_json::from_str(value.value()).map_err(|e| e.to_string())?;
+        let mut server: ServerConfig = serde_json::from_str(value.value()).map_err(|e| e.to_string())?;
+        if !server.host.is_empty() {
+            server.host = decrypt_secret(&server.host).unwrap_or_else(|_| "DECRYPT_ERROR".into());
+        }
+        if let Some(ref pass) = server.password {
+            server.password = Some(decrypt_secret(pass).unwrap_or_else(|_| "".into()));
+        }
         servers.push(server);
     }
     Ok(servers)
@@ -242,7 +261,7 @@ async fn get_server_latency(host: String, port: u16) -> Result<u32, String> {
 }
 
 #[tauri::command]
-async fn save_server(state: State<'_, AppState>, mut server: ServerConfig) -> Result<ServerConfig, String> {
+async fn save_server(app_handle: tauri::AppHandle, state: State<'_, AppState>, mut server: ServerConfig) -> Result<ServerConfig, String> {
     println!("\n========== [SAVE_SERVER] 开始保存 ==========");
     println!("接收到的原始数据:");
     println!("  - id: '{}'", server.id);
@@ -255,6 +274,16 @@ async fn save_server(state: State<'_, AppState>, mut server: ServerConfig) -> Re
     if server.id.is_empty() {
         server.id = Uuid::new_v4().to_string();
         println!("生成新 ID: {}", server.id);
+    }
+
+    if !server.host.is_empty() {
+        server.host = encrypt_secret(&server.host)?;
+    }
+    // 2. 加密 password (如果有)
+    if let Some(ref pass) = server.password {
+        if !pass.is_empty() {
+            server.password = Some(encrypt_secret(pass)?);
+        }
     }
 
     // 确保空的 jump_host_id 被正确处理为 None
@@ -285,6 +314,8 @@ async fn save_server(state: State<'_, AppState>, mut server: ServerConfig) -> Re
         Ok(_) => {
             println!("✓ 事务提交成功");
             println!("========== [SAVE_SERVER] 保存完成 ========== {}\n", server.id);
+            // 触发同步
+            trigger_auto_sync(state.inner(), app_handle).await;
             Ok(server)
         }
         Err(e) => {
@@ -297,13 +328,15 @@ async fn save_server(state: State<'_, AppState>, mut server: ServerConfig) -> Re
 
 
 #[tauri::command]
-async fn delete_server(state: State<'_, AppState>, id: String) -> Result<(), String> {
+async fn delete_server(app_handle: tauri::AppHandle, state: State<'_, AppState>, id: String) -> Result<(), String> {
     let write_txn = state.db.begin_write().map_err(|e| e.to_string())?;
     {
         let mut table = write_txn.open_table(SERVERS_TABLE).map_err(|e| e.to_string())?;
         table.remove(id.as_str()).map_err(|e| e.to_string())?;
     }
     write_txn.commit().map_err(|e| e.to_string())?;
+    // 触发同步
+    trigger_auto_sync(state.inner(), app_handle).await;
     Ok(())
 }
 
@@ -519,7 +552,7 @@ async fn get_quick_commands(state: State<'_, AppState>) -> Result<Vec<QuickComma
 }
 
 #[tauri::command]
-async fn save_quick_command(state: State<'_, AppState>, mut cmd: QuickCommand) -> Result<QuickCommand, String> {
+async fn save_quick_command(app_handle: tauri::AppHandle, state: State<'_, AppState>, mut cmd: QuickCommand) -> Result<QuickCommand, String> {
     if cmd.id.is_empty() { cmd.id = Uuid::new_v4().to_string(); }
     let write_txn = state.db.begin_write().map_err(|e| e.to_string())?;
     {
@@ -528,11 +561,12 @@ async fn save_quick_command(state: State<'_, AppState>, mut cmd: QuickCommand) -
         table.insert(cmd.id.as_str(), json.as_str()).map_err(|e| e.to_string())?;
     }
     write_txn.commit().map_err(|e| e.to_string())?;
+    trigger_auto_sync(state.inner(), app_handle).await;
     Ok(cmd)
 }
 
 #[tauri::command]
-async fn delete_quick_command(state: State<'_, AppState>, id: String) -> Result<(), String> {
+async fn delete_quick_command(app_handle: tauri::AppHandle, state: State<'_, AppState>, id: String) -> Result<(), String> {
     let write_txn = state.db.begin_write().map_err(|e| e.to_string())?;
 
     {
@@ -542,12 +576,15 @@ async fn delete_quick_command(state: State<'_, AppState>, id: String) -> Result<
     }
 
     write_txn.commit().map_err(|e| e.to_string())?;
-
+    trigger_auto_sync(state.inner(), app_handle).await;
     Ok(())
 }
 
 #[tauri::command]
-async fn save_ai_config(state: State<'_, AppState>, config: AiConfig) -> Result<(), String> {
+async fn save_ai_config(app_handle: tauri::AppHandle, state: State<'_, AppState>, mut config: AiConfig) -> Result<(), String> {
+    if !config.api_key.is_empty() {
+        config.api_key = encrypt_secret(&config.api_key)?;
+    }
     let write_txn = state.db.begin_write().map_err(|e| e.to_string())?;
     {
         let mut table = write_txn.open_table(AI_CONFIG_TABLE).map_err(|e| e.to_string())?;
@@ -555,6 +592,8 @@ async fn save_ai_config(state: State<'_, AppState>, config: AiConfig) -> Result<
         table.insert("default", json.as_str()).map_err(|e| e.to_string())?;
     }
     write_txn.commit().map_err(|e| e.to_string())?;
+    // 触发同步
+    trigger_auto_sync(state.inner(), app_handle).await;
     Ok(())
 }
 
@@ -564,7 +603,10 @@ async fn get_ai_config(state: State<'_, AppState>) -> Result<Option<AiConfig>, S
     let table = read_txn.open_table(AI_CONFIG_TABLE).map_err(|e| e.to_string())?;
 
     if let Some(value) = table.get("default").map_err(|e| e.to_string())? {
-        let config: AiConfig = serde_json::from_str(value.value()).map_err(|e| e.to_string())?;
+        let mut config: AiConfig = serde_json::from_str(value.value()).map_err(|e| e.to_string())?;
+        if !config.api_key.is_empty() {
+            config.api_key = decrypt_secret(&config.api_key).unwrap_or_else(|_| "".into());
+        }
         Ok(Some(config))
     } else {
         Ok(None)
@@ -675,7 +717,7 @@ pub fn run() {
                 std::fs::create_dir_all(&app_data_dir).expect("无法创建目录");
             }
             let db = Database::builder()
-                .create(app_data_dir.join("gemini_ssh_v2.redb"))
+                .create(app_data_dir.join("hiphup_ssh_v1.redb"))
                 .expect("无法打开数据库");
 
             {

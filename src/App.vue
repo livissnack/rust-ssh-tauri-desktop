@@ -39,11 +39,13 @@ const isConnecting = ref(false);
 const rightPanelVisible = ref(false);
 const isModalOpen = ref(false);
 const isEditing = ref(false);
+const isSyncing = ref(false);
 
 // --- 传输与事件监听 ---
 let unlisten: UnlistenFn | null = null;
 let unlistenClosed: UnlistenFn | null = null;
 let unlistenTransfer: UnlistenFn | null = null;
+let unlistenSync: UnlistenFn | null = null;
 const transferTasks = ref<any[]>([]);
 
 const rightPanelType = ref<'quick' | 'ai' | 'redis' | 'history' | 'sync-settings'>('quick');
@@ -538,6 +540,14 @@ onMounted(async () => {
     const task = transferTasks.value.find(t => t.id === taskId);
     if (task) task.progress = progress;
   });
+  unlistenSync = await listen("sync-status", (event) => {
+    isSyncing.value = event.payload as boolean;
+    if (isSyncing.value) {
+      console.log("[Sync] 云端同步中...");
+    } else {
+      console.log("[Sync] 同步已完成");
+    }
+  });
 });
 
 onUnmounted(() => {
@@ -545,6 +555,7 @@ onUnmounted(() => {
   if (unlisten) unlisten();
   if (unlistenClosed) unlistenClosed();
   if (unlistenTransfer) unlistenTransfer();
+  if (unlistenSync) unlistenSync();
 });
 </script>
 
@@ -728,9 +739,12 @@ onUnmounted(() => {
               <i class="fas fa-list-check"></i>
             </div>
             <div class="icon-item" title="同步设置"
-                 :class="{ active: rightPanelVisible && rightPanelType === 'sync-settings' }"
+                 :class="{
+                   active: rightPanelVisible && rightPanelType === 'sync-settings',
+                   'is-syncing': isSyncing
+                 }"
                  @click="toggleRightPanel('sync-settings')">
-              <i class="fas fa-sync-alt"></i>
+              <i class="fas fa-sync-alt" :class="{ 'fa-spin': isSyncing }"></i>
             </div>
             <div class="icon-item" title="主题设置"
                  :class="{ active: rightPanelVisible && rightPanelType === 'theme-settings' }"

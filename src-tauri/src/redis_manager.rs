@@ -1,3 +1,5 @@
+use crate::sync::{trigger_auto_sync};
+use crate::security::{encrypt_secret, decrypt_secret};
 use redis::{AsyncCommands, Client};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -188,6 +190,7 @@ pub async fn redis_get_ttl(
 
 #[tauri::command]
 pub async fn save_redis_config(
+    app_handle: tauri::AppHandle,
     state: State<'_, AppState>,
     mut config: RedisConfig
 ) -> Result<RedisConfig, String> {
@@ -196,6 +199,17 @@ pub async fn save_redis_config(
     }
     let id = config.id.as_ref().unwrap().clone();
 
+    // 加密 Host
+    if !config.host.is_empty() {
+        config.host = encrypt_secret(&config.host)?;
+    }
+    // 加密 Password (Redis 密码通常在 password 字段)
+    if let Some(ref pass) = config.password {
+        if !pass.is_empty() {
+            config.password = Some(encrypt_secret(pass)?);
+        }
+    }
+
     let write_txn = state.db.begin_write().map_err(|e| e.to_string())?;
     {
         let mut table = write_txn.open_table(REDIS_CONN_TABLE).map_err(|e| e.to_string())?;
@@ -203,6 +217,8 @@ pub async fn save_redis_config(
         table.insert(id.as_str(), json.as_str()).map_err(|e| e.to_string())?;
     }
     write_txn.commit().map_err(|e| e.to_string())?;
+    // 触发同步
+    trigger_auto_sync(state.inner(), app_handle.clone()).await;
     Ok(config)
 }
 
@@ -217,7 +233,21 @@ pub async fn get_redis_configs(state: State<'_, AppState>) -> Result<Vec<RedisCo
     for result in iter {
         if let Ok((_key, value)) = result {
             match serde_json::from_str::<RedisConfig>(value.value()) {
-                Ok(config) => configs.push(config),
+                Ok(mut config) => {
+                    // --- 执行解密 ---
+                    // 解密 Host
+                    if !config.host.is_empty() {
+                        config.host = decrypt_secret(&config.host)
+                            .unwrap_or_else(|_| "DECRYPT_ERROR".into());
+                    }
+                    // 解密 Password
+                    if let Some(ref pass) = config.password {
+                        config.password = Some(decrypt_secret(pass)
+                            .unwrap_or_else(|_| "".into()));
+                    }
+
+                    configs.push(config);
+                },
                 Err(e) => eprintln!("跳过无效配置: {}", e),
             }
         }
@@ -226,13 +256,15 @@ pub async fn get_redis_configs(state: State<'_, AppState>) -> Result<Vec<RedisCo
 }
 
 #[tauri::command]
-pub async fn delete_redis_config(state: State<'_, AppState>, id: String) -> Result<(), String> {
+pub async fn delete_redis_config(app_handle: tauri::AppHandle, state: State<'_, AppState>, id: String) -> Result<(), String> {
     let write_txn = state.db.begin_write().map_err(|e| e.to_string())?;
     {
         let mut table = write_txn.open_table(REDIS_CONN_TABLE).map_err(|e| e.to_string())?;
         table.remove(id.as_str()).map_err(|e| e.to_string())?;
     }
     write_txn.commit().map_err(|e| e.to_string())?;
+    // 触发同步
+    trigger_auto_sync(state.inner(), app_handle).await;
     Ok(())
 }
 

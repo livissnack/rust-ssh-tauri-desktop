@@ -360,6 +360,7 @@ const toggleViewMode = async () => {
   const currentMode = sessionViewModes.value[activeSessionId.value] || 'terminal';
   const newMode = currentMode === 'terminal' ? 'sftp' : 'terminal';
   sessionViewModes.value[activeSessionId.value] = newMode;
+  console.log('ll------')
   if (newMode === 'sftp') {
     refreshRemoteFiles();
     refreshLocalFiles();

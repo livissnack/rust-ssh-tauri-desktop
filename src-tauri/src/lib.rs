@@ -91,6 +91,7 @@ pub struct ClientHandler<R: Runtime> {
     window: tauri::Window<R>,
     server_id: String,
     session_id: String,
+    shell_channel_id: Arc<Mutex<Option<ChannelId>>>,
 }
 
 #[async_trait]
@@ -104,14 +105,23 @@ impl<R: Runtime> client::Handler for ClientHandler<R> {
         Ok(true)
     }
 
-    async fn data(&mut self, _channel: ChannelId, data: &[u8], _session: &mut client::Session) -> Result<(), Self::Error> {
-        let text = String::from_utf8_lossy(data).to_string();
-        let _ = self.window.emit("ssh-output", SshPayload {
-            server_id: self.server_id.clone(),
-            session_id: self.session_id.clone(),
-            data: text,
-        });
-        Ok(())
+    async fn data(&mut self, channel: ChannelId, data: &[u8], _session: &mut client::Session) -> Result<(), Self::Error> {
+         // 获取锁，查看当前保存的 shell_channel_id
+         let shell_id_opt = *self.shell_channel_id.lock().await;
+
+         // 【关键】只有当数据所属的 channel 等于我们记录的 shell_id 时，才发送给前端
+         if Some(channel) == shell_id_opt {
+             let text = String::from_utf8_lossy(data).to_string();
+             let _ = self.window.emit("ssh-output", SshPayload {
+                 server_id: self.server_id.clone(),
+                 session_id: self.session_id.clone(),
+                 data: text,
+             });
+         } else {
+             // 这里就是 SFTP 或其他子系统的数据，我们保持沉默，不发给终端
+             println!("[SSH] 拦截到非 Shell 通道数据 (ID: {:?})", channel);
+         }
+         Ok(())
     }
 
     async fn disconnected(&mut self, _reason: DisconnectReason<Self::Error>) -> Result<(), Self::Error> {
@@ -123,6 +133,7 @@ impl<R: Runtime> client::Handler for ClientHandler<R> {
 pub struct ActiveSession {
     pub handle: client::Handle<ClientHandler<tauri::Wry>>,
     pub channel_id: ChannelId,
+    pub sftp: Arc<Mutex<Option<SftpSession>>>,
 }
 
 pub struct AppState {
@@ -166,12 +177,14 @@ async fn create_recursive_session<R: Runtime>(
     target_config: &ServerConfig,
     all_configs: &Vec<ServerConfig>,
     session_id: String,
+    shell_channel_id: Arc<Mutex<Option<ChannelId>>>,
 ) -> Result<client::Handle<ClientHandler<R>>, String> {
     let client_config = Arc::new(client::Config::default());
     let handler = ClientHandler {
         window: window.clone(),
         server_id: target_config.id.clone(),
-        session_id: session_id.clone()
+        session_id: session_id.clone(),
+        shell_channel_id: shell_channel_id.clone(),
     };
 
     println!("[SSH] 尝试连接 - 目标服务器：{} ({}:{})",
@@ -197,7 +210,11 @@ async fn create_recursive_session<R: Runtime>(
                      jump_config.name, jump_config.host, jump_config.port);
 
             let jump_handle = Box::pin(create_recursive_session(
-                window.clone(), jump_config, all_configs, format!("{}_tunnel", session_id)
+                window.clone(),
+                jump_config,
+                all_configs,
+                format!("{}_tunnel", session_id),
+                shell_channel_id.clone() // 👈 确保这里也传了进去
             )).await?;
 
             println!("[SSH] 跳板机连接成功，尝试建立隧道到 {}:{}",
@@ -351,15 +368,20 @@ async fn connect_ssh(
         let sessions = state.sessions.lock().await;
         if sessions.contains_key(&session_id) { return Ok(()); }
     }
+    let shell_id_container = Arc::new(Mutex::new(None));
     let servers = get_servers(state.clone()).await?;
     let target_config = servers.iter().find(|s| s.id == server_id)
         .ok_or("配置不存在")?.clone();
-    let handle = create_recursive_session(window.clone(), &target_config, &servers, session_id.clone()).await?;
+    let handle = create_recursive_session(window.clone(), &target_config, &servers, session_id.clone(), shell_id_container.clone()).await?;
     let channel = handle.channel_open_session().await.map_err(|e| e.to_string())?;
+    {
+        let mut id_lock = shell_id_container.lock().await;
+        *id_lock = Some(channel.id());
+    }
     channel.request_pty(true, "xterm", 80, 24, 0, 0, &[]).await.map_err(|e| e.to_string())?;
     channel.request_shell(true).await.map_err(|e| e.to_string())?;
     let channel_id = channel.id();
-    state.sessions.lock().await.insert(session_id, ActiveSession { handle, channel_id });
+    state.sessions.lock().await.insert(session_id, ActiveSession { handle, channel_id, sftp: Arc::new(Mutex::new(None)) });
     Ok(())
 }
 
@@ -378,8 +400,13 @@ async fn write_to_ssh(state: State<'_, AppState>, session_id: String, data: Stri
 #[tauri::command]
 async fn disconnect_ssh(state: State<'_, AppState>, session_id: String) -> Result<(), String> {
     let mut sessions = state.sessions.lock().await;
-    if let Some(_session) = sessions.remove(&session_id) {
-        println!("SSH Session {} removed from state.", session_id);
+    if let Some(session) = sessions.remove(&session_id) {
+        let _ = session.handle.disconnect(
+            russh::Disconnect::ByApplication,
+            "User closed connection",
+            "en"
+        ).await;
+        drop(session);
     }
     Ok(())
 }

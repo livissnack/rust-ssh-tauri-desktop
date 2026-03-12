@@ -1,30 +1,25 @@
 <script setup lang="ts">
-import { ref, nextTick, onMounted, onUnmounted, watch } from 'vue';
-import { invoke } from '@tauri-apps/api/core';
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { toast } from '../utils/toast.ts';
-
-// --- 引入 Markdown 相关依赖 (Deno 支持 npm: 语法) ---
-import { marked } from 'marked';
+import {ref, nextTick, onMounted, onUnmounted, computed, watch} from 'vue';
+import {invoke} from '@tauri-apps/api/core';
+import {listen, type UnlistenFn} from '@tauri-apps/api/event';
+import {toast} from '../utils/toast.ts';
+import {marked} from 'marked';
 import hljs from 'highlight.js';
-// 引入一个酷炫的深色主题
 import 'highlight.js/styles/tokyo-night-dark.css';
 
 const props = defineProps<{
   activeSessionId: string | null
 }>();
 
-// --- 状态管理 ---
 const isConfigMode = ref(false);
 const messages = ref([
-  { role: 'assistant', content: '你好！我是你的 SSH 助手。请点击右上方设置配置 API Key 以启用 AI 功能。' }
+  {role: 'assistant', content: '你好！我是你的 SSH 助手。请点击右上方设置配置 API Key 以启用 AI 功能。'}
 ]);
 const userInput = ref('');
 const isLoading = ref(false);
 const scrollContainer = ref<HTMLElement | null>(null);
 let unlistenChunk: UnlistenFn | null = null;
 
-// --- AI 配置状态 ---
 const aiConfig = ref({
   currentProvider: 'deepseek',
   apiKey: '',
@@ -33,19 +28,18 @@ const aiConfig = ref({
 });
 
 const providers = [
-  { id: 'deepseek', name: 'DeepSeek', models: ['deepseek-chat', 'deepseek-coder'] },
-  { id: 'qwen', name: '通义千问', models: ['qwen-max', 'qwen-plus', 'qwen-turbo'] },
-  { id: 'doubao', name: '豆包', models: ['doubao-pro-4k', 'doubao-lite-4k'] },
-  { id: 'gemini', name: 'Gemini', models: ['gemini-1.5-pro', 'gemini-1.5-flash'] }
+  {id: 'deepseek', name: 'DeepSeek', models: ['deepseek-chat', 'deepseek-coder']},
+  {id: 'qwen', name: '通义千问', models: ['qwen-max', 'qwen-plus', 'qwen-turbo']},
+  {id: 'doubao', name: '豆包', models: ['doubao-pro-4k', 'doubao-lite-4k']},
+  {id: 'gemini', name: 'Gemini', models: ['gemini-1.5-pro', 'gemini-1.5-flash']}
 ];
 
-// --- Markdown 配置 ---
 const renderer = new marked.Renderer();
 marked.setOptions({
   renderer,
-  highlight: function(code: string, lang: string) {
+  highlight: function (code: string, lang: string) {
     const language = hljs.getLanguage(lang) ? lang : 'plaintext';
-    return hljs.highlight(code, { language }).value;
+    return hljs.highlight(code, {language}).value;
   },
   langPrefix: 'hljs language-',
   breaks: true,
@@ -60,12 +54,16 @@ const renderMarkdown = (content: string) => {
   }
 };
 
-// --- 逻辑方法 ---
-
 const loadSettings = async () => {
   try {
     const saved = await invoke<any>('get_ai_config');
-    if (saved) aiConfig.value = saved;
+    if (saved) {
+      aiConfig.value.currentProvider = saved.currentProvider;
+      await nextTick();
+      aiConfig.value.model = saved.model;
+      aiConfig.value.apiKey = saved.apiKey;
+      aiConfig.value.temperature = saved.temperature;
+    }
   } catch (err) {
     console.error("加载 AI 配置失败:", err);
   }
@@ -73,7 +71,7 @@ const loadSettings = async () => {
 
 const saveSettings = async () => {
   try {
-    await invoke('save_ai_config', { config: aiConfig.value });
+    await invoke('save_ai_config', {config: aiConfig.value});
     toast.success("配置已保存到数据库");
     isConfigMode.value = false;
   } catch (err) {
@@ -100,8 +98,8 @@ const sendMessage = async () => {
   const taskId = Math.random().toString(36).substring(7);
   const originalInput = content;
 
-  messages.value.push({ role: 'user', content });
-  messages.value.push({ role: 'assistant', content: '' });
+  messages.value.push({role: 'user', content});
+  messages.value.push({role: 'assistant', content: ''});
 
   userInput.value = '';
   isLoading.value = true;
@@ -131,13 +129,12 @@ const sendToTerminal = async (fullContent: string) => {
     toast.warning("请先连接到一个 SSH 会话");
     return;
   }
-  // 提取代码块逻辑
   let code = fullContent;
   const match = fullContent.match(/```(?:bash|sh|linux|json|yaml)?\n([\s\S]*?)```/);
   if (match) code = match[1];
 
   const data = code.endsWith('\n') ? code : code + '\n';
-  await invoke('write_to_ssh', { sessionId: props.activeSessionId, data });
+  await invoke('write_to_ssh', {sessionId: props.activeSessionId, data});
   toast.success("指令已发送至终端");
 };
 
@@ -148,15 +145,24 @@ const handleKeydown = (e: KeyboardEvent) => {
   }
 };
 
-watch(() => aiConfig.value.currentProvider, (newProvider) => {
-  const p = providers.find(item => item.id === newProvider);
-  if (p) aiConfig.value.model = p.models[0];
+const currentModels = computed(() => {
+  const p = providers.find(item => item.id === aiConfig.value.currentProvider);
+  return p ? p.models : [];
 });
+
+watch(() => aiConfig.value.currentProvider, (newProvider, oldProvider) => {
+  if (!oldProvider) return;
+
+  const p = providers.find(item => item.id === newProvider);
+  if (p && p.models.length > 0) {
+    aiConfig.value.model = p.models[0];
+  }
+}, {immediate: false});
 
 onMounted(async () => {
   await loadSettings();
-  unlistenChunk = await listen<{taskId: string, content: string}>('ai-res-chunk', (event) => {
-    const { content } = event.payload;
+  unlistenChunk = await listen<{ taskId: string, content: string }>('ai-res-chunk', (event) => {
+    const {content} = event.payload;
     const lastMsg = messages.value[messages.value.length - 1];
     if (lastMsg && lastMsg.role === 'assistant') {
       lastMsg.content += content;
@@ -193,7 +199,7 @@ onUnmounted(() => {
       <div class="config-group">
         <label>API Key</label>
         <div class="input-with-icon">
-          <input type="password" v-model="aiConfig.apiKey" placeholder="在此输入 API 令牌..." />
+          <input type="password" v-model="aiConfig.apiKey" placeholder="在此输入 API 令牌..."/>
           <i class="fas fa-key"></i>
         </div>
       </div>
@@ -201,7 +207,7 @@ onUnmounted(() => {
       <div class="config-group">
         <label>指定模型</label>
         <select v-model="aiConfig.model">
-          <option v-for="m in providers.find(p => p.id === aiConfig.currentProvider)?.models" :key="m" :value="m">
+          <option v-for="m in currentModels" :key="m" :value="m">
             {{ m }}
           </option>
         </select>
@@ -209,7 +215,7 @@ onUnmounted(() => {
 
       <div class="config-group">
         <label>Temperature: {{ aiConfig.temperature }}</label>
-        <input type="range" min="0" max="1.5" step="0.1" v-model.number="aiConfig.temperature" />
+        <input type="range" min="0" max="1.5" step="0.1" v-model.number="aiConfig.temperature"/>
       </div>
 
       <button class="btn-save-config" @click="saveSettings">
@@ -221,7 +227,8 @@ onUnmounted(() => {
       <div class="chat-viewport custom-scrollbar" ref="scrollContainer">
         <div v-for="(msg, index) in messages" :key="index" :class="['msg-row', msg.role]">
           <div class="msg-bubble">
-            <div class="msg-text markdown-body" v-html="renderMarkdown(msg.content || (msg.role === 'assistant' && isLoading && index === messages.length - 1 ? '...' : ''))"></div>
+            <div class="msg-text markdown-body"
+                 v-html="renderMarkdown(msg.content || (msg.role === 'assistant' && isLoading && index === messages.length - 1 ? '...' : ''))"></div>
 
             <button v-if="msg.role === 'assistant' && msg.content.includes('```')"
                     class="btn-execute" @click="sendToTerminal(msg.content)">
@@ -236,23 +243,23 @@ onUnmounted(() => {
 
       <div class="input-bar">
         <div class="input-inner-wrapper">
-    <textarea
-        class="input-textarea"
-        v-model="userInput"
-        placeholder="输入问题，Shift + Enter 换行..."
-        @keydown="handleKeydown"
-        :rows="userInput.split('\n').length > 3 ? 3 : 2"
-        spellcheck="false"
-    ></textarea>
+          <textarea
+              class="input-textarea"
+              v-model="userInput"
+              placeholder="输入问题，Shift + Enter 换行..."
+              @keydown="handleKeydown"
+              :rows="userInput.split('\n').length > 3 ? 3 : 2"
+              spellcheck="false"
+          ></textarea>
 
           <div class="input-actions">
             <div class="input-info">
-        <span v-if="activeSessionId" class="status-tag">
-          <i class="fas fa-link"></i> 已挂载终端
-        </span>
+              <span v-if="activeSessionId" class="status-tag">
+                <i class="fas fa-link"></i> 已挂载终端
+              </span>
               <span v-else class="status-tag warning">
-          <i class="fas fa-unlink"></i> 未连接会话
-        </span>
+                <i class="fas fa-unlink"></i> 未连接会话
+              </span>
             </div>
 
             <div class="action-right">
@@ -281,10 +288,12 @@ onUnmounted(() => {
   line-height: 1.6;
   color: var(--text-main);
 
-  p { margin: 0 0 8px 0; }
+  p {
+    margin: 0 0 8px 0;
+  }
 
   code {
-    background: var(--accent-15); // 使用预定义的透明变量
+    background: var(--accent-15);
     color: var(--accent);
     padding: 2px 4px;
     border-radius: 4px;
@@ -292,7 +301,7 @@ onUnmounted(() => {
   }
 
   pre {
-    background: var(--bg-secondary) !important; // 建议改用 secondary
+    background: var(--bg-secondary) !important;
     padding: 12px;
     border-radius: 8px;
     border: 1px solid var(--border);
@@ -306,11 +315,18 @@ onUnmounted(() => {
     }
   }
 
-  ul, ol { padding-left: 20px; margin-bottom: 8px; }
+  ul, ol {
+    padding-left: 20px;
+    margin-bottom: 8px;
+  }
+
   a {
     color: var(--accent);
     text-decoration: none;
-    &:hover { text-decoration: underline; }
+
+    &:hover {
+      text-decoration: underline;
+    }
   }
 }
 
@@ -328,7 +344,7 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: center;
   border-bottom: 1px solid var(--border);
-  background: var(--bg-secondary); // 或使用 --bg-header
+  background: var(--bg-secondary);
 
   .title {
     display: flex;
@@ -347,7 +363,9 @@ onUnmounted(() => {
   cursor: pointer;
   transition: color 0.2s;
 
-  &:hover, &.active { color: var(--accent); }
+  &:hover, &.active {
+    color: var(--accent);
+  }
 }
 
 .config-container {
@@ -381,15 +399,26 @@ onUnmounted(() => {
       &:focus {
         border-color: var(--accent);
         outline: none;
-        // 注意：这里的 boxShadow 建议在 base 循环里也预定义一个 --accent-focus-shadow
         box-shadow: 0 0 0 2px var(--accent-20);
       }
     }
 
     .input-with-icon {
       position: relative;
-      input { width: 100%; padding-right: 35px; box-sizing: border-box; }
-      i { position: absolute; right: 12px; top: 12px; color: var(--text-dim); font-size: 12px; }
+
+      input {
+        width: 100%;
+        padding-right: 35px;
+        box-sizing: border-box;
+      }
+
+      i {
+        position: absolute;
+        right: 12px;
+        top: 12px;
+        color: var(--text-dim);
+        font-size: 12px;
+      }
     }
   }
 
@@ -397,7 +426,7 @@ onUnmounted(() => {
     margin-top: 10px;
     padding: 12px;
     background: var(--accent);
-    color: var(--bg-primary); // 对比色
+    color: var(--bg-primary);
     border: none;
     border-radius: 6px;
     font-weight: bold;
@@ -408,7 +437,9 @@ onUnmounted(() => {
     gap: 8px;
     transition: opacity 0.2s;
 
-    &:hover { opacity: 0.9; }
+    &:hover {
+      opacity: 0.9;
+    }
   }
 }
 
@@ -428,9 +459,10 @@ onUnmounted(() => {
 
     &.user {
       align-self: flex-end;
+
       .msg-bubble {
-        background: var(--accent-20); // 修复点
-        border: 1px solid var(--accent-30); // 修复点
+        background: var(--accent-20);
+        border: 1px solid var(--accent-30);
         color: var(--text-main);
         border-radius: 12px 12px 2px 12px;
       }
@@ -438,6 +470,7 @@ onUnmounted(() => {
 
     &.assistant {
       align-self: flex-start;
+
       .msg-bubble {
         background: var(--bg-card);
         border: 1px solid var(--border);
@@ -455,7 +488,7 @@ onUnmounted(() => {
       margin-top: 10px;
       width: 100%;
       padding: 6px;
-      background: var(--accent-10); // 修复点
+      background: var(--accent-10);
       border: 1px dashed var(--accent);
       color: var(--accent);
       border-radius: 4px;
@@ -487,7 +520,6 @@ onUnmounted(() => {
     flex-direction: column;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 
-    /* 聚焦时的呼吸效果 */
     &:focus-within {
       border-color: var(--accent);
       background: var(--bg-primary);
@@ -501,7 +533,6 @@ onUnmounted(() => {
       max-height: 150px;
       background: transparent !important;
 
-      /* 彻底移除边框和点击时的蓝色外框 */
       border: none !important;
       outline: none !important;
       box-shadow: none !important;
@@ -515,7 +546,6 @@ onUnmounted(() => {
       resize: none;
       font-family: inherit;
 
-      /* 解决某些浏览器下的默认聚焦样式 */
       &:focus {
         border: none !important;
         outline: none !important;
@@ -528,7 +558,6 @@ onUnmounted(() => {
       }
     }
 
-    /* 底部操作条 */
     .input-actions {
       display: flex;
       justify-content: space-between;
@@ -548,8 +577,14 @@ onUnmounted(() => {
         gap: 5px;
         opacity: 0.8;
 
-        i { font-size: 9px; }
-        &.warning { color: #e67e22; background: rgba(230, 126, 34, 0.1); }
+        i {
+          font-size: 9px;
+        }
+
+        &.warning {
+          color: #e67e22;
+          background: rgba(230, 126, 34, 0.1);
+        }
       }
 
       .action-right {
@@ -568,7 +603,7 @@ onUnmounted(() => {
           width: 30px;
           height: 30px;
           background: var(--accent);
-          color: var(--bg-primary); // 对比色
+          color: var(--bg-primary);
           border: none;
           border-radius: 8px;
           cursor: pointer;
@@ -596,7 +631,9 @@ onUnmounted(() => {
             opacity: 0.6;
           }
 
-          i { font-size: 13px; }
+          i {
+            font-size: 13px;
+          }
 
           &.is-loading {
             background: var(--accent-20);
@@ -608,7 +645,6 @@ onUnmounted(() => {
   }
 }
 
-/* 兼容深色/人民币主题的特别处理 */
 [data-theme='rmb-red'], .rmb-red-theme {
   .input-inner-wrapper:focus-within {
     box-shadow: 0 4px 20px rgba(230, 0, 0, 0.2);
@@ -627,19 +663,41 @@ onUnmounted(() => {
     border-radius: 50%;
     animation: blink 1.4s infinite;
   }
-  .dot:nth-child(2) { animation-delay: 0.2s; }
-  .dot:nth-child(3) { animation-delay: 0.4s; }
+
+  .dot:nth-child(2) {
+    animation-delay: 0.2s;
+  }
+
+  .dot:nth-child(3) {
+    animation-delay: 0.4s;
+  }
 }
 
-@keyframes blink { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
+@keyframes blink {
+  0%, 100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 1;
+  }
+}
 
 .custom-scrollbar {
-  &::-webkit-scrollbar { width: 4px; }
-  &::-webkit-scrollbar-track { background: transparent; }
+  &::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
   &::-webkit-scrollbar-thumb {
     background: var(--border);
     border-radius: 4px;
-    &:hover { background: var(--text-dim); }
+
+    &:hover {
+      background: var(--text-dim);
+    }
   }
 }
 </style>

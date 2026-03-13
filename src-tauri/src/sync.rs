@@ -68,7 +68,11 @@ pub async fn sync_to_cloud_internal(state: &AppState, config: SyncConfig) -> Res
 
     let encrypted_bytes = encrypt_with_key(&data_json, &config.master_key)?;
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(5)) // 设置 5 秒超时
+            .connect_timeout(Duration::from_secs(3)) // 设置 3 秒连接超时
+            .build()
+            .map_err(|e| e.to_string())?;
     let url = format!("{}/{}", config.endpoint.trim_end_matches('/'), config.remote_filename);
 
     let res = client.put(url)
@@ -185,19 +189,35 @@ pub async fn trigger_auto_sync(state: &AppState, app_handle: tauri::AppHandle) {
     let state_handle = state.clone();
 
     tauri::async_runtime::spawn(async move {
-        let _ = app_handle.emit("sync-status", true);
+        // 获取配置
+        let config = match get_sync_settings_internal(&state_handle).await {
+            Ok(c) => c,
+            Err(_) => return, // 配置读取失败直接退出
+        };
 
-        tokio::time::sleep(Duration::from_secs(3)).await;
-
-        if let Ok(config) = get_sync_settings_internal(&state_handle).await {
-            if config.auto_sync && !config.master_key.is_empty() {
-                match sync_to_cloud_internal(&state_handle, config).await {
-                    Ok(_) => println!("[AutoSync] 自动同步成功"),
-                    Err(e) => eprintln!("[AutoSync] 自动同步失败: {}", e),
-                }
-            }
+        // 如果没开启自动同步或配置不全，直接静默退出
+        if !config.auto_sync || config.endpoint.is_empty() || config.master_key.is_empty() {
+            return;
         }
 
+        // 开始同步
+        let _ = app_handle.emit("sync-status", true);
+
+        // 真实的执行同步
+        match sync_to_cloud_internal(&state_handle, config).await {
+            Ok(_) => {
+                println!("[AutoSync] 自动同步成功");
+                // 可以选发一个成功消息
+                let _ = app_handle.emit("sync-finished", "同步成功");
+            },
+            Err(e) => {
+                eprintln!("[AutoSync] 自动同步失败: {}", e);
+                // 🚀 关键：将错误发送给前端
+                let _ = app_handle.emit("sync-error", format!("自动同步失败: {}", e));
+            },
+        }
+
+        // 结束状态
         let _ = app_handle.emit("sync-status", false);
     });
 }

@@ -556,13 +556,19 @@ onMounted(async () => {
     const task = transferTasks.value.find(t => t.id === taskId);
     if (task) task.progress = progress;
   });
+
+  await listen("sync-error", (event) => {
+    const msg = event.payload as string;
+    console.log(msg, 'lll----')
+    toast.error('自动同步失败');
+  });
+
   unlistenSync = await listen("sync-status", (event) => {
     isSyncing.value = event.payload as boolean;
-    if (isSyncing.value) {
-      console.log("[Sync] 云端同步中...");
-    } else {
-      console.log("[Sync] 同步已完成");
-    }
+  });
+
+  await listen("sync-finished", (event) => {
+    toast.success(event.payload as string);
   });
 });
 

@@ -42,7 +42,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "AI-SSH-Assistant ${{ github.ref_name }}"
@@ -67,6 +66,9 @@ jobs:
         run: |
           TAG_NAME=${{ github.ref_name }}
           VERSION=${TAG_NAME#v}
+          
+          echo "=== 当前 Release 产物列表 ==="
+          gh release view $TAG_NAME --json assets -q '.assets[].name'
           
           echo "=== 开始提取签名 ==="
           

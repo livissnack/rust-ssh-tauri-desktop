@@ -535,7 +535,7 @@ const initLocalRootPath = async () => {
 }
 
 onMounted(async () => {
-  const themeId = localStorage.getItem('app-theme-id') || defaultTheme;
+  const themeId = localStorage.getItem('app-theme-id') || defaultTheme.value;
   applyTheme(themeId);
   initLocalRootPath()
   window.addEventListener("resize", handleResize);

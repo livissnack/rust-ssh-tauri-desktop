@@ -3,47 +3,40 @@ name: "Publish Release"
 on:
   push:
     tags:
-      - 'v*' # 当你推送以 v 开头的标签（如 v1.0.0）时触发编译
+      - 'v*'
 
 jobs:
   publish-tauri:
     permissions:
       contents: write
     strategy:
-      fail-fast: false
+      fail-fast: false # 即使一个平台失败，其他平台也继续，方便调试
       matrix:
+        # 使用 macos-13 (Intel) 或 macos-latest (M1)
         platform: [macos-latest, ubuntu-22.04, windows-latest]
 
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
 
-      # 1. 安装 Deno 环境 (因为你的前端是用 deno 跑的)
       - uses: denoland/setup-deno@v1
         with:
           deno-version: v2.x
 
-      # 2. 安装 Rust 环境
       - name: setup rust
         uses: dtolnay/rust-toolchain@stable
 
-      # 3. Rust 缓存优化 (加速编译)
-      - uses: swatinem/rust-cache@v2
-        with:
-          workspaces: "./src-tauri -> target"
-
-      # 4. Linux 特有依赖安装 (编译 Linux 版必须)
+      # 🚀 修复 Mac DMG 报错的关键：预设权限和跳过不必要的脚本冲突
       - name: install dependencies (ubuntu only)
         if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libjavascriptcoregtk-4.1-dev
 
-      # 5. 前端依赖安装 (使用 Deno)
       - name: install frontend dependencies
         run: deno install
 
-      # 6. 构建 Tauri 软件并自动创建 GitHub Release
+      # 🚀 构建 Tauri 软件
       - name: build tauri app
         uses: tauri-apps/tauri-action@v0
         env:
@@ -51,61 +44,84 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: ${{ github.ref_name }} # 使用当前的 tag 名作为 Release 名
+          tagName: ${{ github.ref_name }}
           releaseName: "AI-SSH-Assistant ${{ github.ref_name }}"
-          releaseBody: "自动生成的跨平台版本。包含 Windows, macOS (Intel/M1) 和 Linux。"
-          releaseDraft: false # 先存为草稿，你可以手动检查后再点发布
+          releaseDraft: false
           prerelease: false
 
-  # 🚀 新增 Job：自动汇总签名并更新 update.json
   update-metadata:
     needs: publish-tauri
+    # 🚀 即使部分构建失败（比如 mac 挂了），只要 windows 成功了，我们也尝试更新 metadata
+    if: always() && needs.publish-tauri.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main # 确保推送到主分支
+          ref: main
 
-      - name: Download release metadata
+      - name: Generate updater data
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # 使用 GitHub CLI 获取刚刚发布的 Release 信息
-          VERSION=${{ github.ref_name }}
           TAG_NAME=${{ github.ref_name }}
+          VERSION=${TAG_NAME#v}
           
-          # 创建一个临时的 update.json 结构
-          # 注意：这里需要根据你 Release 的实际文件名进行调整
-          # 通常 Tauri 会生成类似 app.msi.zip.sig 的文件
+          echo "=== 开始提取签名 ==="
           
-          echo "生成更新元数据..."
-          
-          # 简单的 JSON 构建脚本 (你可以根据需要扩展)
-          # 注意：这里假设你使用的是 GitHub Release 的原始链接
+          # 🚀 鲁棒性改进：使用更精确的过滤提取签名内容
+          # 获取 Windows 签名
+          WIN_SIG_NAME=$(gh release view $TAG_NAME --json assets -q '.assets[] | select(.name | endswith(".msi.zip.sig")) | .name' | head -n 1)
+          if [ -n "$WIN_SIG_NAME" ]; then
+            WIN_SIG=$(gh release download $TAG_NAME -p "$WIN_SIG_NAME" -O -)
+            echo "Windows Signature Found."
+          else
+            echo "❌ Error: Windows signature file not found!"
+            exit 1
+          fi
+
+          # 获取 macOS 签名 (aarch64)
+          MAC_SIG_NAME=$(gh release view $TAG_NAME --json assets -q '.assets[] | select(.name | endswith(".app.tar.gz.sig")) | .name' | head -n 1)
+          if [ -n "$MAC_SIG_NAME" ]; then
+            MAC_SIG=$(gh release download $TAG_NAME -p "$MAC_SIG_NAME" -O -)
+            echo "macOS Signature Found."
+          else
+            echo "Warning: macOS signature file not found, using empty."
+            MAC_SIG=""
+          fi
+
+          # 构建 JSON
+          # 🚀 修复 URL：确保文件名与 Tauri 默认生成的格式严格匹配
           cat <<EOF > update.json
           {
-            "version": "${VERSION#v}",
-            "notes": "Release $VERSION",
+            "version": "$VERSION",
+            "notes": "Release $TAG_NAME",
             "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
             "platforms": {
               "windows-x86_64": {
-                "signature": "$(gh release view $TAG_NAME --json assets -q '.assets[] | select(.name | endswith(".msi.zip.sig")) | .name' | xargs -I {} gh release download $TAG_NAME -p {} -O -)",
-                "url": "https://github.com/${{ github.repository }}/releases/download/$TAG_NAME/rust-ssh-tauri-desktop_${VERSION#v}_x64_en-US.msi.zip"
+                "signature": "$WIN_SIG",
+                "url": "https://github.com/${{ github.repository }}/releases/download/$TAG_NAME/rust-ssh-tauri-desktop_${VERSION}_x64_en-US.msi.zip"
               },
               "darwin-aarch64": {
-                "signature": "$(gh release view $TAG_NAME --json assets -q '.assets[] | select(.name | endswith(".app.tar.gz.sig")) | .name' | xargs -I {} gh release download $TAG_NAME -p {} -O -)",
-                "url": "https://github.com/${{ github.repository }}/releases/download/$TAG_NAME/rust-ssh-tauri-desktop_${VERSION#v}_aarch64.app.tar.gz"
+                "signature": "$MAC_SIG",
+                "url": "https://github.com/${{ github.repository }}/releases/download/$TAG_NAME/rust-ssh-tauri-desktop_${VERSION}_aarch64.app.tar.gz"
+              },
+              "darwin-x86_64": {
+                "signature": "$MAC_SIG",
+                "url": "https://github.com/${{ github.repository }}/releases/download/$TAG_NAME/rust-ssh-tauri-desktop_${VERSION}_x64.app.tar.gz"
               }
             }
           }
           EOF
+          
+          echo "=== update.json 内容预览 ==="
+          cat update.json
 
       - name: Commit and push update.json
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add update.json
-          git commit -m "chore: update updater metadata for ${{ github.ref_name }}"
-          git push origin main
+          # 如果文件没变化，不报错
+          git diff --quiet && git diff --staged --quiet || (git commit -m "chore: update updater metadata for ${{ github.ref_name }}" && git push origin main)

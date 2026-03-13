@@ -1,11 +1,17 @@
 <script setup lang="ts">
-import { computed, watch, ref } from "vue";
+import { computed, watch, onMounted, ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
+import { check } from '@tauri-apps/plugin-updater';
+import { relaunch } from '@tauri-apps/plugin-process';
 
 const props = defineProps<{
   openSessions: Array<{ id: string; serverId: string; name: string }>;
   currentServer: any; // 包含 host, port, id 等信息
 }>();
+
+const hasUpdate = ref(false);
+const updateInfo = ref<any>(null);
+const isDownloading = ref(false);
 
 // 内部维护一个响应式的延迟值
 const currentLatency = ref<number | string | null>(null);
@@ -15,6 +21,30 @@ const connectionStatus = computed(() => {
 });
 
 const isOnline = computed(() => props.openSessions.length > 0);
+
+const checkUpdate = async () => {
+  try {
+    const update = await check();
+    if (update) {
+      hasUpdate.value = true;
+      updateInfo.value = update;
+    }
+  } catch (e) {
+    console.error("更新检查失败:", e);
+  }
+};
+
+const startUpdate = async () => {
+  if (!updateInfo.value) return;
+  isDownloading.value = true;
+  try {
+    await updateInfo.value.downloadAndInstall();
+    await relaunch(); // 下载安装完成后重启
+  } catch (e) {
+    console.error("下载更新失败:", e);
+    isDownloading.value = false;
+  }
+};
 
 // 核心逻辑：监听服务器切换并测速
 watch(() => props.currentServer?.id, async (newId) => {
@@ -37,6 +67,10 @@ watch(() => props.currentServer?.id, async (newId) => {
     currentLatency.value = "ERR";
   }
 }, { immediate: true }); // 立即执行一次以处理初始状态
+
+onMounted(() => {
+  checkUpdate();
+});
 </script>
 
 <template>
@@ -54,6 +88,10 @@ watch(() => props.currentServer?.id, async (newId) => {
     </div>
 
     <div class="status-right">
+      <span v-if="hasUpdate" class="status-item update-badge" @click="startUpdate">
+        <i :class="['fas', isDownloading ? 'fa-spinner fa-spin' : 'fa-arrow-alt-circle-up']"></i>
+        {{ isDownloading ? 'Updating...' : `Update to v${updateInfo?.version}` }}
+      </span>
       <span v-if="currentServer?.jump_host_id" class="status-item">
         <i class="fas fa-project-diagram" style="font-size: 10px; color: #bb9af7;"></i>
         Jump: Active
@@ -86,7 +124,6 @@ watch(() => props.currentServer?.id, async (newId) => {
     align-items: center;
   }
 
-  /* 延迟显示：根据数值高低建议使用强调色或警告色 */
   .latency {
     // 假设 base.scss 映射了 --accent-orange，若无，请确保主题配置中包含该颜色
     color: var(--accent-orange, #f97316);
@@ -100,6 +137,25 @@ watch(() => props.currentServer?.id, async (newId) => {
       font-size: 10px;
       // 修复点：使用预计算的带透明度的变量处理发光
       filter: drop-shadow(0 0 3px var(--accent-orange-50, rgba(249, 115, 22, 0.5)));
+    }
+  }
+
+  .update-badge {
+    color: var(--accent-blue, #3b82f6) !important;
+    font-weight: bold;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: rgba(59, 130, 246, 0.1);
+    transition: all 0.2s;
+
+    &:hover {
+      background: rgba(59, 130, 246, 0.2);
+      color: var(--text-main) !important;
+    }
+
+    i {
+      font-size: 12px;
     }
   }
 

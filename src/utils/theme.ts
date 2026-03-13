@@ -23,10 +23,22 @@ export const themeOptions: ThemeOption[] = [
     { id: 'rmb-blue', name: '玫瑰蓝 (10¥)', isLight: false, color: '#4a90e2' },
 ];
 
-export const applyTheme = (themeId: string) => {
+export const applyTheme = (theme: string | any) => {
+    // 核心修复：确保 themeId 最终是一个纯字符串
+    const themeId = typeof theme === 'object' ? theme.id : theme;
+
+    // 安全检查：如果 themeId 还是无效（比如 undefined），直接返回
+    if (!themeId || typeof themeId !== 'string' || themeId.includes('[object')) {
+        console.error('Invalid themeId provided to applyTheme:', theme);
+        return;
+    }
+
     const root = document.documentElement;
     themeOptions.forEach(opt => root.classList.remove(`${opt.id}-theme`));
+
+    // 现在这里绝对不会出现 "[object Object]-theme"
     root.classList.add(`${themeId}-theme`);
+
     localStorage.setItem('app-theme-id', themeId);
     defaultTheme.value = themeId;
 };

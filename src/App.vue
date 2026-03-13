@@ -5,10 +5,11 @@ import {Terminal} from "xterm";
 import {FitAddon} from "xterm-addon-fit";
 import "xterm/css/xterm.css";
 import {invoke} from "@tauri-apps/api/core";
+import { homeDir } from '@tauri-apps/api/path';
 import {listen, UnlistenFn} from "@tauri-apps/api/event";
 import {ask} from '@tauri-apps/plugin-dialog';
 import {toast} from './utils/toast.ts';
-import {throttle} from "./utils/async";
+import {throttle, formatSize} from "./utils/async";
 import {applyTheme, defaultTheme} from "./utils/theme";
 
 // 组件导入
@@ -50,7 +51,7 @@ const transferTasks = ref<any[]>([]);
 const rightPanelType = ref<'quick' | 'ai' | 'redis' | 'history' | 'sync-settings'>('quick');
 
 // --- SFTP 状态 ---
-const localPath = ref("C:/");
+const localPath = ref("");
 const remotePath = ref("/");
 const localFiles = ref<any[]>([]);
 const remoteFiles = ref<any[]>([]);
@@ -98,8 +99,15 @@ const handleContextMenu = (e: MouseEvent, file: any, source: 'local' | 'remote')
   if (file.name === '..') return;
   contextFile.value = file;
   contextSource.value = source;
-  menuPos.value = {x: e.clientX, y: e.clientY};
-  menuVisible.value = true;
+  const menuWidth = 160;
+  const menuHeight = 100;
+  let x = e.clientX;
+  let y = e.clientY;
+
+  if (x + menuWidth > window.innerWidth) x -= menuWidth;
+  if (y + menuHeight > window.innerHeight) y -= menuHeight;
+
+  menuPos.value = { x, y };
 
   const closeMenu = () => {
     menuVisible.value = false;
@@ -405,9 +413,12 @@ const focusTerminal = async (sessionId: string | null) => {
   if (instance) instance.term.focus();
 };
 
-const handleResize = () => {
-  terminalMap.forEach(instance => instance.fitAddon.fit());
-};
+const handleResize = throttle(() => {
+  if (activeSessionId.value) {
+    const instance = terminalMap.get(activeSessionId.value);
+    instance?.fitAddon.fit();
+  }
+}, 100);
 
 const openAddModal = () => {
   isEditing.value = false;
@@ -474,14 +485,6 @@ const cancelTask = async (taskId: string) => {
   }
 };
 
-const formatSize = (bytes: number) => {
-  if (bytes === 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(i > 0 ? 1 : 0)) + ' ' + sizes[i];
-};
-
 watch(activeSessionId, (newId) => {
   if (newId) focusTerminal(newId);
 });
@@ -520,9 +523,21 @@ const startResizing = (e: MouseEvent) => {
   document.body.style.cursor = 'col-resize';
 };
 
+const initLocalRootPath = async () => {
+  try {
+    localPath.value = await homeDir();
+    refreshLocalFiles();
+  } catch (err) {
+    const isWin = navigator.userAgent.includes('Windows');
+    localPath.value = isWin ? "C:/" : "/";
+    refreshLocalFiles();
+  }
+}
+
 onMounted(async () => {
   const themeId = localStorage.getItem('app-theme-id') || defaultTheme;
   applyTheme(themeId);
+  initLocalRootPath()
   window.addEventListener("resize", handleResize);
   const saved = localStorage.getItem('right-panel-width');
   if (saved) panelWidth.value = parseInt(saved);

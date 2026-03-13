@@ -10,14 +10,15 @@ jobs:
     permissions:
       contents: write
     strategy:
-      fail-fast: false # 即使一个平台失败，其他平台也继续，方便调试
+      fail-fast: false
       matrix:
-        # 使用 macos-13 (Intel) 或 macos-latest (M1)
-        platform: [macos-latest, ubuntu-22.04, windows-latest]
+        platform: [macos-latest, windows-latest] # 删除了 ubuntu 减少报错，如需要可加回
 
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: denoland/setup-deno@v1
         with:
@@ -26,12 +27,14 @@ jobs:
       - name: setup rust
         uses: dtolnay/rust-toolchain@stable
 
-      # 🚀 修复 Mac DMG 报错的关键：预设权限和跳过不必要的脚本冲突
-      - name: install dependencies (ubuntu only)
-        if: matrix.platform == 'ubuntu-22.04'
+      # 🚀 独立步骤：统一获取 Tag 的说明文字
+      - name: get tag message
+        id: tag_info
+        shell: bash
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libjavascriptcoregtk-4.1-dev
+          # 提取 tag 的第一行说明
+          MSG=$(git tag -l --format='%(contents:subject)' ${{ github.ref_name }})
+          echo "tag_msg=$MSG" >> $GITHUB_OUTPUT
 
       - name: install frontend dependencies
         run: deno install
@@ -44,87 +47,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: "AI-SSH-Assistant ${{ github.ref_name }}"
-          releaseDraft: false
+          releaseName: "Hiphup-SSH ${{ github.ref_name }}: ${{ steps.tag_info.outputs.tag_msg }}"
+          releaseDraft: true
           prerelease: false
           includeRelease: true
-
-  update-metadata:
-    needs: publish-tauri
-    # 🚀 即使部分构建失败（比如 mac 挂了），只要 windows 成功了，我们也尝试更新 metadata
-    if: always() && needs.publish-tauri.result == 'success'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: main
-
-      - name: Generate updater data
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG_NAME=${{ github.ref_name }}
-          VERSION=${TAG_NAME#v}
-          
-          echo "=== 当前 Release 产物列表 ==="
-          gh release view $TAG_NAME --json assets -q '.assets[].name'
-          
-          echo "=== 开始提取签名 ==="
-          
-          # 🚀 鲁棒性改进：使用更精确的过滤提取签名内容
-          # 获取 Windows 签名
-          WIN_SIG_NAME=$(gh release view $TAG_NAME --json assets -q '.assets[] | select(.name | endswith(".msi.zip.sig")) | .name' | head -n 1)
-          if [ -n "$WIN_SIG_NAME" ]; then
-            WIN_SIG=$(gh release download $TAG_NAME -p "$WIN_SIG_NAME" -O -)
-            echo "Windows Signature Found."
-          else
-            echo "❌ Error: Windows signature file not found!"
-            exit 1
-          fi
-
-          # 获取 macOS 签名 (aarch64)
-          MAC_SIG_NAME=$(gh release view $TAG_NAME --json assets -q '.assets[] | select(.name | endswith(".app.tar.gz.sig")) | .name' | head -n 1)
-          if [ -n "$MAC_SIG_NAME" ]; then
-            MAC_SIG=$(gh release download $TAG_NAME -p "$MAC_SIG_NAME" -O -)
-            echo "macOS Signature Found."
-          else
-            echo "Warning: macOS signature file not found, using empty."
-            MAC_SIG=""
-          fi
-
-          # 构建 JSON
-          # 🚀 修复 URL：确保文件名与 Tauri 默认生成的格式严格匹配
-          cat <<EOF > update.json
-          {
-            "version": "$VERSION",
-            "notes": "Release $TAG_NAME",
-            "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-            "platforms": {
-              "windows-x86_64": {
-                "signature": "$WIN_SIG",
-                "url": "https://github.com/${{ github.repository }}/releases/download/$TAG_NAME/rust-ssh-tauri-desktop_${VERSION}_x64_en-US.msi.zip"
-              },
-              "darwin-aarch64": {
-                "signature": "$MAC_SIG",
-                "url": "https://github.com/${{ github.repository }}/releases/download/$TAG_NAME/rust-ssh-tauri-desktop_${VERSION}_aarch64.app.tar.gz"
-              },
-              "darwin-x86_64": {
-                "signature": "$MAC_SIG",
-                "url": "https://github.com/${{ github.repository }}/releases/download/$TAG_NAME/rust-ssh-tauri-desktop_${VERSION}_x64.app.tar.gz"
-              }
-            }
-          }
-          EOF
-          
-          echo "=== update.json 内容预览 ==="
-          cat update.json
-
-      - name: Commit and push update.json
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add update.json
-          # 如果文件没变化，不报错
-          git diff --quiet && git diff --staged --quiet || (git commit -m "chore: update updater metadata for ${{ github.ref_name }}" && git push origin main)

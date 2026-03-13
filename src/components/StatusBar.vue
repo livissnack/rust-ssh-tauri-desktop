@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, watch, onMounted, ref } from "vue";
-import { invoke } from "@tauri-apps/api/core";
-import { check } from '@tauri-apps/plugin-updater';
-import { relaunch } from '@tauri-apps/plugin-process';
+import {computed, onMounted, ref, watch} from "vue";
+import {invoke} from "@tauri-apps/api/core";
+import {check} from '@tauri-apps/plugin-updater';
+import {relaunch} from '@tauri-apps/plugin-process';
 
 const props = defineProps<{
   openSessions: Array<{ id: string; serverId: string; name: string }>;
@@ -13,7 +13,6 @@ const hasUpdate = ref(false);
 const updateInfo = ref<any>(null);
 const isDownloading = ref(false);
 
-// 内部维护一个响应式的延迟值
 const currentLatency = ref<number | string | null>(null);
 
 const connectionStatus = computed(() => {
@@ -39,34 +38,31 @@ const startUpdate = async () => {
   isDownloading.value = true;
   try {
     await updateInfo.value.downloadAndInstall();
-    await relaunch(); // 下载安装完成后重启
+    await relaunch();
   } catch (e) {
     console.error("下载更新失败:", e);
     isDownloading.value = false;
   }
 };
 
-// 核心逻辑：监听服务器切换并测速
 watch(() => props.currentServer?.id, async (newId) => {
   if (!newId || !props.currentServer?.host) {
     currentLatency.value = null;
     return;
   }
 
-  currentLatency.value = "..."; // 正在测速的占位符
+  currentLatency.value = "...";
 
   try {
-    // 调用我们刚才拆分出的独立后端功能
-    const ms = await invoke<number>("get_server_latency", {
+    currentLatency.value = await invoke<number>("get_server_latency", {
       host: props.currentServer.host,
       port: props.currentServer.port || 22
     });
-    currentLatency.value = ms;
   } catch (err) {
     console.error("测速失败:", err);
     currentLatency.value = "ERR";
   }
-}, { immediate: true }); // 立即执行一次以处理初始状态
+}, { immediate: true });
 
 onMounted(() => {
   checkUpdate();
@@ -125,7 +121,6 @@ onMounted(() => {
   }
 
   .latency {
-    // 假设 base.scss 映射了 --accent-orange，若无，请确保主题配置中包含该颜色
     color: var(--accent-orange, #f97316);
     font-family: 'JetBrains Mono', monospace;
     font-weight: 500;
@@ -135,7 +130,6 @@ onMounted(() => {
 
     i {
       font-size: 10px;
-      // 修复点：使用预计算的带透明度的变量处理发光
       filter: drop-shadow(0 0 3px var(--accent-orange-50, rgba(249, 115, 22, 0.5)));
     }
   }
@@ -170,23 +164,20 @@ onMounted(() => {
     }
   }
 
-  /* 状态指示灯 */
   .dot {
     width: 7px;
     height: 7px;
     border-radius: 50%;
-    background: var(--border); // 离线状态
+    background: var(--border);
 
     &.online {
       background: var(--success);
-      // 修复点：使用预计算的 --success-60 处理发光
       box-shadow: 0 0 8px var(--success-60, rgba(16, 185, 129, 0.6));
       animation: status-pulse 3s infinite;
     }
   }
 }
 
-/* 状态栏专用微弱动画 */
 @keyframes status-pulse {
   0% { opacity: 1; }
   50% { opacity: 0.7; }

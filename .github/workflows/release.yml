@@ -48,9 +48,64 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }} # 使用当前的 tag 名作为 Release 名
           releaseName: "AI-SSH-Assistant ${{ github.ref_name }}"
           releaseBody: "自动生成的跨平台版本。包含 Windows, macOS (Intel/M1) 和 Linux。"
-          releaseDraft: true # 先存为草稿，你可以手动检查后再点发布
+          releaseDraft: false # 先存为草稿，你可以手动检查后再点发布
           prerelease: false
+
+  # 🚀 新增 Job：自动汇总签名并更新 update.json
+  update-metadata:
+    needs: publish-tauri
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main # 确保推送到主分支
+
+      - name: Download release metadata
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # 使用 GitHub CLI 获取刚刚发布的 Release 信息
+          VERSION=${{ github.ref_name }}
+          TAG_NAME=${{ github.ref_name }}
+          
+          # 创建一个临时的 update.json 结构
+          # 注意：这里需要根据你 Release 的实际文件名进行调整
+          # 通常 Tauri 会生成类似 app.msi.zip.sig 的文件
+          
+          echo "生成更新元数据..."
+          
+          # 简单的 JSON 构建脚本 (你可以根据需要扩展)
+          # 注意：这里假设你使用的是 GitHub Release 的原始链接
+          cat <<EOF > update.json
+          {
+            "version": "${VERSION#v}",
+            "notes": "Release $VERSION",
+            "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "platforms": {
+              "windows-x86_64": {
+                "signature": "$(gh release view $TAG_NAME --json assets -q '.assets[] | select(.name | endswith(".msi.zip.sig")) | .name' | xargs -I {} gh release download $TAG_NAME -p {} -O -)",
+                "url": "https://github.com/${{ github.repository }}/releases/download/$TAG_NAME/rust-ssh-tauri-desktop_${VERSION#v}_x64_en-US.msi.zip"
+              },
+              "darwin-aarch64": {
+                "signature": "$(gh release view $TAG_NAME --json assets -q '.assets[] | select(.name | endswith(".app.tar.gz.sig")) | .name' | xargs -I {} gh release download $TAG_NAME -p {} -O -)",
+                "url": "https://github.com/${{ github.repository }}/releases/download/$TAG_NAME/rust-ssh-tauri-desktop_${VERSION#v}_aarch64.app.tar.gz"
+              }
+            }
+          }
+          EOF
+
+      - name: Commit and push update.json
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add update.json
+          git commit -m "chore: update updater metadata for ${{ github.ref_name }}"
+          git push origin main

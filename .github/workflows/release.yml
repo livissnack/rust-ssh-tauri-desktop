@@ -47,7 +47,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: "Hiphup-SSH ${{ github.ref_name }}: ${{ steps.tag_info.outputs.tag_msg }}"
+          releaseName: "Hiphup-Terminal ${{ github.ref_name }}: ${{ steps.tag_info.outputs.tag_msg }}"
           releaseDraft: true
           prerelease: false
           includeRelease: true

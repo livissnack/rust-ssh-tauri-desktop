@@ -1699,6 +1699,35 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6fe2267d4ed49bc07b63801559be28c718ea06c4738b7a03c94df7386d2cde46"
 
 [[package]]
+name = "hiphup-terminal"
+version = "0.1.0"
+dependencies = [
+ "aes-gcm",
+ "async-trait",
+ "base64 0.21.7",
+ "futures",
+ "hmac",
+ "machineid-rs",
+ "pbkdf2 0.12.2",
+ "redb",
+ "redis",
+ "reqwest 0.12.28",
+ "russh",
+ "russh-keys",
+ "russh-sftp",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-process",
+ "tauri-plugin-updater",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "hkdf"
 version = "0.12.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3931,35 +3960,6 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tokio-util",
-]
-
-[[package]]
-name = "rust-ssh-tauri-desktop"
-version = "0.1.0"
-dependencies = [
- "aes-gcm",
- "async-trait",
- "base64 0.21.7",
- "futures",
- "hmac",
- "machineid-rs",
- "pbkdf2 0.12.2",
- "redb",
- "redis",
- "reqwest 0.12.28",
- "russh",
- "russh-keys",
- "russh-sftp",
- "serde",
- "serde_json",
- "sha2",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-process",
- "tauri-plugin-updater",
- "tokio",
- "uuid",
 ]
 
 [[package]]

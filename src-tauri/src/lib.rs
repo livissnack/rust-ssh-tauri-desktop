@@ -741,26 +741,34 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
-            let app_data_dir = app.path().app_data_dir().expect("无法获取应用数据目录");
+            // --- 1. 基础路径准备 (同步执行，极快) ---
+            let handle = app.handle().clone();
+            let app_data_dir = handle.path().app_data_dir().expect("无法获取应用数据目录");
+
             if !app_data_dir.exists() {
                 std::fs::create_dir_all(&app_data_dir).expect("无法创建目录");
             }
+
+            // --- 2. 数据库初始化 (核心业务，同步但紧凑) ---
+            let db_path = app_data_dir.join("hiphup_ssh_v1.redb");
             let db = Database::builder()
-                .create(app_data_dir.join("hiphup_ssh_v1.redb"))
+                .create(db_path)
                 .expect("无法打开数据库");
 
+            // 快速初始化表结构
             {
                 let write_txn = db.begin_write().expect("无法开启写事务");
                 {
-                    let _ = write_txn.open_table(SERVERS_TABLE).expect("初始化服务器表失败");
-                    let _ = write_txn.open_table(COMMANDS_TABLE).expect("初始化命令表失败");
-                    let _ = write_txn.open_table(AI_CONFIG_TABLE).expect("初始化AI设置表失败");
-                    let _ = write_txn.open_table(SYNC_CONFIG_TABLE).expect("初始化同步设置表失败");
-                    let _ = write_txn.open_table(REDIS_CONN_TABLE).expect("初始化Redis连接表失败");
+                    let _ = write_txn.open_table(SERVERS_TABLE)?;
+                    let _ = write_txn.open_table(COMMANDS_TABLE)?;
+                    let _ = write_txn.open_table(AI_CONFIG_TABLE)?;
+                    let _ = write_txn.open_table(SYNC_CONFIG_TABLE)?;
+                    let _ = write_txn.open_table(REDIS_CONN_TABLE)?;
                 }
-                write_txn.commit().expect("提交初始化事务失败");
+                write_txn.commit().expect("初始化事务提交失败");
             }
 
+            // --- 3. 状态管理注入 ---
             app.manage(AppState {
                 sessions: Arc::new(Mutex::new(HashMap::new())),
                 db: Arc::new(db),
@@ -771,42 +779,10 @@ pub fn run() {
                 connection: Arc::new(tokio::sync::Mutex::new(None)),
             });
 
-            let quit_i = MenuItem::with_id(app, "quit", "退出程序", true, None::<&str>)?;
-            let show_i = MenuItem::with_id(app, "show", "显示主窗口", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show_i, &quit_i])?;
-
-            let _tray = TrayIconBuilder::new()
-                .icon(app.default_window_icon().unwrap().clone())
-                .menu(&menu)
-                .show_menu_on_left_click(false)
-                .on_menu_event(|app, event| match event.id.as_ref() {
-                    "quit" => app.exit(0),
-                    "show" => {
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
-                    }
-                    _ => {}
-                })
-                .on_tray_icon_event(|tray, event| {
-                    if let TrayIconEvent::Click {
-                        button: MouseButton::Left,
-                        button_state: MouseButtonState::Up,
-                        ..
-                    } = event {
-                        let app = tray.app_handle();
-                        if let Some(window) = app.get_webview_window("main") {
-                            if window.is_visible().unwrap_or(false) {
-                                let _ = window.hide();
-                            } else {
-                                let _ = window.show();
-                                let _ = window.set_focus();
-                            }
-                        }
-                    }
-                })
-                .build(app)?;
+            // --- 5. 托盘初始化 (抽离到异步或 setup 末尾) ---
+            if let Err(e) = setup_tray(app) {
+                eprintln!("托盘初始化失败: {}", e);
+            }
 
             Ok(())
         })
@@ -856,4 +832,44 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("Tauri 运行出错");
+}
+
+fn setup_tray<R: tauri::Runtime>(app: &tauri::App<R>) -> Result<(), Box<dyn std::error::Error>> {
+    let quit_i = MenuItem::with_id(app, "quit", "退出程序", true, None::<&str>)?;
+    let show_i = MenuItem::with_id(app, "show", "显示主窗口", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&show_i, &quit_i])?;
+
+    let _tray = TrayIconBuilder::new()
+        .icon(app.default_window_icon().unwrap().clone())
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| match event.id.as_ref() {
+            "quit" => app.exit(0),
+            "show" => {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event {
+                let app = tray.app_handle();
+                if let Some(window) = app.get_webview_window("main") {
+                    if window.is_visible().unwrap_or(false) {
+                        let _ = window.hide();
+                    } else {
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
+                }
+            }
+        })
+        .build(app)?;
+    Ok(())
 }

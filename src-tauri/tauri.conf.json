@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "rust-ssh-tauri-desktop",
+  "productName": "hiphup-terminal",
   "version": "1.0.9",
-  "identifier": "com.administrator.rust-ssh-tauri-desktop",
+  "identifier": "com.administrator.hiphup-terminal",
   "build": {
     "beforeDevCommand": "deno task dev",
     "devUrl": "http://localhost:1420",
@@ -12,13 +12,14 @@
   "app": {
     "windows": [
       {
-        "title": "rust-ssh-tauri-desktop",
+        "title": "hiphup-terminal",
         "width": 1000,
         "height": 700,
         "decorations": false,
         "transparent": true,
         "fullscreen": false,
         "resizable": true,
+        "visible": true,
         "dragDropEnabled": false
       }
     ],

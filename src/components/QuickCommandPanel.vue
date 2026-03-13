@@ -2,6 +2,7 @@
 import { ref, onMounted, computed } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from '../utils/toast.ts';
+import { throttle } from '../utils/async.ts';
 
 const props = defineProps<{
   activeSessionId: string | null
@@ -65,6 +66,10 @@ const deleteCommand = async (id: string) => {
   }
 };
 
+const handleToggleAddCommand = throttle(() => {
+  isAdding.value = !isAdding.value;
+}, 300);
+
 onMounted(loadCommands);
 </script>
 
@@ -75,7 +80,7 @@ onMounted(loadCommands);
         <i class="fas fa-bolt"></i>
         <span>快捷指令</span>
       </div>
-      <button class="icon-btn" @click="isAdding = !isAdding" :class="{ 'is-active': isAdding }">
+      <button class="icon-btn" @click="handleToggleAddCommand" :class="{ 'is-active': isAdding }">
         <i class="fas fa-plus"></i>
       </button>
     </div>

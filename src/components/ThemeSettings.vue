@@ -10,7 +10,7 @@
           v-for="theme in themeOptions"
           :key="theme.id"
           class="theme-option"
-          :class="{ active: currentTheme === theme.id }"
+          :class="{ active: defaultTheme === theme.id }"
           @click="applyTheme(theme.id)"
       >
         <div class="theme-preview" :class="`${theme.id}-theme`">
@@ -25,14 +25,14 @@
           <span class="theme-type">{{ theme.isLight ? '亮色主题' : '暗色主题' }}</span>
         </div>
 
-        <i v-if="currentTheme === theme.id" class="fas fa-check-circle check-icon"></i>
+        <i v-if="defaultTheme === theme.id" class="fas fa-check-circle check-icon"></i>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { themeOptions, applyTheme } from "../utils/theme.ts";
+import { themeOptions, applyTheme, defaultTheme } from "../utils/theme.ts";
 </script>
 
 <style lang="scss" scoped>

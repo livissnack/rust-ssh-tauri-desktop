@@ -2,11 +2,12 @@
 import {ref, onMounted} from 'vue';
 import {invoke} from '@tauri-apps/api/core';
 import {toast} from '../utils/toast.ts';
+import {throttle} from '../utils/async.ts';
 import RedisCreateModal from './RedisCreateModal.vue';
 
-// --- 状态控制 ---
 const isConnectPanelVisible = ref(false);
 const isConnecting = ref(false);
+const isConnected = ref(false);
 const showPassword = ref(false);
 const searchQuery = ref('*');
 const keysList = ref<string[]>([]);
@@ -37,27 +38,36 @@ const loadSavedConfigs = async () => {
   }
 };
 
-const handleConnect = async () => {
+
+const handleConnect = throttle(async () => {
   isConnecting.value = true;
   try {
     await invoke('redis_connect', {config: connForm.value});
     await invoke('save_redis_config', {config: connForm.value});
+    isConnected.value = true;
     toast.success("Redis 连接成功");
     isConnectPanelVisible.value = false;
     refreshKeys();
     loadSavedConfigs();
   } catch (err) {
+    isConnected.value = false;
     toast.error(`${err}`);
   } finally {
     isConnecting.value = false;
   }
-};
+}, 300);
 
 const refreshKeys = async () => {
+  if (!isConnected.value) {
+    return;
+  }
+
   try {
     keysList.value = await invoke('redis_get_keys', {pattern: searchQuery.value}) as string[];
   } catch (err) {
-    toast.error("刷新失败");
+    isConnected.value = false;
+    keysList.value = [];
+    toast.error("刷新失败，请重新连接");
   }
 };
 
@@ -91,19 +101,18 @@ const handleSave = async () => {
   }
 };
 
-const toggleConnectPanel = () => {
-  isConfigListVisible.value = false; // 互斥：先关掉另一个
+const toggleConnectPanel = throttle(() => {
+  isConfigListVisible.value = false;
   isConnectPanelVisible.value = !isConnectPanelVisible.value;
-};
+}, 300);
 
-const toggleConfigList = () => {
-  isConnectPanelVisible.value = false; // 互斥：先关掉另一个
+const toggleConfigList = throttle(() => {
+  isConnectPanelVisible.value = false;
   isConfigListVisible.value = !isConfigListVisible.value;
-};
+}, 300);
 
 onMounted(() => {
   loadSavedConfigs();
-  refreshKeys();
 });
 </script>
 
@@ -124,7 +133,7 @@ onMounted(() => {
         </button>
       </div>
 
-      <div v-if="isConfigListVisible" class="rd-mg-dropdown">
+      <div v-if="isConfigListVisible && savedConfigs.length > 0" class="rd-mg-dropdown">
         <div v-for="cfg in savedConfigs" :key="cfg.id" class="rd-mg-dropdown-item"
              @click="connForm = {...cfg}; handleConnect(); isConfigListVisible=false;">
           <span class="name">{{ cfg.name }}</span>

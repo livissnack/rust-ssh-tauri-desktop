@@ -3,6 +3,7 @@ import {ref, nextTick, onMounted, onUnmounted, computed, watch} from 'vue';
 import {invoke} from '@tauri-apps/api/core';
 import {listen, type UnlistenFn} from '@tauri-apps/api/event';
 import {toast} from '../utils/toast.ts';
+import {throttle} from '../utils/async.ts';
 import {marked} from 'marked';
 import hljs from 'highlight.js';
 import 'highlight.js/styles/tokyo-night-dark.css';
@@ -86,6 +87,11 @@ const scrollToBottom = async () => {
   }
 };
 
+const handleSendMessage = throttle(() => {
+  if (!userInput.value.trim() || isLoading.value) return;
+  sendMessage();
+}, 1000);
+
 const sendMessage = async () => {
   if (!userInput.value.trim() || isLoading.value) return;
   if (!aiConfig.value.apiKey) {
@@ -141,7 +147,7 @@ const sendToTerminal = async (fullContent: string) => {
 const handleKeydown = (e: KeyboardEvent) => {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
-    sendMessage();
+    handleSendMessage();
   }
 };
 
@@ -149,6 +155,10 @@ const currentModels = computed(() => {
   const p = providers.find(item => item.id === aiConfig.value.currentProvider);
   return p ? p.models : [];
 });
+
+const handleToggleConfig = throttle(() => {
+  isConfigMode.value = !isConfigMode.value;
+}, 300);
 
 watch(() => aiConfig.value.currentProvider, (newProvider, oldProvider) => {
   if (!oldProvider) return;
@@ -183,7 +193,7 @@ onUnmounted(() => {
         <i class="fas fa-robot"></i>
         <span>AI 终端助手</span>
       </div>
-      <button class="icon-btn" @click="isConfigMode = !isConfigMode" :class="{ active: isConfigMode }">
+      <button class="icon-btn" @click="handleToggleConfig" :class="{ active: isConfigMode }">
         <i class="fas fa-cog"></i>
       </button>
     </div>
@@ -266,7 +276,7 @@ onUnmounted(() => {
               <span class="kb-hint">Enter 发送</span>
               <button
                   class="btn-send"
-                  @click="sendMessage"
+                  @click="handleSendMessage"
                   :disabled="isLoading || !userInput.trim()"
                   :class="{ 'is-loading': isLoading }"
               >
@@ -386,59 +396,117 @@ onUnmounted(() => {
       color: var(--text-dim);
       font-weight: bold;
       text-transform: uppercase;
+      letter-spacing: 0.5px;
+      -webkit-font-smoothing: antialiased; /* macOS 文字抗锯齿 */
     }
 
-    input, select {
+    input[type="password"],
+    input[type="text"],
+    select {
+      -webkit-appearance: none; /* 强制移除 macOS/Linux 原生外观 */
+      -moz-appearance: none;    /* Firefox 适配 */
+      appearance: none;
+
       background: var(--bg-input);
       border: 1px solid var(--border);
       border-radius: 6px;
       padding: 10px;
       color: var(--text-main);
-      font-size: 12px;
+      font-size: 13px;
+      width: 100%;
+      box-sizing: border-box;
+      transition: all 0.2s ease;
 
       &:focus {
         border-color: var(--accent);
         outline: none;
-        box-shadow: 0 0 0 2px var(--accent-20);
+        /* Windows 平台常见的焦点光晕 */
+        box-shadow: 0 0 0 3px var(--accent-20);
+      }
+    }
+
+    select {
+      cursor: pointer;
+      background-image: url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 10px center;
+      background-size: 14px;
+      padding-right: 30px;
+
+      /* 解决 Linux 下 option 颜色可能发白的问题 */
+      option {
+        background: var(--bg-secondary);
+        color: var(--text-main);
+      }
+    }
+
+    /* 滑动条：跨平台重灾区，需要彻底重写 */
+    input[type="range"] {
+      -webkit-appearance: none;
+      background: transparent;
+      height: 20px;
+      cursor: pointer;
+
+      /* 轨道样式 */
+      &::-webkit-slider-runnable-track {
+        width: 100%;
+        height: 4px;
+        background: var(--border);
+        border-radius: 2px;
+      }
+      /* 滑块样式 (Webkit: Mac/Win/Linux-Chrome) */
+      &::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        height: 16px;
+        width: 16px;
+        border-radius: 50%;
+        background: var(--accent);
+        margin-top: -6px; /* (4-16)/2 */
+        box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+        border: 2px solid var(--bg-secondary);
+        transition: transform 0.1s;
+      }
+      &:active::-webkit-slider-thumb {
+        transform: scale(1.2);
       }
     }
 
     .input-with-icon {
       position: relative;
-
-      input {
-        width: 100%;
-        padding-right: 35px;
-        box-sizing: border-box;
-      }
-
       i {
         position: absolute;
         right: 12px;
-        top: 12px;
+        top: 50%;
+        transform: translateY(-50%);
         color: var(--text-dim);
         font-size: 12px;
+        pointer-events: none; /* 防止图标挡住点击事件 */
       }
     }
   }
 
+  /* 保存按钮：增加触感反馈 */
   .btn-save-config {
     margin-top: 10px;
     padding: 12px;
     background: var(--accent);
-    color: var(--bg-primary);
+    color: #ffffff; /* 强行指定白色，防止亮色主题下看不清 */
     border: none;
     border-radius: 6px;
-    font-weight: bold;
+    font-weight: 600;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 8px;
-    transition: opacity 0.2s;
+    transition: all 0.2s;
 
     &:hover {
-      opacity: 0.9;
+      filter: brightness(1.1);
+      transform: translateY(-1px);
+    }
+    &:active {
+      transform: translateY(0);
     }
   }
 }

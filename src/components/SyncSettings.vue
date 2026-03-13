@@ -2,29 +2,28 @@
 import { ref, onMounted } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from '../utils/toast.ts';
+import {throttle} from "../utils/async.ts";
 const emit = defineEmits(['refresh-data']);
 
 const isConfigVisible = ref(false);
 const isSyncing = ref(false);
-const showMasterKey = ref(false); // 控制主密钥明文显示
+const showMasterKey = ref(false);
 
 const syncForm = ref({
   endpoint: '',
   username: '',
   password: '',
   remote_filename: 'ssh_sync_backup.enc',
-  master_key: '', // 本地加密用的主密钥
+  master_key: '',
   auto_sync: false
 });
 
 const lastSyncTime = ref<string | null>(null);
 
-// 加载持久化的 WebDAV 配置
 const loadSettings = async () => {
   try {
     const saved = await invoke('get_sync_settings') as any;
     if (saved) {
-      // 合并配置，保留默认文件名
       syncForm.value = { ...syncForm.value, ...saved };
     }
   } catch (e) {
@@ -32,9 +31,7 @@ const loadSettings = async () => {
   }
 };
 
-// 核心同步逻辑
 const handleSync = async (type: 'upload' | 'download') => {
-  // 验证必填项
   if (!syncForm.value.endpoint || !syncForm.value.password) {
     toast.warning("请完善 WebDAV 服务器配置", "配置缺失");
     return;
@@ -45,7 +42,6 @@ const handleSync = async (type: 'upload' | 'download') => {
   }
 
   isSyncing.value = true;
-  // 对应 Rust 端的 #[command] 名称
   const command = type === 'upload' ? 'sync_to_cloud' : 'sync_from_cloud';
 
   try {
@@ -53,14 +49,12 @@ const handleSync = async (type: 'upload' | 'download') => {
     lastSyncTime.value = new Date().toLocaleTimeString();
     toast.success(msg, type === 'upload' ? "备份成功" : "恢复成功");
   } catch (err) {
-    // 捕获解密失败、网络错误或 401 认证失败
     toast.error(`${err}`, "同步操作失败");
   } finally {
     isSyncing.value = false;
   }
 };
 
-// 保存配置到本地数据库
 const saveSettings = async () => {
   try {
     await invoke('save_sync_settings', { config: syncForm.value });
@@ -70,6 +64,10 @@ const saveSettings = async () => {
     toast.error("保存失败");
   }
 };
+
+const handleToggleConfig = throttle(() => {
+  isConfigVisible.value = !isConfigVisible.value;
+}, 300);
 
 onMounted(loadSettings);
 </script>
@@ -81,7 +79,7 @@ onMounted(loadSettings);
         <i class="fas fa-shield-halved" :class="{ 'fa-spin': isSyncing }"></i>
         <span>安全同步</span>
       </div>
-      <button class="icon-btn" @click="isConfigVisible = !isConfigVisible" :class="{ 'is-active': isConfigVisible }">
+      <button class="icon-btn" @click="handleToggleConfig" :class="{ 'is-active': isConfigVisible }">
         <i class="fas fa-cog"></i>
       </button>
     </div>

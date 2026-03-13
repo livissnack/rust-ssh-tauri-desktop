@@ -1,3 +1,5 @@
+import { ref } from 'vue';
+
 export interface ThemeOption {
     id: string;
     name: string;
@@ -5,7 +7,7 @@ export interface ThemeOption {
     color: string;
 }
 
-export const defaultTheme: string = 'monokai-pro';
+export const defaultTheme = ref(localStorage.getItem('app-theme-id') || 'monokai-pro');
 
 export const themeOptions: ThemeOption[] = [
     { id: 'monokai-pro', name: 'Monokai Pro', isLight: false, color: '#ffd866' },
@@ -26,4 +28,5 @@ export const applyTheme = (themeId: string) => {
     themeOptions.forEach(opt => root.classList.remove(`${opt.id}-theme`));
     root.classList.add(`${themeId}-theme`);
     localStorage.setItem('app-theme-id', themeId);
+    defaultTheme.value = themeId;
 };

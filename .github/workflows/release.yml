@@ -47,6 +47,7 @@ jobs:
           releaseName: "AI-SSH-Assistant ${{ github.ref_name }}"
           releaseDraft: false
           prerelease: false
+          includeRelease: true
 
   update-metadata:
     needs: publish-tauri

@@ -11,7 +11,7 @@
           :key="theme.id"
           class="theme-option"
           :class="{ active: currentTheme === theme.id }"
-          @click="changeTheme(theme.id)"
+          @click="applyTheme(theme.id)"
       >
         <div class="theme-preview" :class="`${theme.id}-theme`">
           <div class="preview-sidebar"></div>
@@ -32,55 +32,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
-
-const currentTheme = ref('microsoft-dark');
-
-const themeOptions = [
-  // --- 现代暗色系列 ---
-  { id: 'monokai-pro', name: 'Monokai Pro', isLight: false, color: '#ffd866' }, // 温暖的琥珀黄
-  { id: 'catppuccin', name: 'Catppuccin Macchiato', isLight: false, color: '#8aadf4' }, // 柔和蓝
-  { id: 'tokyo-night', name: 'Tokyo Night', isLight: false, color: '#7aa2f7' }, // 霓虹蓝
-  { id: 'one-hunter', name: 'One Hunter', isLight: false, color: '#4db6ac' }, // 森林薄荷
-
-  // --- 经典与工作系列 ---
-  { id: 'microsoft-dark', name: 'Microsoft Dark', isLight: false, color: '#2886de' },
-  { id: 'github-light', name: 'GitHub Light', isLight: true, color: '#0969da' },
-  { id: 'azure-light', name: 'Azure Light', isLight: true, color: '#0078d4' },
-
-  { id: 'rmb-red', name: '炫丽红 (100¥)', isLight: false, color: '#ff4d4f' },
-  { id: 'rmb-green', name: '翠绿 (50¥)', isLight: false, color: '#40c0a0' },
-  { id: 'rmb-brown', name: '荷花褐 (20¥)', isLight: false, color: '#d4a017' },
-  { id: 'rmb-blue', name: '玫瑰蓝 (10¥)', isLight: false, color: '#4a90e2' },
-];
-
-const changeTheme = (themeId: string) => {
-  const root = document.documentElement;
-  // 移除所有旧主题类名
-  themeOptions.forEach(opt => root.classList.remove(`${opt.id}-theme`));
-  // 添加新主题类名
-  root.classList.add(`${themeId}-theme`);
-
-  currentTheme.value = themeId;
-  localStorage.setItem('app-theme-id', themeId);
-};
-
-onMounted(() => {
-  const saved = localStorage.getItem('app-theme-id') || 'microsoft-dark';
-  changeTheme(saved);
-});
+import { themeOptions, applyTheme } from "../utils/theme.ts";
 </script>
 
 <style lang="scss" scoped>
-/* 重点 2:
-   不要在 scoped 样式里通过 base.$variable 引用颜色，
-   必须使用 var(--variable-name) 才能实现运行时切换。
-*/
 .theme-settings {
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: var(--bg-secondary); // 实时跟随类名切换
+  background: var(--bg-secondary);
   color: var(--text-main);
   transition: background 0.3s ease;
 

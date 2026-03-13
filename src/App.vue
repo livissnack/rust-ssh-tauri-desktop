@@ -9,6 +9,7 @@ import {listen, UnlistenFn} from "@tauri-apps/api/event";
 import {ask} from '@tauri-apps/plugin-dialog';
 import {toast} from './utils/toast.ts';
 import {throttle} from "./utils/async";
+import {applyTheme, defaultTheme} from "./utils/theme";
 
 // 组件导入
 import Sidebar from "./components/Sidebar.vue";
@@ -22,9 +23,7 @@ import AiAssistantPanel from "./components/AiAssistantPanel.vue";
 import SyncSettings from "./components/SyncSettings.vue";
 import ThemeSettings from "./components/ThemeSettings.vue";
 import RedisManager from "./components/RedisManager.vue";
-
-const appWindow = getCurrentWindow();
-
+getCurrentWindow();
 // --- 基础状态 ---
 const servers = ref<any[]>([]);
 const activeId = ref<string | null>(null);
@@ -360,7 +359,6 @@ const toggleViewMode = async () => {
   const currentMode = sessionViewModes.value[activeSessionId.value] || 'terminal';
   const newMode = currentMode === 'terminal' ? 'sftp' : 'terminal';
   sessionViewModes.value[activeSessionId.value] = newMode;
-  console.log('ll------')
   if (newMode === 'sftp') {
     refreshRemoteFiles();
     refreshLocalFiles();
@@ -523,6 +521,8 @@ const startResizing = (e: MouseEvent) => {
 };
 
 onMounted(async () => {
+  const themeId = localStorage.getItem('app-theme-id') || defaultTheme;
+  applyTheme(themeId);
   window.addEventListener("resize", handleResize);
   const saved = localStorage.getItem('right-panel-width');
   if (saved) panelWidth.value = parseInt(saved);

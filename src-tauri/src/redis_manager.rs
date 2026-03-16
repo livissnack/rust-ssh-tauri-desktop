@@ -49,20 +49,17 @@ pub async fn redis_connect(
 
     let client = Client::open(connection_string).map_err(|e| e.to_string())?;
 
-    // 1. 获取连接
     let mut conn = client
         .get_multiplexed_tokio_connection()
         .await
-        .map_err(|e| format!("连接超时或失败: {}", e))?;
+        .map_err(|e| format!("连接超时: {}", e))?;
 
-    // 2. 🔥 关键步骤：执行 PING 验证密码有效性
-    // 如果密码错误，这里会返回 (error) WRONGPASS 或 NOAUTH
+
     let _: String = redis::cmd("PING")
         .query_async(&mut conn)
         .await
-        .map_err(|e| format!("身份验证失败或服务器未就绪: {}", e))?;
+        .map_err(|e| format!("身份验证失败: {}", e))?;
 
-    // 3. 验证通过后才保存连接
     let mut lock = state.connection.lock().await;
     *lock = Some(conn);
 
@@ -212,11 +209,10 @@ pub async fn save_redis_config(
     }
     let id = config.id.as_ref().unwrap().clone();
 
-    // 加密 Host
     if !config.host.is_empty() {
         config.host = encrypt_secret(&config.host)?;
     }
-    // 加密 Password (Redis 密码通常在 password 字段)
+
     if let Some(ref pass) = config.password {
         if !pass.is_empty() {
             config.password = Some(encrypt_secret(pass)?);
@@ -230,7 +226,6 @@ pub async fn save_redis_config(
         table.insert(id.as_str(), json.as_str()).map_err(|e| e.to_string())?;
     }
     write_txn.commit().map_err(|e| e.to_string())?;
-    // 触发同步
     trigger_auto_sync(state.inner(), app_handle.clone()).await;
     Ok(config)
 }
@@ -247,13 +242,11 @@ pub async fn get_redis_configs(state: State<'_, AppState>) -> Result<Vec<RedisCo
         if let Ok((_key, value)) = result {
             match serde_json::from_str::<RedisConfig>(value.value()) {
                 Ok(mut config) => {
-                    // --- 执行解密 ---
-                    // 解密 Host
                     if !config.host.is_empty() {
                         config.host = decrypt_secret(&config.host)
                             .unwrap_or_else(|_| "DECRYPT_ERROR".into());
                     }
-                    // 解密 Password
+
                     if let Some(ref pass) = config.password {
                         config.password = Some(decrypt_secret(pass)
                             .unwrap_or_else(|_| "".into()));
@@ -276,7 +269,6 @@ pub async fn delete_redis_config(app_handle: tauri::AppHandle, state: State<'_, 
         table.remove(id.as_str()).map_err(|e| e.to_string())?;
     }
     write_txn.commit().map_err(|e| e.to_string())?;
-    // 触发同步
     trigger_auto_sync(state.inner(), app_handle).await;
     Ok(())
 }

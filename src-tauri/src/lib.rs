@@ -25,7 +25,7 @@ use russh_sftp::client::SftpSession;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use std::time::{Duration, Instant};
 use tokio::net::TcpStream;
-use futures::StreamExt; // 引入流处理
+use futures::StreamExt;
 use serde_json::json;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -309,21 +309,17 @@ async fn save_server(app_handle: tauri::AppHandle, state: State<'_, AppState>, m
     println!("  - id: '{}'", server.id);
     println!("  - name: '{}'", server.name);
 
-    // 1. 基础信息处理 (保留你的原始逻辑)
     if server.id.is_empty() {
         server.id = Uuid::new_v4().to_string();
         println!("生成新 ID: {}", server.id);
     }
 
-    // --- 新增商用同步逻辑：更新时间戳和状态 ---
     server.updated_at = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_millis() as u64;
-    server.deleted = false; // 显式重置为活跃状态，防止由于合并导致的误删
-    // ------------------------------------
+    server.deleted = false;
 
-    // 2. 加密逻辑 (保留你的原始逻辑)
     if !server.host.is_empty() {
         server.host = encrypt_secret(&server.host)?;
     }
@@ -333,7 +329,6 @@ async fn save_server(app_handle: tauri::AppHandle, state: State<'_, AppState>, m
         }
     }
 
-    // 3. Jump Host 处理 (保留你的原始逻辑)
     if let Some(ref jump_id) = server.jump_host_id {
         if jump_id.is_empty() {
             server.jump_host_id = None;
@@ -343,7 +338,7 @@ async fn save_server(app_handle: tauri::AppHandle, state: State<'_, AppState>, m
 
     println!("\n处理后的数据:");
     println!("  - id: '{}'", server.id);
-    println!("  - updated_at: {}", server.updated_at); // 新增调试输出
+    println!("  - updated_at: {}", server.updated_at);
 
     // 4. 数据库持久化
     let write_txn = state.db.begin_write().map_err(|e| e.to_string())?;
@@ -362,7 +357,6 @@ async fn save_server(app_handle: tauri::AppHandle, state: State<'_, AppState>, m
         Ok(_) => {
             println!("✓ 事务提交成功");
             println!("========== [SAVE_SERVER] 保存完成 ========== {}\n", server.id);
-            // 触发同步 (保留你的原始逻辑)
             trigger_auto_sync(state.inner(), app_handle).await;
             Ok(server)
         }
@@ -378,19 +372,16 @@ async fn save_server(app_handle: tauri::AppHandle, state: State<'_, AppState>, m
 async fn delete_server(app_handle: tauri::AppHandle, state: State<'_, AppState>, id: String) -> Result<(), String> {
     let write_txn = state.db.begin_write().map_err(|e| e.to_string())?;
 
-    // 使用花括号缩小借用范围，或者直接在这里处理
     {
         let mut table = write_txn.open_table(SERVERS_TABLE).map_err(|e| e.to_string())?;
 
-        // --- 核心修改点：使用 .map(|v| v.value().to_string()) 立即释放 table 的借用 ---
         let existing_data = table.get(id.as_str())
             .map_err(|e| e.to_string())?
-            .map(|v| v.value().to_string()); // 这一步将 AccessGuard 转换为独立的 String
+            .map(|v| v.value().to_string());
 
         if let Some(json_str) = existing_data {
             let mut server: ServerConfig = serde_json::from_str(&json_str).map_err(|e| e.to_string())?;
 
-            // 更新逻辑删除字段
             server.deleted = true;
             server.updated_at = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -399,14 +390,12 @@ async fn delete_server(app_handle: tauri::AppHandle, state: State<'_, AppState>,
 
             let json = serde_json::to_string(&server).map_err(|e| e.to_string())?;
 
-            // 此时 table 已经没有被不可变借用了，可以安全地进行 mutable borrow (insert)
             table.insert(id.as_str(), json.as_str()).map_err(|e| e.to_string())?;
         }
     }
 
     write_txn.commit().map_err(|e| e.to_string())?;
 
-    // 异步触发同步逻辑
     trigger_auto_sync(state.inner(), app_handle).await;
 
     Ok(())
@@ -628,22 +617,42 @@ async fn get_quick_commands(state: State<'_, AppState>) -> Result<Vec<QuickComma
     for result in table.iter().map_err(|e| e.to_string())? {
         let (_key, value) = result.map_err(|e| e.to_string())?;
         let cmd: QuickCommand = serde_json::from_str(value.value()).map_err(|e| e.to_string())?;
-        commands.push(cmd);
+
+        if !cmd.deleted {
+            commands.push(cmd);
+        }
     }
+
+    commands.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+
     Ok(commands)
 }
 
 #[tauri::command]
 async fn save_quick_command(app_handle: tauri::AppHandle, state: State<'_, AppState>, mut cmd: QuickCommand) -> Result<QuickCommand, String> {
-    if cmd.id.is_empty() { cmd.id = Uuid::new_v4().to_string(); }
+    if cmd.id.is_empty() {
+        cmd.id = Uuid::new_v4().to_string();
+    }
+
+    cmd.updated_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+
+    cmd.deleted = false;
+
     let write_txn = state.db.begin_write().map_err(|e| e.to_string())?;
     {
         let mut table = write_txn.open_table(COMMANDS_TABLE).map_err(|e| e.to_string())?;
         let json = serde_json::to_string(&cmd).map_err(|e| e.to_string())?;
+
         table.insert(cmd.id.as_str(), json.as_str()).map_err(|e| e.to_string())?;
     }
+
     write_txn.commit().map_err(|e| e.to_string())?;
+
     trigger_auto_sync(state.inner(), app_handle).await;
+
     Ok(cmd)
 }
 
@@ -654,10 +663,28 @@ async fn delete_quick_command(app_handle: tauri::AppHandle, state: State<'_, App
     {
         let mut table = write_txn.open_table(COMMANDS_TABLE).map_err(|e| e.to_string())?;
 
-        table.remove(id.as_str()).map_err(|e| e.to_string())?;
+        let existing_data = table.get(id.as_str())
+            .map_err(|e| e.to_string())?
+            .map(|v| v.value().to_string());
+
+        if let Some(json_str) = existing_data {
+            let mut cmd: QuickCommand = serde_json::from_str(&json_str).map_err(|e| e.to_string())?;
+
+            cmd.deleted = true;
+            cmd.updated_at = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
+
+            let json = serde_json::to_string(&cmd).map_err(|e| e.to_string())?;
+
+            table.insert(id.as_str(), json.as_str()).map_err(|e| e.to_string())?;
+        }
     }
 
     write_txn.commit().map_err(|e| e.to_string())?;
+
+    // 异步触发同步逻辑
     trigger_auto_sync(state.inner(), app_handle).await;
     Ok(())
 }
@@ -790,43 +817,32 @@ async fn ask_ai(
     Ok(())
 }
 
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
-            // --- 1. 基础路径准备 (同步执行，极快) ---
             let handle = app.handle().clone();
-            let app_data_dir = handle.path().app_data_dir().expect("无法获取应用数据目录");
 
+            // 1. 获取应用数据目录
+            let app_data_dir = handle.path().app_data_dir().expect("无法获取应用数据目录");
             if !app_data_dir.exists() {
                 std::fs::create_dir_all(&app_data_dir).expect("无法创建目录");
             }
-
-            // --- 2. 数据库初始化 (核心业务，同步但紧凑) ---
             let db_path = app_data_dir.join("hiphup_ssh_v1.redb");
+
+            // 2. 快速打开数据库
             let db = Database::builder()
                 .create(db_path)
                 .expect("无法打开数据库");
+            let db_arc = Arc::new(db);
 
-            // 快速初始化表结构
-            {
-                let write_txn = db.begin_write().expect("无法开启写事务");
-                {
-                    let _ = write_txn.open_table(SERVERS_TABLE)?;
-                    let _ = write_txn.open_table(COMMANDS_TABLE)?;
-                    let _ = write_txn.open_table(AI_CONFIG_TABLE)?;
-                    let _ = write_txn.open_table(SYNC_CONFIG_TABLE)?;
-                    let _ = write_txn.open_table(REDIS_CONN_TABLE)?;
-                }
-                write_txn.commit().expect("初始化事务提交失败");
-            }
-
-            // --- 3. 状态管理注入 ---
+            // 3. 注入状态 (使用标准库 Mutex)
             app.manage(AppState {
                 sessions: Arc::new(Mutex::new(HashMap::new())),
-                db: Arc::new(db),
+                db: db_arc.clone(),
                 cancelled_tasks: Arc::new(Mutex::new(HashSet::new())),
             });
 
@@ -834,7 +850,33 @@ pub fn run() {
                 connection: Arc::new(tokio::sync::Mutex::new(None)),
             });
 
-            // --- 5. 托盘初始化 (抽离到异步或 setup 末尾) ---
+            // 4. 异步初始化和清理
+            let db_for_setup = db_arc.clone();
+
+            tauri::async_runtime::spawn(async move {
+                // 稍微延迟，确保窗口已弹出
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+                // A. 数据库表初始化
+                let init_res = (|| -> Result<(), String> {
+                    let write_txn = db_for_setup.begin_write().map_err(|e| e.to_string())?;
+                    {
+                        let _ = write_txn.open_table(SERVERS_TABLE).map_err(|e| e.to_string())?;
+                        let _ = write_txn.open_table(COMMANDS_TABLE).map_err(|e| e.to_string())?;
+                        let _ = write_txn.open_table(AI_CONFIG_TABLE).map_err(|e| e.to_string())?;
+                        let _ = write_txn.open_table(SYNC_CONFIG_TABLE).map_err(|e| e.to_string())?;
+                        let _ = write_txn.open_table(REDIS_CONN_TABLE).map_err(|e| e.to_string())?;
+                    }
+                    write_txn.commit().map_err(|e| e.to_string())?;
+                    Ok(())
+                })();
+
+                if let Err(e) = init_res {
+                    eprintln!("[DB Error] 初始化失败: {}", e);
+                }
+            });
+
+            // 5. 托盘初始化
             if let Err(e) = setup_tray(app) {
                 eprintln!("托盘初始化失败: {}", e);
             }

@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import {ref, computed, onMounted, onUnmounted, nextTick, watch} from "vue";
-import {getCurrentWindow} from "@tauri-apps/api/window";
 import {Terminal} from "xterm";
 import {FitAddon} from "xterm-addon-fit";
+import { WebglAddon } from '@xterm/addon-webgl';
 import "xterm/css/xterm.css";
 import {invoke} from "@tauri-apps/api/core";
 import { homeDir } from '@tauri-apps/api/path';
@@ -12,19 +12,35 @@ import {toast} from './utils/toast.ts';
 import {throttle, formatSize} from "./utils/async";
 import {applyTheme, defaultTheme} from "./utils/theme";
 
+import { defineAsyncComponent } from 'vue';
+
 // 组件导入
 import Sidebar from "./components/Sidebar.vue";
 import TerminalTabs from "./components/TerminalTabs.vue";
 import WorkspaceHeader from "./components/WorkspaceHeader.vue";
 import StatusBar from "./components/StatusBar.vue";
-import ServerModal from "./components/ServerModal.vue";
 import TitleBar from "./components/TitleBar.vue";
-import QuickCommandPanel from "./components/QuickCommandPanel.vue";
-import AiAssistantPanel from "./components/AiAssistantPanel.vue";
-import SyncSettings from "./components/SyncSettings.vue";
-import ThemeSettings from "./components/ThemeSettings.vue";
-import RedisManager from "./components/RedisManager.vue";
-getCurrentWindow();
+import ServerModal from "./components/ServerModal.vue";
+
+const QuickCommandPanel = defineAsyncComponent(() => import("./components/QuickCommandPanel.vue"));
+const AiAssistantPanel = defineAsyncComponent(() => import("./components/AiAssistantPanel.vue"));
+const SyncSettings = defineAsyncComponent(() => import("./components/SyncSettings.vue"));
+const ThemeSettings = defineAsyncComponent(() => import("./components/ThemeSettings.vue"));
+const RedisManager = defineAsyncComponent(() => import("./components/RedisManager.vue"));
+
+const panelMap: Record<string, any> = {
+  'quick': QuickCommandPanel,
+  'ai': AiAssistantPanel,
+  'redis': RedisManager,
+  'sync-settings': SyncSettings,
+  'theme-settings': ThemeSettings
+};
+
+// 3. 定义计算属性
+const rightPanelComponent = computed(() => {
+  return panelMap[rightPanelType.value] || null;
+});
+
 // --- 基础状态 ---
 const servers = ref<any[]>([]);
 const activeId = ref<string | null>(null);
@@ -327,7 +343,8 @@ const initTerminal = async (sessionId: string) => {
     return;
   }
   const term = new Terminal({
-    cursorBlink: true, fontSize: 14,
+    cursorBlink: true,
+    fontSize: 14,
     fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
     theme: getTerminalTheme(),
     allowProposedApi: true,
@@ -338,6 +355,16 @@ const initTerminal = async (sessionId: string) => {
   const container = document.getElementById(`terminal-${sessionId}`);
   if (container) {
     term.open(container);
+    try {
+      const webglAddon = new WebglAddon();
+      term.loadAddon(webglAddon);
+      webglAddon.onContextLoss(() => {
+        webglAddon.dispose();
+      });
+      console.log(`Terminal ${sessionId} 启用 WebGL 加速`);
+    } catch (e) {
+      console.warn("WebGL 加速启动失败，自动降级为 Canvas 渲染", e);
+    }
     fitAddon.fit();
     term.onData((data) => invoke("write_to_ssh", {sessionId, data}));
     terminalMap.set(sessionId, {term, fitAddon});
@@ -573,6 +600,11 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  // 停止所有终端实例
+  terminalMap.forEach(instance => {
+    instance.term.dispose();
+  });
+  terminalMap.clear();
   window.removeEventListener("resize", handleResize);
   if (unlisten) unlisten();
   if (unlistenClosed) unlistenClosed();
@@ -786,11 +818,9 @@ onUnmounted(() => {
             <div class="panel-resizer" @mousedown="startResizing"></div>
 
             <div class="panel-content-wrapper">
-              <QuickCommandPanel v-if="rightPanelType === 'quick'" :activeSessionId="activeSessionId"/>
-              <AiAssistantPanel v-else-if="rightPanelType === 'ai'" :activeSessionId="activeSessionId"/>
-              <RedisManager v-else-if="rightPanelType === 'redis'" :activeSessionId="activeSessionId"/>
-              <SyncSettings v-else-if="rightPanelType === 'sync-settings'" :activeSessionId="activeSessionId"/>
-              <ThemeSettings v-else-if="rightPanelType === 'theme-settings'" :activeSessionId="activeSessionId"/>
+              <KeepAlive :max="5">
+                <component :is="rightPanelComponent" :activeSessionId="activeSessionId"/>
+              </KeepAlive>
             </div>
           </div>
         </Transition>

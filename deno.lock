@@ -9,6 +9,7 @@
     "npm:@tauri-apps/plugin-process@^2.3.1": "2.3.1",
     "npm:@tauri-apps/plugin-updater@^2.10.0": "2.10.0",
     "npm:@vitejs/plugin-vue@^5.2.1": "5.2.4_vite@6.4.1__picomatch@4.0.3_vue@3.5.29__typescript@5.6.3_typescript@5.6.3_sass-embedded@1.97.3",
+    "npm:@xterm/addon-webgl@0.19": "0.19.0",
     "npm:highlight.js@^11.11.1": "11.11.1",
     "npm:marked@^17.0.3": "17.0.3",
     "npm:sass-embedded@^1.97.3": "1.97.3",
@@ -616,6 +617,9 @@
     "@vue/shared@3.5.29": {
       "integrity": "sha512-w7SR0A5zyRByL9XUkCfdLs7t9XOHUyJ67qPGQjOou3p6GvBeBW+AVjUUmlxtZ4PIYaRvE+1LmK44O4uajlZwcg=="
     },
+    "@xterm/addon-webgl@0.19.0": {
+      "integrity": "sha512-b3fMOsyLVuCeNJWxolACEUED0vm7qC0cy4wRvf3oURSzDTYVQiGPhTnhWZwIHdvC48Y+oLhvYXnY4XDXPoJo6A=="
+    },
     "alien-signals@1.0.13": {
       "integrity": "sha512-OGj9yyTnJEttvzhTUWuscOvtqxq5vrhF7vL9oS0xJ2mK0ItPYP1/y+vCFebfxoEyAz0++1AIwJ5CMr+Fk3nDmg=="
     },
@@ -1057,6 +1061,7 @@
         "npm:@tauri-apps/plugin-process@^2.3.1",
         "npm:@tauri-apps/plugin-updater@^2.10.0",
         "npm:@vitejs/plugin-vue@^5.2.1",
+        "npm:@xterm/addon-webgl@0.19",
         "npm:highlight.js@^11.11.1",
         "npm:marked@^17.0.3",
         "npm:sass-embedded@^1.97.3",

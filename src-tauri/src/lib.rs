@@ -832,6 +832,10 @@ pub fn run() {
                 .expect("无法打开数据库");
             let db_arc = Arc::new(db);
 
+            if let Some(main_window) = app.get_webview_window("main") {
+                preheat_servers(&main_window, &db_arc);
+            }
+
             // 3. 注入状态 (使用标准库 Mutex)
             app.manage(AppState {
                 sessions: Arc::new(Mutex::new(HashMap::new())),
@@ -977,4 +981,43 @@ fn setup_tray<R: tauri::Runtime>(app: &tauri::App<R>) -> Result<(), Box<dyn std:
         })
         .build(app)?;
     Ok(())
+}
+
+/// 💡 提取出的数据预热方法
+fn preheat_servers(window: &tauri::WebviewWindow, db: &Arc<redb::Database>) {
+    let servers_json = (|| -> Option<String> {
+        let read_txn = db.begin_read().ok()?;
+        let table = read_txn.open_table(SERVERS_TABLE).ok()?;
+        let mut list = Vec::new();
+
+        for result in table.iter().ok()? {
+            if let Ok((_, value)) = result {
+                // 使用 from_str 解决之前的类型匹配问题
+                if let Ok(mut val) = serde_json::from_str::<serde_json::Value>(value.value()) {
+                    // 1. 过滤已删除
+                    if val.get("deleted").and_then(|d| d.as_bool()) == Some(false) {
+                        // 2. 预热时解密 Host (防止界面闪烁)
+                        if let Some(host) = val.get_mut("host").and_then(|h| h.as_str()) {
+                            if let Ok(decrypted) = decrypt_secret(host) {
+                                val["host"] = serde_json::Value::String(decrypted);
+                            }
+                        }
+                        list.push(val);
+                    }
+                }
+            }
+        }
+
+        // 3. 统一排序逻辑 (A-Z)
+        list.sort_by(|a, b| {
+            let name_a = a.get("name").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
+            let name_b = b.get("name").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
+            name_a.cmp(&name_b)
+        });
+
+        serde_json::to_string(&list).ok()
+    })().unwrap_or_else(|| "[]".to_string());
+
+    // 注入 JS
+    let _ = window.eval(&format!("window.__INITIAL_SERVERS__ = {};", servers_json));
 }

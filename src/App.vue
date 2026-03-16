@@ -42,7 +42,7 @@ const rightPanelComponent = computed(() => {
 });
 
 // --- 基础状态 ---
-const servers = ref<any[]>([]);
+const servers = ref<any[]>(window.__INITIAL_SERVERS__ || []);
 const activeId = ref<string | null>(null);
 const openSessions = ref<{ id: string, serverId: string, name: string }[]>([]);
 const activeSessionId = ref<string | null>(null);

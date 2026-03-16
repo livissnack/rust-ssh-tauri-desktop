@@ -116,10 +116,8 @@ impl<R: Runtime> client::Handler for ClientHandler<R> {
     }
 
     async fn data(&mut self, channel: ChannelId, data: &[u8], _session: &mut client::Session) -> Result<(), Self::Error> {
-         // 获取锁，查看当前保存的 shell_channel_id
          let shell_id_opt = *self.shell_channel_id.lock().await;
 
-         // 【关键】只有当数据所属的 channel 等于我们记录的 shell_id 时，才发送给前端
          if Some(channel) == shell_id_opt {
              let text = String::from_utf8_lossy(data).to_string();
              let _ = self.window.emit("ssh-output", SshPayload {
@@ -128,7 +126,6 @@ impl<R: Runtime> client::Handler for ClientHandler<R> {
                  data: text,
              });
          } else {
-             // 这里就是 SFTP 或其他子系统的数据，我们保持沉默，不发给终端
              println!("[SSH] 拦截到非 Shell 通道数据 (ID: {:?})", channel);
          }
          Ok(())
@@ -155,7 +152,7 @@ pub struct AppState {
 impl Clone for AppState {
     fn clone(&self) -> Self {
         Self {
-            sessions: self.sessions.clone(), // 这只是增加引用计数，开销极小
+            sessions: self.sessions.clone(),
             db: self.db.clone(),
             cancelled_tasks: self.cancelled_tasks.clone(),
         }
@@ -224,7 +221,7 @@ async fn create_recursive_session<R: Runtime>(
                 jump_config,
                 all_configs,
                 format!("{}_tunnel", session_id),
-                shell_channel_id.clone() // 👈 确保这里也传了进去
+                shell_channel_id.clone()
             )).await?;
 
             println!("[SSH] 跳板机连接成功，尝试建立隧道到 {}:{}",
@@ -261,17 +258,14 @@ async fn get_servers(state: State<'_, AppState>) -> Result<Vec<ServerConfig>, St
         let (_key, value) = result.map_err(|e| e.to_string())?;
         let mut server: ServerConfig = serde_json::from_str(value.value()).map_err(|e| e.to_string())?;
 
-        // 1. 【关键】过滤：只处理未删除的数据
         if server.deleted {
             continue;
         }
 
-        // 2. 解密逻辑
         if !server.host.is_empty() {
             server.host = decrypt_secret(&server.host).unwrap_or_else(|_| "DECRYPT_ERROR".into());
         }
         if let Some(ref pass) = server.password {
-            // 只有当密码不为空且不是 None 时才尝试解密
             if !pass.is_empty() {
                 server.password = Some(decrypt_secret(pass).unwrap_or_else(|_| "".into()));
             }
@@ -280,7 +274,6 @@ async fn get_servers(state: State<'_, AppState>) -> Result<Vec<ServerConfig>, St
         servers.push(server);
     }
 
-    // 按名称排序（可选，提升商用软件体验）
     servers.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
 
     Ok(servers)

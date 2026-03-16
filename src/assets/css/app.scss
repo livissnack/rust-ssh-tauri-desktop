@@ -571,3 +571,14 @@
   vertical-align: middle;
   filter: drop-shadow(0 0 2px var(--error-30));
 }
+
+.online-dot {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 6px;
+  height: 6px;
+  background: #4caf50;
+  border-radius: 50%;
+  box-shadow: 0 0 5px #4caf50;
+}

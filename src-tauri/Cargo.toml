@@ -40,3 +40,4 @@ machineid-rs = "1.2"
 redis = { version = "0.27.0", features = ["tokio-comp"] }
 tauri-plugin-updater = "2.10.0"
 tauri-plugin-process = "2.3.1"
+libp2p = { version = "0.53", features = ["tokio", "mdns", "noise", "yamux", "tcp", "macros", "request-response", "json", "serde"] }

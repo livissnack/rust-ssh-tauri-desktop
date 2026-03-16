@@ -1,4 +1,5 @@
 mod sync;
+mod p2p;
 mod security;
 mod redis_manager;
 use crate::sync::{
@@ -11,6 +12,7 @@ use crate::sync::{
 use security::{encrypt_secret, decrypt_secret};
 use redis_manager::{redis_connect, redis_get_keys, redis_get_value, redis_set_value, redis_del_key, redis_rename_key, redis_get_ttl, redis_get_type, save_redis_config, get_redis_configs, delete_redis_config, clear_all_redis_configs};
 use async_trait::async_trait;
+use tokio::sync::mpsc;
 use russh::*;
 use russh::client::DisconnectReason;
 use std::sync::Arc;
@@ -147,6 +149,8 @@ pub struct AppState {
     pub sessions: Arc<Mutex<HashMap<String, ActiveSession>>>,
     pub db: Arc<redb::Database>,
     pub cancelled_tasks: Arc<Mutex<HashSet<String>>>,
+    // 💡 新增：P2P 发送句柄
+    pub p2p_sender: mpsc::UnboundedSender<p2p::P2PCommand>,
 }
 
 impl Clone for AppState {
@@ -155,6 +159,7 @@ impl Clone for AppState {
             sessions: self.sessions.clone(),
             db: self.db.clone(),
             cancelled_tasks: self.cancelled_tasks.clone(),
+            p2p_sender: self.p2p_sender.clone(),
         }
     }
 }
@@ -810,6 +815,16 @@ async fn ask_ai(
     Ok(())
 }
 
+#[tauri::command]
+async fn send_p2p_message(
+    state: tauri::State<'_, AppState>,
+    target: String,
+    content: String,
+) -> Result<(), String> {
+    state.p2p_sender.send(p2p::P2PCommand::SendMessage { target, content })
+        .map_err(|e: tokio::sync::mpsc::error::SendError<p2p::P2PCommand>| e.to_string()) // 💡 显式指定类型
+}
+
 
 pub fn run() {
     tauri::Builder::default()
@@ -836,12 +851,21 @@ pub fn run() {
                 preheat_servers(&main_window, &db_arc);
             }
 
+            let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+
             // 3. 注入状态 (使用标准库 Mutex)
             app.manage(AppState {
                 sessions: Arc::new(Mutex::new(HashMap::new())),
                 db: db_arc.clone(),
                 cancelled_tasks: Arc::new(Mutex::new(HashSet::new())),
+                p2p_sender: tx,
             });
+
+            if let Some(main_window) = app.get_webview_window("main") {
+                tauri::async_runtime::spawn(async move {
+                    let _ = p2p::start_p2p_node(main_window, rx).await;
+                });
+            }
 
             app.manage(redis_manager::RedisState {
                 connection: Arc::new(tokio::sync::Mutex::new(None)),
@@ -937,7 +961,8 @@ pub fn run() {
             save_redis_config,
             get_redis_configs,
             delete_redis_config,
-            clear_all_redis_configs
+            clear_all_redis_configs,
+            send_p2p_message
         ])
         .run(tauri::generate_context!())
         .expect("Tauri 运行出错");

@@ -27,13 +27,15 @@ const AiAssistantPanel = defineAsyncComponent(() => import("./components/AiAssis
 const SyncSettings = defineAsyncComponent(() => import("./components/SyncSettings.vue"));
 const ThemeSettings = defineAsyncComponent(() => import("./components/ThemeSettings.vue"));
 const RedisManager = defineAsyncComponent(() => import("./components/RedisManager.vue"));
+const ChatPanel = defineAsyncComponent(() => import("./components/ChatPanel.vue"));
 
 const panelMap: Record<string, any> = {
   'quick': QuickCommandPanel,
   'ai': AiAssistantPanel,
   'redis': RedisManager,
   'sync-settings': SyncSettings,
-  'theme-settings': ThemeSettings
+  'theme-settings': ThemeSettings,
+  'chat': ChatPanel,
 };
 
 // 3. 定义计算属性
@@ -787,10 +789,11 @@ onUnmounted(() => {
             </div>
           </div>
           <div class="bottom-group">
-            <div class="icon-item" title="操作审计"
-                 :class="{ active: rightPanelVisible && rightPanelType === 'history' }"
-                 @click="toggleRightPanel('history')">
-              <i class="fas fa-list-check"></i>
+            <div class="icon-item" title="局域网聊天"
+                 :class="{ active: rightPanelVisible && rightPanelType === 'chat' }"
+                 @click="toggleRightPanel('chat')">
+              <i class="fas fa-comment-alt"></i>
+              <span v-if="true" class="online-dot"></span>
             </div>
             <div class="icon-item" title="同步设置"
                  :class="{

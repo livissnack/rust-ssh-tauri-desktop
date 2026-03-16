@@ -26,7 +26,9 @@ const connForm = ref({
   host: '127.0.0.1',
   port: 6379,
   password: '',
-  db: 0
+  db: 0,
+  updated_at: 0,
+  deleted: false
 });
 
 // --- 逻辑函数 ---
@@ -92,7 +94,7 @@ const handleSave = async () => {
     await invoke('redis_set_value', {
       key: selectedKey.value,
       value: String(keyValue.value),
-      keyType: 'string',
+      keyType: selectedKeyType.value,
       ttl: selectedTTL.value
     });
     toast.success("保存成功");
@@ -260,17 +262,15 @@ onMounted(() => {
   position: relative;
   overflow: hidden;
 
-  input[type="number"] {
-    -moz-appearance: textfield;
-
-    &::-webkit-outer-spin-button, &::-webkit-inner-spin-button {
-      -webkit-appearance: none;
-      margin: 0;
-    }
+  /* 基础组件对齐修正 */
+  input, textarea, button {
+    font-family: inherit;
+    box-sizing: border-box; /* 核心修复：防止宽度溢出 */
   }
 
   .rd-mg-header {
     height: 52px;
+    flex-shrink: 0; /* 防止被下方撑开的面板挤压 */
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -285,295 +285,196 @@ onMounted(() => {
       gap: 10px;
       font-weight: 600;
       color: var(--accent);
+
+      .fa-database { transition: all 0.3s; }
+    }
+
+    .rd-mg-toolbar {
+      display: flex;
+      gap: 8px;
     }
   }
 
+  /* 连接配置面板 - 增强过渡动画 */
   .rd-mg-expand-panel {
-    backface-visibility: hidden;
+    flex-shrink: 0;
     will-change: max-height;
     max-height: 0;
     overflow: hidden;
     transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-
-    background: var(--bg-card-95);
-
+    background: var(--bg-card);
     border-bottom: 0 solid var(--border);
 
     &.is-open {
-      max-height: 450px;
+      max-height: 480px;
       border-bottom-width: 1px;
+      box-shadow: inset 0 -10px 20px -10px rgba(0,0,0,0.1);
     }
 
     .rd-mg-form-scroll {
-      max-height: 450px;
-      overflow-y: auto;
-      padding: 20px 0;
+      padding: 24px 0;
     }
 
     .rd-mg-form-vertical {
-      max-width: 540px;
+      max-width: 500px;
       margin: 0 auto;
       display: flex;
       flex-direction: column;
-      gap: 24px; // 增加整体呼吸感
-      padding: 0 16px;
+      gap: 20px;
+      padding: 0 20px;
 
-      /* 装饰性头部 */
       .form-header-hint {
         display: flex;
         align-items: center;
-        gap: 10px;
-        margin-bottom: -8px;
-
+        gap: 8px;
+        margin-bottom: 4px;
         .dot-deco {
-          width: 4px;
-          height: 16px;
+          width: 3px;
+          height: 14px;
           background: var(--accent);
           border-radius: 2px;
-          box-shadow: 0 0 8px var(--accent-30);
         }
-
         span {
-          font-size: 12px;
-          font-weight: 800;
+          font-size: 11px;
           color: var(--text-dim);
-          text-transform: uppercase;
-          letter-spacing: 1.5px;
+          font-weight: bold;
+          letter-spacing: 1px;
         }
       }
 
       .rd-mg-field-row {
         display: flex;
         gap: 12px;
-        align-items: flex-end;
-        width: 100%;
-        box-sizing: border-box;
 
         &.group-box {
-          background: var(--bg-primary-30);
-          padding: 12px;
-          border-radius: 10px;
-          border: 1px solid var(--border-50);
-          margin: 0;
-          width: 100%;
-        }
-
-        .flex-3 {
-          flex: 3;
-          min-width: 0;
-        }
-
-        .flex-1 {
-          flex: 1;
-          min-width: 80px;
+          background: var(--bg-primary);
+          padding: 16px;
+          border-radius: 12px;
+          border: 1px solid var(--border);
         }
       }
 
-      /* 核心字段样式 */
       .rd-mg-field {
+        flex: 1;
         display: flex;
         flex-direction: column;
-        gap: 8px;
+        gap: 6px;
 
         label {
           font-size: 11px;
-          font-weight: 700;
           color: var(--text-dim);
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          padding-left: 4px;
+          font-weight: 600;
+        }
 
-          i {
-            font-size: 10px;
-            color: var(--accent);
-            opacity: 0.6;
+        input {
+          height: 36px;
+          padding: 0 12px;
+          background: var(--bg-input);
+          border: 1px solid var(--border);
+          color: var(--text-main);
+          border-radius: 6px;
+          width: 100%;
+          transition: border-color 0.2s;
+
+          &:focus {
+            outline: none;
+            border-color: var(--accent);
+            background: var(--bg-primary);
           }
         }
 
-        .input-control {
+        .input-control.rd-mg-password-box {
           position: relative;
           display: flex;
+          align-items: center;
+          width: 100%; /* 确保撑满父容器 */
 
           input {
+            flex: 1;
             width: 100%;
-            box-sizing: border-box;
-            height: 40px;
-            padding: 0 14px;
-            background: var(--bg-input);
-            border: 1px solid var(--border);
-            color: var(--text-main);
-            border-radius: 8px;
-            font-size: 13px;
-            font-family: 'Inter', system-ui;
-            transition: all 0.25s ease;
+            padding-right: 40px !important; /* 必须给右侧留出眼睛图标的位置 */
+          }
 
-            &::placeholder {
-              color: var(--text-dim);
-              opacity: 0.3;
+          .rd-mg-eye-btn {
+            position: absolute;
+            right: 4px; /* 距离输入框右边界的距离 */
+            top: 50%;
+            transform: translateY(-50%); /* 垂直绝对居中 */
+            width: 32px;
+            height: 32px;
+            padding: 0;
+            background: transparent;
+            border: none;
+            color: var(--text-dim);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10;
+            transition: color 0.2s;
+
+            &:hover {
+              color: var(--accent);
             }
 
-            &:focus {
-              background: var(--bg-primary);
-              border-color: var(--accent);
-              box-shadow: 0 0 0 4px var(--accent-15);
-              outline: none;
-              transform: translateY(-1px);
+            i {
+              font-size: 14px;
             }
           }
         }
       }
+    }
 
-      .rd-mg-password-box {
-        input {
-          padding-right: 40px !important;
-        }
+    /* 补充到 .rd-mg-form-vertical 内部或下方 */
+    .rd-mg-form-footer {
+      margin-top: 8px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border-50);
+      display: flex;
+      justify-content: flex-end;
 
-        .rd-mg-eye-btn {
-          position: absolute;
-          right: 0;
-          top: 0;
-          bottom: 0;
-          width: 40px;
-          background: transparent;
-          border: none;
-          color: var(--text-dim);
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          transition: color 0.2s;
-
-          &:hover {
-            color: var(--accent);
-          }
-        }
-      }
-
-      .rd-mg-form-footer {
-        margin-top: 8px;
-        padding-top: 16px;
-        border-top: 1px solid var(--border-50); // 增加一条极细的分隔线，增强区域感
-        display: flex;
-        justify-content: flex-end; // 改为右对齐，符合操作逻辑
-      }
-
-      /* 按钮样式精修 */
       .rd-mg-btn-submit {
-        /* 修复核心：宽度不再霸屏 */
-        width: auto !important;
-        min-width: 120px; // 保持一个最小宽度，避免文字变动时按钮闪烁
-        height: 32px !important; // 同步输入框高度，极致对齐
-
-        padding: 0 20px;
+        height: 36px;
+        padding: 0 24px;
         background: var(--accent);
-        color: var(--bg-primary);
+        color: white;
         border: none;
-        border-radius: 6px; // 匹配输入框的 6px 倒角
+        border-radius: 6px;
         font-weight: 600;
-        font-size: 12px; // 略微缩小字号，显得更专业
         cursor: pointer;
         display: flex;
         align-items: center;
-        justify-content: center;
         gap: 8px;
-
-        /* 阴影收敛：不再扩散，更显沉稳 */
-        box-shadow: 0 4px 10px var(--accent-15);
-        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        transition: all 0.2s;
+        box-shadow: 0 4px 12px var(--accent-30);
 
         &:hover:not(:disabled) {
           filter: brightness(1.1);
           transform: translateY(-1px);
-          box-shadow: 0 6px 15px var(--accent-25);
-        }
-
-        &:active {
-          transform: translateY(0);
         }
 
         &:disabled {
-          opacity: 0.5;
-          background: var(--text-dim);
+          opacity: 0.6;
           cursor: not-allowed;
-          box-shadow: none;
+          background: var(--text-dim);
         }
 
-        i {
-          font-size: 13px;
-          opacity: 0.9;
-        }
+        i { font-size: 12px; }
       }
     }
   }
 
-  /* 密码框样式 */
-  .rd-mg-password-box {
-    position: relative;
-    display: flex;
-
-    input {
-      flex: 1;
-      padding-right: 40px !important;
-    }
-
-    .rd-mg-eye-btn {
-      position: absolute;
-      right: 0;
-      top: 0;
-      bottom: 0;
-      width: 40px;
-      background: transparent;
-      border: none;
-      color: var(--text-dim);
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-
-      &:hover {
-        color: var(--accent);
-      }
-    }
-  }
-
-  /* 提交按钮区域 */
-  .rd-mg-form-footer {
-    margin-top: 8px;
-    display: flex;
-    justify-content: flex-end;
-
-    .rd-mg-btn-submit {
-      background: var(--accent);
-      color: var(--bg-primary);
-      border: none;
-      padding: 10px 24px;
-      border-radius: 6px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: all 0.2s;
-
-      &:hover {
-        filter: brightness(1.1);
-        transform: translateY(-1px);
-      }
-
-      &:active {
-        transform: translateY(0);
-      }
-    }
-  }
-
-  /* --- 主体部分 --- */
+  /* 主体区域 */
   .rd-mg-main {
     flex: 1;
     display: flex;
-    overflow: hidden;
+    overflow: hidden; /* 保证内部滚动条生效 */
   }
 
-  /* 侧边栏列表 */
+  /* 侧边栏 - 修复搜索框和按钮显示问题 */
   .rd-mg-sidebar {
-    width: 180px;
+    width: 240px;
+    flex-shrink: 0;
     border-right: 1px solid var(--border);
     display: flex;
     flex-direction: column;
@@ -583,17 +484,21 @@ onMounted(() => {
       padding: 12px;
       display: flex;
       gap: 8px;
+      align-items: center;
 
       .rd-mg-search-inner {
         position: relative;
         flex: 1;
+        min-width: 0; /* 允许内部元素缩小而不撑破 Flex */
 
         i {
           position: absolute;
           left: 10px;
-          top: 10px;
+          top: 50%;
+          transform: translateY(-50%); /* 垂直居中修正 */
           font-size: 12px;
           color: var(--text-dim);
+          pointer-events: none;
         }
 
         input {
@@ -603,21 +508,34 @@ onMounted(() => {
           background: var(--bg-input);
           border: 1px solid var(--border);
           color: var(--text-main);
-          border-radius: 4px;
+          border-radius: 6px;
+          font-size: 12px;
+
+          &:focus {
+            outline: none;
+            border-color: var(--accent);
+          }
         }
       }
 
       .rd-mg-add-btn {
+        flex-shrink: 0; /* 强制不被压缩，解决消失问题 */
         width: 32px;
         height: 32px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
         border: 1px solid var(--border);
-        background: transparent;
+        background: var(--bg-input);
         color: var(--accent);
-        border-radius: 4px;
+        border-radius: 6px;
         cursor: pointer;
+        transition: all 0.2s;
 
         &:hover {
-          background: var(--accent-10);
+          background: var(--accent);
+          color: white;
+          border-color: var(--accent);
         }
       }
     }
@@ -625,69 +543,84 @@ onMounted(() => {
     .rd-mg-list {
       flex: 1;
       overflow-y: auto;
-      padding: 4px 8px;
+      padding: 0 8px 12px;
+
+      /* 滚动条美化 */
+      &::-webkit-scrollbar { width: 4px; }
+      &::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
       .rd-mg-item {
         display: flex;
         align-items: center;
         gap: 10px;
-        padding: 10px 14px;
+        padding: 8px 12px;
         border-radius: 6px;
         cursor: pointer;
         color: var(--text-dim);
         margin-bottom: 2px;
+        transition: all 0.2s;
 
         &:hover {
-          background: var(--accent-05);
+          background: var(--bg-input);
           color: var(--text-main);
         }
 
-        // 修复点 2：使用混合变量处理激活态背景
         &.is-active {
-          background: var(--accent-20); // 亮色下是淡蓝/淡紫，暗色下是深色叠加，效果统一
+          background: var(--accent-15);
           color: var(--accent);
           font-weight: 600;
         }
 
-        i {
-          font-size: 11px;
-          opacity: 0.5;
+        .truncate {
+          flex: 1;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
       }
     }
   }
 
-  /* 编辑器内容区 */
+  /* 内容编辑区 */
   .rd-mg-content {
     flex: 1;
     display: flex;
     flex-direction: column;
+    background: var(--bg-primary);
 
     .rd-mg-detail-header {
-      padding: 14px 20px;
+      padding: 12px 20px;
+      height: 48px;
       border-bottom: 1px solid var(--border);
       display: flex;
       align-items: center;
       gap: 12px;
+      flex-shrink: 0;
 
       .rd-mg-tag {
         background: var(--accent-10);
         color: var(--accent);
-        padding: 2px 8px;
+        padding: 2px 6px;
         border-radius: 4px;
         font-size: 10px;
-        font-weight: bold;
+        font-weight: 800;
+        text-transform: uppercase;
       }
 
+      strong { font-size: 14px; }
+
       .ttl {
-        font-size: 12px;
-        color: var(--text-dim);
         margin-left: auto;
+        font-size: 11px;
+        color: var(--text-dim);
+        font-family: monospace;
       }
     }
 
     .rd-mg-editor {
       flex: 1;
+      padding: 0;
+      position: relative;
 
       textarea {
         width: 100%;
@@ -696,100 +629,82 @@ onMounted(() => {
         outline: none;
         padding: 20px;
         background: transparent;
-
-        // 修复点 3：编辑器文字颜色，使用 accent 或 success 确保可读性
         color: var(--text-main);
-
-        &:focus {
-          color: var(--accent);
-        }
-
-        // 聚焦时变色提示编辑
-
-        font-family: 'JetBrains Mono', monospace;
+        font-family: 'JetBrains Mono', 'Cascadia Code', monospace;
         font-size: 14px;
-        resize: none;
         line-height: 1.6;
+        resize: none;
+
+        &::placeholder { color: var(--text-dim); opacity: 0.3; }
       }
     }
 
     .rd-mg-footer {
-      padding: 14px 20px;
+      padding: 12px 20px;
       border-top: 1px solid var(--border);
       display: flex;
       justify-content: flex-end;
+      background: var(--bg-secondary);
     }
   }
 
-  /* 通用组件样式 */
+  /* 通用按钮 */
   .rd-mg-btn-icon {
-    background: transparent;
-    border: none;
-    color: var(--text-dim);
-    width: 36px;
-    height: 36px;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     border-radius: 6px;
+    border: none;
+    background: transparent;
+    color: var(--text-dim);
     cursor: pointer;
+    transition: all 0.2s;
 
-    &:hover {
-      background: var(--accent-10);
-      color: var(--accent);
-    }
-
-    &.active {
-      background: var(--accent);
-      color: var(--bg-primary);
-    }
+    &:hover { background: var(--bg-input); color: var(--accent); }
+    &.active { background: var(--accent); color: white; }
   }
 
   .rd-mg-btn-primary {
     background: var(--accent);
-    color: var(--bg-primary);
+    color: white;
     border: none;
-    padding: 8px 18px;
-    border-radius: 4px;
+    padding: 6px 20px;
+    border-radius: 6px;
     font-weight: 600;
+    font-size: 12px;
     cursor: pointer;
+    box-shadow: 0 4px 12px var(--accent-30);
 
-    &:hover {
-      filter: brightness(1.1);
-    }
+    &:hover { filter: brightness(1.1); transform: translateY(-1px); }
+    &:active { transform: translateY(0); }
   }
 
+  /* 历史记录下拉菜单 */
   .rd-mg-dropdown {
     position: absolute;
-    top: 55px;
+    top: 56px;
     right: 16px;
-    width: 260px;
-    z-index: 100;
+    width: 280px;
     background: var(--bg-card);
     border: 1px solid var(--border);
     border-radius: 8px;
-    box-shadow: 0 10px 30px var(--shadow);
+    box-shadow: 0 12px 30px rgba(0,0,0,0.2);
+    z-index: 100;
+    overflow: hidden;
 
     &-item {
       padding: 12px 16px;
       cursor: pointer;
       border-bottom: 1px solid var(--border-50);
+      transition: background 0.2s;
 
-      &:last-child {
-        border-bottom: none;
-      }
+      &:hover { background: var(--accent-10); }
+      &:last-child { border-bottom: none; }
 
-      &:hover {
-        background: var(--accent-05);
-      }
-
-      .name {
-        font-weight: 600;
-        color: var(--accent);
-        display: block;
-      }
-
-      .addr {
-        font-size: 11px;
-        color: var(--text-dim);
-      }
+      .name { display: block; font-weight: 600; color: var(--accent); margin-bottom: 2px; }
+      .addr { font-size: 11px; color: var(--text-dim); }
     }
   }
 
@@ -800,18 +715,9 @@ onMounted(() => {
     align-items: center;
     justify-content: center;
     color: var(--text-dim);
-    opacity: 0.5;
-
-    i {
-      font-size: 50px;
-      margin-bottom: 16px;
-    }
-  }
-
-  .truncate {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    gap: 16px;
+    opacity: 0.6;
+    i { font-size: 40px; }
   }
 }
 </style>

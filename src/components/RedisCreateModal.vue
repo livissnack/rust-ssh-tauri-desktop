@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue';
+import {invoke} from "@tauri-apps/api/core";
+import {toast} from "../utils/toast.ts";
 
 const props = defineProps<{
   visible: boolean;
@@ -40,9 +42,18 @@ watch(() => props.visible, (newVal) => {
   }
 });
 
-const handleConfirm = () => {
+const handleConfirm = async () => {
   if (!formData.value.key.trim()) return alert("KEY 名称不能为空");
   if (formData.value.type === 'hash' && !formData.value.field.trim()) return alert("Hash 必须填写 Field");
+  try {
+    await invoke('redis_set_value', {
+      ...formData.value,
+      keyType: formData.value.type
+    });
+    toast.success("保存成功");
+  } catch (err) {
+    toast.error("保存失败");
+  }
   emit('confirm', { ...formData.value });
 };
 </script>
@@ -305,6 +316,7 @@ const handleConfirm = () => {
 }
 
 .value-area {
+  padding: 10px 0 10px 12px;
   height: 120px;
   resize: none;
   font-family: 'JetBrains Mono', 'Fira Code', monospace;

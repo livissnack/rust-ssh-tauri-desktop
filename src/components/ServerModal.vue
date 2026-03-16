@@ -41,14 +41,15 @@ const selectKeyFile = async () => {
 
 const saveHost = async () => {
   if (formData.value.name && formData.value.host) {
-    console.log({
+    const payload = {
       ...formData.value,
-      port: Number(formData.value.port)
-    }, 'mm-----')
-    emit('save', {
-      ...formData.value,
-      port: Number(formData.value.port)
-    });
+      port: Number(formData.value.port),
+      updated_at: formData.value.updated_at || 0,
+      deleted: formData.value.deleted ?? false
+    };
+
+    console.log("准备发送给后端的数据:", payload);
+    emit('save', payload);
   }
 };
 

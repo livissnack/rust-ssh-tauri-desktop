@@ -12,7 +12,13 @@ const commands = ref<any[]>([]);
 const searchQuery = ref('');
 const isAdding = ref(false);
 
-const newCmd = ref({ name: '', content: '' });
+const newCmd = ref({
+  id: '',
+  name: '',
+  content: '',
+  updated_at: 0,
+  deleted: false
+});
 
 const filteredCommands = computed(() => {
   const query = searchQuery.value.toLowerCase();
@@ -36,8 +42,19 @@ const saveCommand = async () => {
     return;
   }
   try {
-    await invoke('save_quick_command', { cmd: { ...newCmd.value, id: '' } });
-    newCmd.value = { name: '', content: '' };
+    await invoke('save_quick_command', {
+      cmd: {
+        ...newCmd.value,
+        id: newCmd.value.id || '' // 确保新建时 id 为空字符串
+      }
+    });
+    newCmd.value = {
+      id: '',
+      name: '',
+      content: '',
+      updated_at: 0,
+      deleted: false
+    };
     isAdding.value = false;
     await loadCommands();
     toast.success("快捷指令保存成功");

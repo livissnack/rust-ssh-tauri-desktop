@@ -6,11 +6,11 @@ use serde::{Deserialize, Serialize};
 use tauri::{State, Emitter};
 use crate::{
     AppState, ServerConfig, QuickCommand, AiConfig,
-    SERVERS_TABLE, COMMANDS_TABLE, AI_CONFIG_TABLE, SYNC_CONFIG_TABLE
+    SERVERS_TABLE, COMMANDS_TABLE, AI_CONFIG_TABLE, SYNC_CONFIG_TABLE, REDIS_CONN_TABLE
 };
 use redb::ReadableTable;
 use crate::redis_manager::RedisConfig;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[derive(Serialize, Deserialize)]
 pub struct FullSyncData {
@@ -31,6 +31,14 @@ pub struct SyncConfig {
     #[serde(default)]
     pub master_key: String,
     pub auto_sync: bool,
+}
+
+// 获取当前毫秒时间戳的辅助函数
+fn get_now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
 }
 
 pub async fn get_sync_settings_internal(state: &AppState) -> Result<SyncConfig, String> {
@@ -65,14 +73,14 @@ pub async fn sync_to_cloud_internal(state: &AppState, config: SyncConfig) -> Res
     }
 
     let data_json = state.export_all_data().await?;
-
     let encrypted_bytes = encrypt_with_key(&data_json, &config.master_key)?;
 
     let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(5)) // 设置 5 秒超时
-            .connect_timeout(Duration::from_secs(3)) // 设置 3 秒连接超时
+            .timeout(Duration::from_secs(10))
+            .connect_timeout(Duration::from_secs(5))
             .build()
             .map_err(|e| e.to_string())?;
+
     let url = format!("{}/{}", config.endpoint.trim_end_matches('/'), config.remote_filename);
 
     let res = client.put(url)
@@ -117,7 +125,7 @@ impl AppState {
         }
 
         let mut redis_configs = Vec::new();
-        if let Ok(table) = read_txn.open_table(crate::REDIS_CONN_TABLE) {
+        if let Ok(table) = read_txn.open_table(REDIS_CONN_TABLE) {
             for res in table.iter().map_err(|e| e.to_string())? {
                 let (_, v) = res.map_err(|e| e.to_string())?;
                 if let Ok(r) = serde_json::from_str::<RedisConfig>(v.value()) {
@@ -130,7 +138,7 @@ impl AppState {
         if let Ok(table) = read_txn.open_table(SYNC_CONFIG_TABLE) {
             if let Ok(Some(v)) = table.get("default") {
                 if let Ok(mut sc) = serde_json::from_str::<SyncConfig>(v.value()) {
-                    sc.master_key = String::new(); // 敏感数据不进入备份明文
+                    sc.master_key = String::new(); // 安全策略：不备份加密主密钥
                     sync_config = Some(sc);
                 }
             }
@@ -142,109 +150,149 @@ impl AppState {
             ai_config,
             redis_configs,
             sync_config,
-            timestamp: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs(),
+            timestamp: get_now_ms(),
         };
 
         serde_json::to_string(&sync_data).map_err(|e| e.to_string())
     }
 
-    pub async fn import_all_data(&self, json_str: String) -> Result<(), String> {
+    pub async fn import_all_data(&self, json_str: String) -> Result<bool, String> {
         let data: FullSyncData = serde_json::from_str(&json_str)
             .map_err(|_| "备份文件格式无效或密钥错误".to_string())?;
 
         let write_txn = self.db.begin_write().map_err(|e| e.to_string())?;
+        let mut changed = false;
+
         {
-            let mut s_table = write_txn.open_table(SERVERS_TABLE).map_err(|e| e.to_string())?;
-            for s in data.servers {
-                s_table.insert(s.id.as_str(), serde_json::to_string(&s).unwrap().as_str()).ok();
-            }
+            // 抽象通用合并逻辑 (LWW)
+            let mut merge_entities = |table_def: redb::TableDefinition<&str, &str>, incoming_vals: Vec<serde_json::Value>| -> Result<(), String> {
+                let mut table = write_txn.open_table(table_def).map_err(|e| e.to_string())?;
+                for val in incoming_vals {
+                    let id = val["id"].as_str().ok_or("Missing ID")?;
+                    let incoming_ts = val["updated_at"].as_u64().unwrap_or(0);
 
-            let mut c_table = write_txn.open_table(COMMANDS_TABLE).map_err(|e| e.to_string())?;
-            for c in data.commands {
-                c_table.insert(c.id.as_str(), serde_json::to_string(&c).unwrap().as_str()).ok();
-            }
+                    let should_update = if let Some(local_raw) = table.get(id).map_err(|e| e.to_string())? {
+                        let local_val: serde_json::Value = serde_json::from_str(local_raw.value()).unwrap();
+                        let local_ts = local_val["updated_at"].as_u64().unwrap_or(0);
+                        incoming_ts > local_ts
+                    } else {
+                        true
+                    };
 
-            let mut r_table = write_txn.open_table(crate::REDIS_CONN_TABLE).map_err(|e| e.to_string())?;
-            for r in data.redis_configs {
-                if let Some(ref id_str) = r.id {
-                    let val = serde_json::to_string(&r).unwrap();
-                    r_table.insert(id_str.as_str(), val.as_str()).ok();
+                    if should_update {
+                        table.insert(id, serde_json::to_string(&val).unwrap().as_str()).ok();
+                        changed = true;
+                    }
                 }
-            }
+                Ok(())
+            };
 
+            // 1. 合并服务器
+            let servers_v = data.servers.into_iter().map(|s| serde_json::to_value(s).unwrap()).collect();
+            merge_entities(SERVERS_TABLE, servers_v)?;
+
+            // 2. 合并命令
+            let commands_v = data.commands.into_iter().map(|c| serde_json::to_value(c).unwrap()).collect();
+            merge_entities(COMMANDS_TABLE, commands_v)?;
+
+            // 3. 合并 Redis
+            let redis_v = data.redis_configs.into_iter().filter(|r| r.id.is_some())
+                .map(|r| serde_json::to_value(r).unwrap()).collect();
+            merge_entities(REDIS_CONN_TABLE, redis_v)?;
+
+            // 4. 合并 AI 配置 (单记录处理)
             if let Some(ai) = data.ai_config {
                 let mut ai_table = write_txn.open_table(AI_CONFIG_TABLE).map_err(|e| e.to_string())?;
-                ai_table.insert("default", serde_json::to_string(&ai).unwrap().as_str()).ok();
+                let incoming_ts = ai.updated_at;
+                let should_ai = if let Some(l) = ai_table.get("default").map_err(|e| e.to_string())? {
+                    let local_ai: AiConfig = serde_json::from_str(l.value()).unwrap();
+                    incoming_ts > local_ai.updated_at
+                } else { true };
+
+                if should_ai {
+                    ai_table.insert("default", serde_json::to_string(&ai).unwrap().as_str()).ok();
+                    changed = true;
+                }
             }
         }
         write_txn.commit().map_err(|e| e.to_string())?;
-        Ok(())
+        Ok(changed)
+    }
+}
+
+pub async fn sync_from_cloud_internal(state: &AppState, config: &SyncConfig) -> Result<bool, String> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build().map_err(|e| e.to_string())?;
+
+    let url = format!("{}/{}", config.endpoint.trim_end_matches('/'), config.remote_filename);
+    let res = client.get(url)
+        .basic_auth(&config.username, Some(&config.password))
+        .send().await.map_err(|e| e.to_string())?;
+
+    if res.status().is_success() {
+        let bytes = res.bytes().await.map_err(|e| e.to_string())?;
+        let json = decrypt_with_key(&bytes, &config.master_key)?;
+        // 返回是否有数据变更
+        state.import_all_data(json).await
+    } else {
+        Err(format!("状态码: {}", res.status()))
     }
 }
 
 pub async fn trigger_auto_sync(state: &AppState, app_handle: tauri::AppHandle) {
     let state_handle = state.clone();
-
     tauri::async_runtime::spawn(async move {
-        // 获取配置
         let config = match get_sync_settings_internal(&state_handle).await {
-            Ok(c) => c,
-            Err(_) => return, // 配置读取失败直接退出
+            Ok(c) if c.auto_sync && !c.endpoint.is_empty() && !c.master_key.is_empty() => c,
+            _ => return,
         };
 
-        // 如果没开启自动同步或配置不全，直接静默退出
-        if !config.auto_sync || config.endpoint.is_empty() || config.master_key.is_empty() {
-            return;
-        }
-
-        // 开始同步
         let _ = app_handle.emit("sync-status", true);
 
-        // 真实的执行同步
-        match sync_to_cloud_internal(&state_handle, config).await {
-            Ok(_) => {
-                println!("[AutoSync] 自动同步成功");
-                // 可以选发一个成功消息
-                let _ = app_handle.emit("sync-finished", "同步成功");
+        // 先拉取合并
+        match sync_from_cloud_internal(&state_handle, &config).await {
+            Ok(changed) => {
+                if changed {
+                    let _ = app_handle.emit("database-changed", "auto-sync");
+                }
             },
-            Err(e) => {
-                eprintln!("[AutoSync] 自动同步失败: {}", e);
-                // 🚀 关键：将错误发送给前端
-                let _ = app_handle.emit("sync-error", format!("自动同步失败: {}", e));
-            },
+            Err(e) => println!("[AutoSync] 拉取跳过: {}", e),
         }
 
-        // 结束状态
+        // 后推送更新
+        if let Err(e) = sync_to_cloud_internal(&state_handle, config).await {
+            let _ = app_handle.emit("sync-error", format!("上传失败: {}", e));
+        } else {
+            let _ = app_handle.emit("sync-finished", "同步成功");
+        }
+
         let _ = app_handle.emit("sync-status", false);
     });
 }
 
 #[tauri::command]
-pub async fn save_sync_settings(
-    app_handle: tauri::AppHandle,
-    state: State<'_, AppState>,
-    mut config: SyncConfig
-) -> Result<(), String> {
-    if !config.password.is_empty() {
-        config.password = encrypt_secret(&config.password)?;
-    }
-    if !config.master_key.is_empty() {
-        config.master_key = encrypt_secret(&config.master_key)?;
-    }
+pub async fn save_sync_settings(app_handle: tauri::AppHandle, state: State<'_, AppState>, mut config: SyncConfig) -> Result<(), String> {
+    if !config.password.is_empty() { config.password = encrypt_secret(&config.password)?; }
+    if !config.master_key.is_empty() { config.master_key = encrypt_secret(&config.master_key)?; }
 
     let write_txn = state.db.begin_write().map_err(|e| e.to_string())?;
     {
         let mut table = write_txn.open_table(SYNC_CONFIG_TABLE).map_err(|e| e.to_string())?;
-        let val = serde_json::to_string(&config).map_err(|e| e.to_string())?;
-        table.insert("default", val.as_str()).map_err(|e| e.to_string())?;
+        table.insert("default", serde_json::to_string(&config).unwrap().as_str()).map_err(|e| e.to_string())?;
     }
     write_txn.commit().map_err(|e| e.to_string())?;
 
     trigger_auto_sync(state.inner(), app_handle).await;
     Ok(())
+}
+
+#[tauri::command]
+pub async fn sync_from_cloud(app_handle: tauri::AppHandle, state: State<'_, AppState>, config: SyncConfig) -> Result<String, String> {
+    if config.master_key.is_empty() { return Err("Master Key 缺失".into()); }
+    sync_from_cloud_internal(state.inner(), &config).await?;
+    let _ = app_handle.emit("database-changed", "manual-sync");
+    Ok("同步成功".into())
 }
 
 #[tauri::command]
@@ -255,37 +303,4 @@ pub async fn get_sync_settings(state: State<'_, AppState>) -> Result<SyncConfig,
 #[tauri::command]
 pub async fn sync_to_cloud(state: State<'_, AppState>, config: SyncConfig) -> Result<String, String> {
     sync_to_cloud_internal(state.inner(), config).await
-}
-
-#[tauri::command]
-pub async fn sync_from_cloud(
-    app_handle: tauri::AppHandle,
-    state: State<'_, AppState>,
-    config: SyncConfig
-) -> Result<String, String> {
-    if config.master_key.is_empty() {
-        return Err("必须输入主加密密钥以进行解密".into());
-    }
-
-    let client = reqwest::Client::new();
-    let url = format!("{}/{}", config.endpoint.trim_end_matches('/'), config.remote_filename);
-
-    let res = client.get(url)
-        .basic_auth(&config.username, Some(&config.password))
-        .send()
-        .await
-        .map_err(|e| format!("下载失败: {}", e))?;
-
-    if res.status().is_success() {
-        let encrypted_bytes = res.bytes().await.map_err(|e| e.to_string())?;
-
-        let json_str = decrypt_with_key(&encrypted_bytes, &config.master_key)?;
-
-        state.import_all_data(json_str).await?;
-
-        let _ = app_handle.emit("database-changed", "sync");
-        Ok("解密并同步成功".into())
-    } else {
-        Err(format!("下载失败: 状态码 {}", res.status()))
-    }
 }

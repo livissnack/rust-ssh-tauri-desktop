@@ -18,6 +18,9 @@ pub struct RedisConfig {
   pub port: u16,
   pub password: Option<String>,
   pub db: i64,
+  pub updated_at: u64,
+  #[serde(default)]
+  pub deleted: bool,
 }
 
 fn default_conn_name() -> String {
@@ -34,9 +37,10 @@ pub async fn redis_connect(
     state: State<'_, RedisState>,
 ) -> Result<String, String> {
     let password_part = config.password
+        .as_ref()
         .filter(|p| !p.is_empty())
         .map(|p| format!(":{}@", p))
-        .unwrap_or_default();
+        .unwrap_or_else(|| "".to_string());
 
     let connection_string = format!(
         "redis://{}{}:{}/{}",
@@ -45,11 +49,20 @@ pub async fn redis_connect(
 
     let client = Client::open(connection_string).map_err(|e| e.to_string())?;
 
-    let conn = client
+    // 1. 获取连接
+    let mut conn = client
         .get_multiplexed_tokio_connection()
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("连接超时或失败: {}", e))?;
 
+    // 2. 🔥 关键步骤：执行 PING 验证密码有效性
+    // 如果密码错误，这里会返回 (error) WRONGPASS 或 NOAUTH
+    let _: String = redis::cmd("PING")
+        .query_async(&mut conn)
+        .await
+        .map_err(|e| format!("身份验证失败或服务器未就绪: {}", e))?;
+
+    // 3. 验证通过后才保存连接
     let mut lock = state.connection.lock().await;
     *lock = Some(conn);
 

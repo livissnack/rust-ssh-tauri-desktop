@@ -25,7 +25,10 @@ const aiConfig = ref({
   currentProvider: 'deepseek',
   apiKey: '',
   model: 'deepseek-chat',
-  temperature: 0.7
+  temperature: 0.7,
+  id: 'default',
+  updated_at: 0,
+  deleted: false
 });
 
 const providers = [
@@ -59,7 +62,10 @@ const loadSettings = async () => {
   try {
     const saved = await invoke<any>('get_ai_config');
     if (saved) {
-      aiConfig.value.currentProvider = saved.currentProvider;
+      aiConfig.value = {
+        ...aiConfig.value,
+        ...saved
+      };
       await nextTick();
       aiConfig.value.model = saved.model;
       aiConfig.value.apiKey = saved.apiKey;
@@ -72,9 +78,10 @@ const loadSettings = async () => {
 
 const saveSettings = async () => {
   try {
-    await invoke('save_ai_config', {config: aiConfig.value});
+    await invoke('save_ai_config', { config: { ...aiConfig.value } });
     toast.success("配置已保存到数据库");
     isConfigMode.value = false;
+    await loadSettings();
   } catch (err) {
     toast.error("保存失败: " + err);
   }

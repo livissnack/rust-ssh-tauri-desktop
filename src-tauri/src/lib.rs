@@ -47,6 +47,9 @@ pub struct ServerConfig {
     pub password: Option<String>,
     pub private_key_path: Option<String>,
     pub jump_host_id: Option<String>,
+    pub updated_at: u64,
+    #[serde(default)]
+    pub deleted: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -55,6 +58,9 @@ pub struct QuickCommand {
     pub name: String,
     pub content: String,
     pub group: Option<String>,
+    pub updated_at: u64,
+    #[serde(default)]
+    pub deleted: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -64,6 +70,10 @@ pub struct AiConfig {
     pub api_key: String,
     pub model: String,
     pub temperature: f32,
+    #[serde(default)]
+    pub updated_at: u64,
+    #[serde(default)]
+    pub deleted: bool,
 }
 
 #[derive(Serialize, Clone)]
@@ -250,14 +260,29 @@ async fn get_servers(state: State<'_, AppState>) -> Result<Vec<ServerConfig>, St
     for result in table.iter().map_err(|e| e.to_string())? {
         let (_key, value) = result.map_err(|e| e.to_string())?;
         let mut server: ServerConfig = serde_json::from_str(value.value()).map_err(|e| e.to_string())?;
+
+        // 1. 【关键】过滤：只处理未删除的数据
+        if server.deleted {
+            continue;
+        }
+
+        // 2. 解密逻辑
         if !server.host.is_empty() {
             server.host = decrypt_secret(&server.host).unwrap_or_else(|_| "DECRYPT_ERROR".into());
         }
         if let Some(ref pass) = server.password {
-            server.password = Some(decrypt_secret(pass).unwrap_or_else(|_| "".into()));
+            // 只有当密码不为空且不是 None 时才尝试解密
+            if !pass.is_empty() {
+                server.password = Some(decrypt_secret(pass).unwrap_or_else(|_| "".into()));
+            }
         }
+
         servers.push(server);
     }
+
+    // 按名称排序（可选，提升商用软件体验）
+    servers.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+
     Ok(servers)
 }
 
@@ -283,27 +308,32 @@ async fn save_server(app_handle: tauri::AppHandle, state: State<'_, AppState>, m
     println!("接收到的原始数据:");
     println!("  - id: '{}'", server.id);
     println!("  - name: '{}'", server.name);
-    println!("  - host: '{}:{}'", server.host, server.port);
-    println!("  - username: '{}'", server.username);
-    println!("  - auth_type: '{}'", server.auth_type);
-    println!("  - jump_host_id: {:?}", server.jump_host_id);
 
+    // 1. 基础信息处理 (保留你的原始逻辑)
     if server.id.is_empty() {
         server.id = Uuid::new_v4().to_string();
         println!("生成新 ID: {}", server.id);
     }
 
+    // --- 新增商用同步逻辑：更新时间戳和状态 ---
+    server.updated_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+    server.deleted = false; // 显式重置为活跃状态，防止由于合并导致的误删
+    // ------------------------------------
+
+    // 2. 加密逻辑 (保留你的原始逻辑)
     if !server.host.is_empty() {
         server.host = encrypt_secret(&server.host)?;
     }
-    // 2. 加密 password (如果有)
     if let Some(ref pass) = server.password {
         if !pass.is_empty() {
             server.password = Some(encrypt_secret(pass)?);
         }
     }
 
-    // 确保空的 jump_host_id 被正确处理为 None
+    // 3. Jump Host 处理 (保留你的原始逻辑)
     if let Some(ref jump_id) = server.jump_host_id {
         if jump_id.is_empty() {
             server.jump_host_id = None;
@@ -313,8 +343,9 @@ async fn save_server(app_handle: tauri::AppHandle, state: State<'_, AppState>, m
 
     println!("\n处理后的数据:");
     println!("  - id: '{}'", server.id);
-    println!("  - jump_host_id (最终): {:?}", server.jump_host_id);
+    println!("  - updated_at: {}", server.updated_at); // 新增调试输出
 
+    // 4. 数据库持久化
     let write_txn = state.db.begin_write().map_err(|e| e.to_string())?;
     {
         let mut table = write_txn.open_table(SERVERS_TABLE).map_err(|e| e.to_string())?;
@@ -331,13 +362,12 @@ async fn save_server(app_handle: tauri::AppHandle, state: State<'_, AppState>, m
         Ok(_) => {
             println!("✓ 事务提交成功");
             println!("========== [SAVE_SERVER] 保存完成 ========== {}\n", server.id);
-            // 触发同步
+            // 触发同步 (保留你的原始逻辑)
             trigger_auto_sync(state.inner(), app_handle).await;
             Ok(server)
         }
         Err(e) => {
             println!("✗ 事务提交失败：{:?}", e);
-            println!("========== [SAVE_SERVER] 保存失败 ========== {}\n", e);
             Err(e.to_string())
         }
     }
@@ -347,13 +377,38 @@ async fn save_server(app_handle: tauri::AppHandle, state: State<'_, AppState>, m
 #[tauri::command]
 async fn delete_server(app_handle: tauri::AppHandle, state: State<'_, AppState>, id: String) -> Result<(), String> {
     let write_txn = state.db.begin_write().map_err(|e| e.to_string())?;
+
+    // 使用花括号缩小借用范围，或者直接在这里处理
     {
         let mut table = write_txn.open_table(SERVERS_TABLE).map_err(|e| e.to_string())?;
-        table.remove(id.as_str()).map_err(|e| e.to_string())?;
+
+        // --- 核心修改点：使用 .map(|v| v.value().to_string()) 立即释放 table 的借用 ---
+        let existing_data = table.get(id.as_str())
+            .map_err(|e| e.to_string())?
+            .map(|v| v.value().to_string()); // 这一步将 AccessGuard 转换为独立的 String
+
+        if let Some(json_str) = existing_data {
+            let mut server: ServerConfig = serde_json::from_str(&json_str).map_err(|e| e.to_string())?;
+
+            // 更新逻辑删除字段
+            server.deleted = true;
+            server.updated_at = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
+
+            let json = serde_json::to_string(&server).map_err(|e| e.to_string())?;
+
+            // 此时 table 已经没有被不可变借用了，可以安全地进行 mutable borrow (insert)
+            table.insert(id.as_str(), json.as_str()).map_err(|e| e.to_string())?;
+        }
     }
+
     write_txn.commit().map_err(|e| e.to_string())?;
-    // 触发同步
+
+    // 异步触发同步逻辑
     trigger_auto_sync(state.inner(), app_handle).await;
+
     Ok(())
 }
 

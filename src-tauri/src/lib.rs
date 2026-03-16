@@ -843,6 +843,21 @@ pub fn run() {
                 connection: Arc::new(tokio::sync::Mutex::new(None)),
             });
 
+            if let Some(main_window) = app.get_webview_window("main") {
+                let win = main_window.clone();
+                tauri::async_runtime::spawn(async move {
+                    // 给予 WebView 渲染 HTML 背景的时间 (150-200ms 足够)
+                    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+                    // 暴力夺取焦点三部曲：
+                    let _ = win.show();             // 显示
+                    let _ = win.unminimize();       // 取消最小化
+                    let _ = win.set_always_on_top(true); // 强行置顶（绕过 Windows 焦点保护）
+                    let _ = win.set_focus();        // 获取焦点
+                    let _ = win.set_always_on_top(false); // 恢复正常层级
+                });
+            }
+
             // 4. 异步初始化和清理
             let db_for_setup = db_arc.clone();
 

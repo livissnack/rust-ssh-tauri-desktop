@@ -5,6 +5,37 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Hiphup Terminal</title>
+    <style>
+      :root {
+          --bg-init: #2d2a2e;
+          --text-init: #939293;
+      }
+
+      html, body {
+          margin: 0;
+          padding: 0;
+          background-color: var(--bg-init) !important;
+          width: 100%;
+          height: 100%;
+          overflow: hidden;
+      }
+
+      #app:empty {
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          height: 100vh;
+      }
+
+      #app:empty::after {
+          content: 'Hiphup Terminal';
+          font-family: system-ui, -apple-system, sans-serif;
+          color: var(--text-init);
+          font-size: 13px;
+          letter-spacing: 0.1em;
+          opacity: 0.5;
+      }
+    </style>
   </head>
 
   <body>

@@ -10,6 +10,7 @@ use crate::sync::{
     trigger_auto_sync
 };
 use security::{encrypt_secret, decrypt_secret};
+use p2p::{set_p2p_remark, get_p2p_remarks, search_p2p_messages};
 use redis_manager::{redis_connect, redis_get_keys, redis_get_value, redis_set_value, redis_del_key, redis_rename_key, redis_get_ttl, redis_get_type, save_redis_config, get_redis_configs, delete_redis_config, clear_all_redis_configs};
 use async_trait::async_trait;
 use tokio::sync::mpsc;
@@ -37,6 +38,8 @@ pub const COMMANDS_TABLE: TableDefinition<&str, &str> = TableDefinition::new("qu
 pub const AI_CONFIG_TABLE: TableDefinition<&str, &str> = TableDefinition::new("ai_settings");
 pub const SYNC_CONFIG_TABLE: TableDefinition<&str, &str> = TableDefinition::new("sync_config");
 pub const REDIS_CONN_TABLE: TableDefinition<&str, &str> = TableDefinition::new("redis_connections");
+pub const P2P_MESSAGES_TABLE: TableDefinition<&str, &str> = TableDefinition::new("p2p_messages");
+pub const P2P_REMARKS_TABLE: TableDefinition<&str, &str> = TableDefinition::new("p2p_remarks");
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ServerConfig {
@@ -825,6 +828,48 @@ async fn send_p2p_message(
         .map_err(|e: tokio::sync::mpsc::error::SendError<p2p::P2PCommand>| e.to_string()) // 💡 显式指定类型
 }
 
+#[tauri::command]
+async fn send_p2p_file(
+    state: State<'_, AppState>,
+    target: String,
+    path: String,
+) -> Result<(), String> {
+    let path_buf = std::path::PathBuf::from(path);
+    // 检查文件是否存在
+    if !path_buf.exists() {
+        return Err("文件不存在".into());
+    }
+
+    state.p2p_sender.send(p2p::P2PCommand::SendFile {
+        target,
+        path: path_buf
+    }).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_p2p_messages(
+    state: tauri::State<'_, AppState>,
+    peer_id: String,
+) -> Result<Vec<p2p::ChatMessageRecord>, String> {
+    let read_txn = state.db.begin_read().map_err(|e| e.to_string())?;
+    let table = read_txn.open_table(P2P_MESSAGES_TABLE).map_err(|e| e.to_string())?;
+
+    let mut msgs = Vec::new();
+    for result in table.iter().map_err(|e| e.to_string())? {
+        let (_key, value) = result.map_err(|e| e.to_string())?;
+        let msg: p2p::ChatMessageRecord = serde_json::from_str(value.value()).map_err(|e| e.to_string())?;
+
+        // 筛选与该 Peer 的对话
+        if msg.peer_id == peer_id {
+            msgs.push(msg);
+        }
+    }
+
+    // 按时间戳从旧到新排序
+    msgs.sort_by_key(|m| m.timestamp);
+    Ok(msgs)
+}
+
 
 pub fn run() {
     tauri::Builder::default()
@@ -862,8 +907,9 @@ pub fn run() {
             });
 
             if let Some(main_window) = app.get_webview_window("main") {
+                let db_for_p2p = db_arc.clone();
                 tauri::async_runtime::spawn(async move {
-                    let _ = p2p::start_p2p_node(main_window, rx).await;
+                    let _ = p2p::start_p2p_node(main_window, rx, db_for_p2p).await;
                 });
             }
 
@@ -902,6 +948,8 @@ pub fn run() {
                         let _ = write_txn.open_table(AI_CONFIG_TABLE).map_err(|e| e.to_string())?;
                         let _ = write_txn.open_table(SYNC_CONFIG_TABLE).map_err(|e| e.to_string())?;
                         let _ = write_txn.open_table(REDIS_CONN_TABLE).map_err(|e| e.to_string())?;
+                        let _ = write_txn.open_table(P2P_MESSAGES_TABLE).map_err(|e| e.to_string())?;
+                        let _ = write_txn.open_table(P2P_REMARKS_TABLE).map_err(|e| e.to_string())?;
                     }
                     write_txn.commit().map_err(|e| e.to_string())?;
                     Ok(())
@@ -962,7 +1010,12 @@ pub fn run() {
             get_redis_configs,
             delete_redis_config,
             clear_all_redis_configs,
-            send_p2p_message
+            send_p2p_message,
+            send_p2p_file,
+            get_p2p_messages,
+            set_p2p_remark,
+            get_p2p_remarks,
+            search_p2p_messages
         ])
         .run(tauri::generate_context!())
         .expect("Tauri 运行出错");

@@ -10,7 +10,7 @@ use crate::sync::{
     trigger_auto_sync
 };
 use security::{encrypt_secret, decrypt_secret};
-use p2p::{set_p2p_remark, get_p2p_remarks, search_p2p_messages};
+use p2p::{set_p2p_remark, start_p2p_node, get_p2p_remarks, search_p2p_messages, get_online_peers};
 use redis_manager::{redis_connect, redis_get_keys, redis_get_value, redis_set_value, redis_del_key, redis_rename_key, redis_get_ttl, redis_get_type, save_redis_config, get_redis_configs, delete_redis_config, clear_all_redis_configs};
 use async_trait::async_trait;
 use tokio::sync::mpsc;
@@ -898,6 +898,10 @@ pub fn run() {
 
             let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
+            let shared_p2p_status = Arc::new(p2p::P2PStatus {
+                online_peers: std::sync::Mutex::new(std::collections::HashSet::new()),
+            });
+
             // 3. 注入状态 (使用标准库 Mutex)
             app.manage(AppState {
                 sessions: Arc::new(Mutex::new(HashMap::new())),
@@ -906,12 +910,17 @@ pub fn run() {
                 p2p_sender: tx,
             });
 
-            if let Some(main_window) = app.get_webview_window("main") {
-                let db_for_p2p = db_arc.clone();
-                tauri::async_runtime::spawn(async move {
-                    let _ = p2p::start_p2p_node(main_window, rx, db_for_p2p).await;
-                });
-            }
+           app.manage(shared_p2p_status.clone());
+
+           // 💡 4. 启动 P2P 节点，传入 handle 和同一个 status 实例
+           let handle_for_p2p = app.handle().clone();
+           let status_for_node = shared_p2p_status.clone(); // 指向同一块内存
+           let db_for_p2p = db_arc.clone();
+
+           tauri::async_runtime::spawn(async move {
+               // 确保这里的参数顺序和 p2p.rs 定义的一致
+               let _ = start_p2p_node(handle_for_p2p, rx, db_for_p2p, status_for_node).await;
+           });
 
             app.manage(redis_manager::RedisState {
                 connection: Arc::new(tokio::sync::Mutex::new(None)),
@@ -1015,7 +1024,8 @@ pub fn run() {
             get_p2p_messages,
             set_p2p_remark,
             get_p2p_remarks,
-            search_p2p_messages
+            search_p2p_messages,
+            get_online_peers
         ])
         .run(tauri::generate_context!())
         .expect("Tauri 运行出错");

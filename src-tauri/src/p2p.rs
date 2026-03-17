@@ -4,13 +4,15 @@ use libp2p::{
 };
 use serde::{Deserialize, Serialize};
 use std::error::Error;
-use tauri::{Emitter, WebviewWindow};
+use tauri::{Emitter};
 use tokio::sync::mpsc;
 use std::path::PathBuf;
 use serde_json::json;
 use std::sync::Arc;
-use redb::{Database, ReadableTable}; // 💡 导入 ReadableTable 以便使用 .iter()
+use redb::{Database, ReadableTable};
 use uuid::Uuid;
+use std::sync::Mutex;
+use std::collections::HashSet;
 use crate::AppState;
 use crate::{P2P_REMARKS_TABLE, P2P_MESSAGES_TABLE};
 
@@ -20,12 +22,15 @@ pub struct ChatMessageRecord {
     pub self_id: String,
     pub peer_id: String,
     pub content: String,
-    pub msg_type: String,     // "text" | "file"
-    pub direction: String,    // "send" | "receive"
+    pub msg_type: String,
+    pub direction: String,
     pub timestamp: u64,
 }
 
-// 内部工具函数：保存消息到数据库
+pub struct P2PStatus {
+    pub online_peers: Mutex<HashSet<String>>,
+}
+
 fn save_msg(db: &Arc<Database>, record: &ChatMessageRecord) -> Result<(), Box<dyn Error>> {
     let write_txn = db.begin_write()?;
     {
@@ -57,7 +62,14 @@ pub struct HiphupBehaviour {
     pub chat: request_response::json::Behaviour<ChatRequest, ChatResponse>,
 }
 
-// --- Tauri Commands ---
+#[tauri::command]
+pub async fn get_online_peers(
+    state: tauri::State<'_, Arc<P2PStatus>>
+) -> Result<Vec<String>, String> {
+    let peers = state.online_peers.lock().map_err(|e| e.to_string())?;
+    let list: Vec<String> = peers.iter().cloned().collect();
+    Ok(list)
+}
 
 #[tauri::command]
 pub async fn set_p2p_remark(state: tauri::State<'_, AppState>, peer_id: String, remark: String) -> Result<(), String> {
@@ -76,7 +88,6 @@ pub async fn get_p2p_remarks(state: tauri::State<'_, AppState>) -> Result<std::c
     let table = read_txn.open_table(P2P_REMARKS_TABLE).map_err(|e| e.to_string())?;
     let mut map = std::collections::HashMap::new();
 
-    // 💡 显式处理迭代器错误，解决 E0282
     let iter = table.iter().map_err(|e| e.to_string())?;
     for result in iter {
         let (k, v) = result.map_err(|e| e.to_string())?;
@@ -90,39 +101,52 @@ pub async fn search_p2p_messages(
     state: tauri::State<'_, AppState>,
     peer_id: String,
     keyword: String,
-) -> Result<Vec<ChatMessageRecord>, String> { // 💡 去掉 p2p:: 前缀
+) -> Result<Vec<ChatMessageRecord>, String> {
     let read_txn = state.db.begin_read().map_err(|e| e.to_string())?;
     let table = read_txn.open_table(P2P_MESSAGES_TABLE).map_err(|e| e.to_string())?;
 
-    let mut results = Vec::new();
     let kw = keyword.to_lowercase();
+    let mut results = Vec::new();
 
     let iter = table.iter().map_err(|e| e.to_string())?;
+
     for result in iter {
         let (_, value) = result.map_err(|e| e.to_string())?;
-        // 💡 这里的 ChatMessageRecord 直接引用当前作用域的结构体
-        let msg: ChatMessageRecord = serde_json::from_str(value.value()).map_err(|e| e.to_string())?;
+        let val_str = value.value();
 
-        if msg.peer_id == peer_id && msg.content.to_lowercase().contains(&kw) {
-            results.push(msg);
+        if val_str.contains(&peer_id) && val_str.to_lowercase().contains(&kw) {
+            if let Ok(msg) = serde_json::from_str::<ChatMessageRecord>(val_str) {
+                if msg.peer_id == peer_id {
+                    results.push(msg);
+                }
+            }
         }
     }
+
     results.sort_by_key(|m| m.timestamp);
-    Ok(results)
+
+    Ok(results.into_iter().take(100).collect())
 }
 
-// --- Node Logic ---
-
 pub async fn start_p2p_node(
-    window: WebviewWindow,
+    app_handle: tauri::AppHandle,
     mut cmd_receiver: mpsc::UnboundedReceiver<P2PCommand>,
     db: Arc<Database>,
+    status: Arc<P2PStatus>,
 ) -> Result<(), Box<dyn Error>> {
     let local_key = libp2p::identity::Keypair::generate_ed25519();
     let local_peer_id = PeerId::from(local_key.public());
     let self_id_str = local_peer_id.to_string();
+    println!("[P2P] 正在启动节点，我的 PeerId: {}", self_id_str);
 
-    let _ = window.emit("p2p-my-id", &self_id_str);
+    let get_now = || {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0)
+    };
+
+    let _ = app_handle.emit("p2p-my-id", &self_id_str);
 
     let mut swarm = libp2p::SwarmBuilder::with_existing_identity(local_key)
         .with_tokio()
@@ -152,7 +176,7 @@ pub async fn start_p2p_node(
                                 content: content.clone(),
                                 msg_type: "text".into(),
                                 direction: "send".into(),
-                                timestamp: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_millis() as u64,
+                                timestamp: get_now(),
                             };
                             let _ = save_msg(&db, &record);
                             swarm.behaviour_mut().chat.send_request(&peer_id, ChatRequest::Text { content });
@@ -169,7 +193,7 @@ pub async fn start_p2p_node(
                                     content: name.clone(),
                                     msg_type: "file".into(),
                                     direction: "send".into(),
-                                    timestamp: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_millis() as u64,
+                                    timestamp: get_now(),
                                 };
                                 let _ = save_msg(&db, &record);
                                 swarm.behaviour_mut().chat.send_request(&peer_id, ChatRequest::File { name, data });
@@ -178,13 +202,44 @@ pub async fn start_p2p_node(
                     }
                 }
             }
+
             event = swarm.select_next_some() => match event {
                 SwarmEvent::Behaviour(HiphupBehaviourEvent::Mdns(mdns::Event::Discovered(list))) => {
                     for (peer_id, addr) in list {
+                        let id_str = peer_id.to_string();
                         swarm.add_peer_address(peer_id, addr);
-                        let _ = window.emit("p2p-peer-discovered", peer_id.to_string());
+
+                        if let Ok(mut online_list) = status.online_peers.lock() {
+                            if online_list.insert(id_str.clone()) {
+                                println!("[P2P] 邻居上线: {}", id_str);
+                                let _ = app_handle.emit("p2p-peer-discovered", id_str);
+                            }
+                        }
                     }
                 }
+
+                SwarmEvent::Behaviour(HiphupBehaviourEvent::Mdns(mdns::Event::Expired(list))) => {
+                    for (peer_id, _addr) in list {
+                        let id_str = peer_id.to_string();
+                        if let Ok(mut online_list) = status.online_peers.lock() {
+                            if online_list.remove(&id_str) {
+                                println!("[P2P] 邻居过期 (mDNS Expired): {}", id_str);
+                                let _ = app_handle.emit("p2p-peer-expired", id_str);
+                            }
+                        }
+                    }
+                }
+
+                SwarmEvent::ConnectionClosed { peer_id, .. } => {
+                    let id_str = peer_id.to_string();
+                    if let Ok(mut online_list) = status.online_peers.lock() {
+                        if online_list.remove(&id_str) {
+                            println!("[P2P] 连接已关闭: {}", id_str);
+                            let _ = app_handle.emit("p2p-peer-expired", id_str);
+                        }
+                    }
+                }
+
                 SwarmEvent::Behaviour(HiphupBehaviourEvent::Chat(request_response::Event::Message {
                     peer,
                     message: request_response::Message::Request { request, channel, .. },
@@ -199,7 +254,7 @@ pub async fn start_p2p_node(
                             content: content,
                             msg_type: "text".into(),
                             direction: "receive".into(),
-                            timestamp: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64,
+                            timestamp: get_now(),
                         },
                         ChatRequest::File { name, data } => {
                             let _ = std::fs::write(format!("./{}", name), data);
@@ -210,14 +265,18 @@ pub async fn start_p2p_node(
                                 content: name,
                                 msg_type: "file".into(),
                                 direction: "receive".into(),
-                                timestamp: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64,
+                                timestamp: get_now(),
                             }
                         }
                     };
 
                     let _ = save_msg(&db, &record);
-                    let _ = window.emit("p2p-receive-msg", json!(record));
+                    let _ = app_handle.emit("p2p-receive-msg", json!(record));
                     let _ = swarm.behaviour_mut().chat.send_response(channel, ChatResponse { status: "ok".into() });
+                }
+
+                SwarmEvent::NewListenAddr { address, .. } => {
+                    println!("[P2P] 本地监听地址: {}", address);
                 }
                 _ => {}
             }

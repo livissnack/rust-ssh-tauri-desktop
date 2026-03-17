@@ -4,7 +4,7 @@ use libp2p::{
 };
 use serde::{Deserialize, Serialize};
 use std::error::Error;
-use tauri::{Emitter};
+use tauri::Emitter;
 use tokio::sync::mpsc;
 use std::path::PathBuf;
 use serde_json::json;
@@ -15,6 +15,7 @@ use std::sync::Mutex;
 use std::collections::HashSet;
 use crate::AppState;
 use crate::{P2P_REMARKS_TABLE, P2P_MESSAGES_TABLE};
+use std::time::Duration;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ChatMessageRecord {
@@ -148,17 +149,26 @@ pub async fn start_p2p_node(
 
     let _ = app_handle.emit("p2p-my-id", &self_id_str);
 
+    // 0.56.0 推荐的 SwarmBuilder 写法
     let mut swarm = libp2p::SwarmBuilder::with_existing_identity(local_key)
         .with_tokio()
-        .with_tcp(tcp::Config::default(), noise::Config::new, yamux::Config::default)?
+        .with_tcp(
+            tcp::Config::default(),
+            noise::Config::new,
+            yamux::Config::default,
+        )?
         .with_behaviour(|key| {
-            let mdns = mdns::tokio::Behaviour::new(mdns::Config::default(), key.public().to_peer_id())?;
+            let mdns = mdns::tokio::Behaviour::new(
+                mdns::Config::default(),
+                key.public().to_peer_id()
+            )?;
             let chat = request_response::json::Behaviour::new(
                 [(libp2p::StreamProtocol::new("/hiphup-chat/1.0"), request_response::ProtocolSupport::Full)],
                 request_response::Config::default(),
             );
             Ok(HiphupBehaviour { mdns, chat })
         })?
+        .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60))) // 设置闲置超时为60秒
         .build();
 
     swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
@@ -204,6 +214,7 @@ pub async fn start_p2p_node(
             }
 
             event = swarm.select_next_some() => match event {
+                // 处理 mDNS 发现
                 SwarmEvent::Behaviour(HiphupBehaviourEvent::Mdns(mdns::Event::Discovered(list))) => {
                     for (peer_id, addr) in list {
                         let id_str = peer_id.to_string();
@@ -218,6 +229,7 @@ pub async fn start_p2p_node(
                     }
                 }
 
+                // 处理 mDNS 过期（真正的下线）
                 SwarmEvent::Behaviour(HiphupBehaviourEvent::Mdns(mdns::Event::Expired(list))) => {
                     for (peer_id, _addr) in list {
                         let id_str = peer_id.to_string();
@@ -230,16 +242,12 @@ pub async fn start_p2p_node(
                     }
                 }
 
+                // 物理连接关闭（不再标记为下线）
                 SwarmEvent::ConnectionClosed { peer_id, .. } => {
-                    let id_str = peer_id.to_string();
-                    if let Ok(mut online_list) = status.online_peers.lock() {
-                        if online_list.remove(&id_str) {
-                            println!("[P2P] 连接已关闭: {}", id_str);
-                            let _ = app_handle.emit("p2p-peer-expired", id_str);
-                        }
-                    }
+                    println!("[P2P] 物理连接已关闭: {}。只要 mDNS 没过期，依然在线。", peer_id);
                 }
 
+                // 处理消息收发
                 SwarmEvent::Behaviour(HiphupBehaviourEvent::Chat(request_response::Event::Message {
                     peer,
                     message: request_response::Message::Request { request, channel, .. },
@@ -251,7 +259,7 @@ pub async fn start_p2p_node(
                             id: Uuid::new_v4().to_string(),
                             self_id: self_id_str.clone(),
                             peer_id: peer_id_str,
-                            content: content,
+                            content,
                             msg_type: "text".into(),
                             direction: "receive".into(),
                             timestamp: get_now(),

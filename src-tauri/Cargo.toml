@@ -23,12 +23,12 @@ tauri-plugin-dialog = "2.0"
 serde = { version = "1.0", features = ["derive"] }
 reqwest = { version = "0.12", features = ["json", "stream"] }
 serde_json = "1.0"
-russh = "0.45" # 请确保使用最新版
+russh = "0.45"
 russh-keys = "0.45"
 russh-sftp = "2.0.2"
 tokio = { version = "1", features = ["full"] }
 async-trait = "0.1"
-futures = "0.3" # 用于处理流
+futures = "0.3"
 redb = "2.1"
 uuid = { version = "1.0", features = ["v4"] }
 aes-gcm = "0.10"
@@ -40,4 +40,4 @@ machineid-rs = "1.2"
 redis = { version = "0.27.0", features = ["tokio-comp"] }
 tauri-plugin-updater = "2.10.0"
 tauri-plugin-process = "2.3.1"
-libp2p = { version = "0.53", features = ["tokio", "mdns", "noise", "yamux", "tcp", "macros", "request-response", "json", "serde"] }
+libp2p = { version = "0.56.0", features = ["tokio", "mdns", "noise", "yamux", "tcp", "macros", "request-response", "json", "serde"] }

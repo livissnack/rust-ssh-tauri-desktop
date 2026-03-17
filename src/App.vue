@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {ref, computed, onMounted, onUnmounted, nextTick, watch} from "vue";
+import {ref, computed, onMounted, onUnmounted, nextTick, watch, defineAsyncComponent} from "vue";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
@@ -12,9 +12,6 @@ import {toast} from './utils/toast.ts';
 import {throttle, formatSize} from "./utils/async";
 import {applyTheme, defaultTheme} from "./utils/theme";
 
-import { defineAsyncComponent } from 'vue';
-
-// 组件导入
 import Sidebar from "./components/Sidebar.vue";
 import TerminalTabs from "./components/TerminalTabs.vue";
 import WorkspaceHeader from "./components/WorkspaceHeader.vue";
@@ -38,12 +35,10 @@ const panelMap: Record<string, any> = {
   'chat': ChatPanel,
 };
 
-// 3. 定义计算属性
 const rightPanelComponent = computed(() => {
   return panelMap[rightPanelType.value] || null;
 });
 
-// --- 基础状态 ---
 const servers = ref<any[]>(window.__INITIAL_SERVERS__ || []);
 const activeId = ref<string | null>(null);
 const openSessions = ref<{ id: string, serverId: string, name: string }[]>([]);
@@ -53,14 +48,13 @@ const sessionViewModes = ref<Record<string, 'terminal' | 'sftp'>>({});
 const terminalMap = new Map<string, { term: Terminal; fitAddon: FitAddon }>();
 const onlineUserCount = ref(0);
 
-// --- UI 状态 ---
 const isConnecting = ref(false);
+const isConnectError = ref(false);
 const rightPanelVisible = ref(false);
 const isModalOpen = ref(false);
 const isEditing = ref(false);
 const isSyncing = ref(false);
 
-// --- 传输与事件监听 ---
 let unlisten: UnlistenFn | null = null;
 let unlistenClosed: UnlistenFn | null = null;
 let unlistenTransfer: UnlistenFn | null = null;
@@ -69,7 +63,6 @@ const transferTasks = ref<any[]>([]);
 
 const rightPanelType = ref<'quick' | 'ai' | 'redis' | 'history' | 'sync-settings'>('quick');
 
-// --- SFTP 状态 ---
 const localPath = ref("");
 const remotePath = ref("/");
 const localFiles = ref<any[]>([]);
@@ -77,7 +70,6 @@ const remoteFiles = ref<any[]>([]);
 const isDraggingOverLocal = ref(false);
 const isDraggingOverRemote = ref(false);
 
-// --- 右键菜单 ---
 const menuVisible = ref(false);
 const menuPos = ref({x: 0, y: 0});
 const contextFile = ref<any>(null);
@@ -88,7 +80,6 @@ const newHost = ref({
   auth_type: "password", password: "", private_key_path: "", jump_host_id: null
 });
 
-// --- 计算属性 ---
 const currentViewMode = computed(() => {
   if (!activeSessionId.value) return 'terminal';
   return sessionViewModes.value[activeSessionId.value] || 'terminal';
@@ -100,7 +91,6 @@ const hasActiveTasks = computed(() =>
     transferTasks.value.some(t => t.status === 'transferring')
 );
 
-
 const handleToggle = (type: any) => {
   if (rightPanelVisible.value && rightPanelType.value === type) {
     rightPanelVisible.value = false;
@@ -111,7 +101,6 @@ const handleToggle = (type: any) => {
 }
 
 const toggleRightPanel = throttle(handleToggle, 300);
-
 
 const handleContextMenu = (e: MouseEvent, file: any, source: 'local' | 'remote') => {
   e.preventDefault();
@@ -157,7 +146,6 @@ const handleMenuAction = async (action: 'transfer' | 'delete') => {
           await invoke("delete_remote_file", {sessionId: activeSessionId.value, path, isDir: file.is_dir});
           await refreshRemoteFiles();
         } else {
-          // 这里可以添加删除本地文件的 invoke
           toast.info("本地删除功能待对接");
         }
       } catch (err) {
@@ -167,8 +155,6 @@ const handleMenuAction = async (action: 'transfer' | 'delete') => {
   }
 };
 
-// --- 重写的拖拽逻辑 ---
-
 const onDragStart = (e: DragEvent, file: any, source: 'local' | 'remote') => {
   if (file.name === '..') {
     e.preventDefault();
@@ -176,14 +162,13 @@ const onDragStart = (e: DragEvent, file: any, source: 'local' | 'remote') => {
   }
   if (e.dataTransfer) {
     e.dataTransfer.effectAllowed = "copy";
-    // 使用标准 text 类型提高跨浏览器稳定性
     const payload = JSON.stringify({source, file});
     e.dataTransfer.setData("text/plain", payload);
   }
 };
 
 const handleDragOver = (e: DragEvent) => {
-  e.preventDefault(); // 必须调用，否则 drop 不触发
+  e.preventDefault();
   if (e.dataTransfer) {
     e.dataTransfer.dropEffect = "copy";
   }
@@ -196,7 +181,6 @@ const handleDragEnter = (e: DragEvent, type: 'local' | 'remote') => {
 };
 
 const handleDragLeave = (e: DragEvent, type: 'local' | 'remote') => {
-  // 只有当真正离开容器时才取消高亮（防止子元素干扰）
   const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
   if (
       e.clientX <= rect.left || e.clientX >= rect.right ||
@@ -217,7 +201,6 @@ const handleDrop = async (e: DragEvent, targetType: 'local' | 'remote') => {
 
   try {
     const data = JSON.parse(rawData);
-    // 逻辑：跨端拖拽才触发传输
     if (data.source === 'local' && targetType === 'remote') {
       await startTransfer('upload', data.file);
     } else if (data.source === 'remote' && targetType === 'local') {
@@ -234,7 +217,6 @@ const handleFileDblClick = async (file: any, type: 'local' | 'remote') => {
   const isRemote = type === 'remote';
   let currentPath = isRemote ? remotePath.value : localPath.value;
 
-  // 标准化路径处理
   currentPath = currentPath.replace(/[/\\]$/, '');
 
   if (file.name === '..') {
@@ -249,7 +231,6 @@ const handleFileDblClick = async (file: any, type: 'local' | 'remote') => {
     }
   } else {
     const separator = isRemote ? '/' : '\\';
-    // 针对 Windows 根目录的特殊处理
     if (!isRemote && currentPath.endsWith(':')) currentPath += '\\';
 
     const base = currentPath.endsWith(separator) ? currentPath : currentPath + separator;
@@ -270,8 +251,6 @@ const handleFileDblClick = async (file: any, type: 'local' | 'remote') => {
     toast.error(`切换目录失败: ${err}`);
   }
 };
-
-// --- 其他功能逻辑 (保持原有) ---
 
 const startTransfer = async (type: 'upload' | 'download', file: any) => {
   if (file.is_dir || file.name === '..') {
@@ -303,7 +282,6 @@ const startTransfer = async (type: 'upload' | 'download', file: any) => {
   } catch (err) {
     const task = transferTasks.value.find(t => t.id === taskId);
     if (task) task.status = 'error';
-    console.log(err, 'kkk---')
     toast.error(`传输失败: ${err}`);
   }
 };
@@ -311,6 +289,7 @@ const startTransfer = async (type: 'upload' | 'download', file: any) => {
 const connectToServer = async () => {
   const server = servers.value.find(s => s.id === activeId.value);
   if (!server) return;
+  isConnectError.value = false;
   isConnecting.value = true;
   const sessionId = server.id;
   if (!openSessions.value.find(s => s.id === sessionId)) {
@@ -322,8 +301,10 @@ const connectToServer = async () => {
   try {
     await invoke("connect_ssh", {serverId: server.id, sessionId});
     focusTerminal(sessionId);
+    isConnectError.value = false;
   } catch (err) {
     toast.error(`连接失败: ${err}`);
+    isConnectError.value = true
   } finally {
     isConnecting.value = false;
   }
@@ -332,18 +313,16 @@ const connectToServer = async () => {
 const getTerminalTheme = () => {
   const style = getComputedStyle(document.documentElement);
 
-  // 辅助函数：清理空格并提供回退色
   const getProp = (name: string, fallback: string) => {
     const val = style.getPropertyValue(name).trim();
     return val || fallback;
   };
 
   return {
-    background: getProp('--bg-primary', '#1a1b26'), // 默认一个深色背景
+    background: getProp('--bg-primary', '#1a1b26'),
     foreground: getProp('--text-main', '#a9b1d6'),
     cursor: getProp('--accent', '#7aa2f7'),
     selectionBackground: getProp('--accent-glow', 'rgba(122, 162, 247, 0.3)'),
-    // 建议同时设置 ANSI 颜色，防止 ls 命令出来的颜色看不清
     black: '#15161e',
     red: '#f7768e',
     green: '#9ece6a',
@@ -595,17 +574,9 @@ const updateOnlineCount = async () => {
 };
 
 watch(defaultTheme, async () => {
-  // 必须等待 DOM 重新渲染，CSS 变量才会更新
   await nextTick();
-
-  // 这里稍微延迟一下（可选），确保浏览器已经完成了重绘计算
   const newTheme = getTerminalTheme();
-
-  console.log('主题切换中，新颜色为:', newTheme.background);
-
-  // 遍历更新所有已打开的终端
   terminalMap.forEach(({ term }) => {
-    // xterm.js 的 options 是响应式的，直接赋值会触发重绘
     term.options.theme = newTheme;
   });
 }, { immediate: false });
@@ -650,7 +621,6 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
-  // 停止所有终端实例
   terminalMap.forEach(instance => {
     instance.term.dispose();
   });
@@ -688,6 +658,7 @@ onUnmounted(() => {
             :active-id="activeId"
             :active-session-id="activeSessionId"
             :is-connecting="isConnecting"
+            :is-error="isConnectError"
             :current-view-mode="currentViewMode"
             :open-sessions="openSessions"
             :servers="servers"

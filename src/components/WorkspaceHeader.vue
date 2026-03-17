@@ -6,6 +6,7 @@ const props = defineProps<{
   activeId: string | null;
   activeSessionId: string | null;
   isConnecting: boolean;
+  isError?: boolean;
   currentViewMode: 'terminal' | 'sftp';
   openSessions: Array<{ id: string; serverId: string; name: string }>;
   servers: any[];
@@ -37,6 +38,13 @@ const displayServerName = computed(() => {
   return 'Select a host';
 });
 
+const statusClass = computed(() => {
+  if (props.isConnecting) return 'is-connecting';
+  if (props.isError) return 'is-error';
+  if (props.activeSessionId) return 'is-active';
+  return '';
+});
+
 const connectButtonText = computed(() => {
   if (props.isConnecting) return 'Connecting';
   return 'Connect';
@@ -56,7 +64,11 @@ const connectButtonIcon = computed(() => {
       </div>
       <span class="sep">/</span>
       <div class="breadcrumb-item current">
-        <span class="status-indicator" v-if="activeSessionId"></span>
+        <span
+            class="status-indicator"
+            v-if="activeSessionId || isConnecting || isError"
+            :class="statusClass"
+        ></span>
         <span class="name">{{ displayServerName }}</span>
       </div>
     </div>
@@ -127,13 +139,47 @@ const connectButtonIcon = computed(() => {
         letter-spacing: -0.2px; // 略微收紧字间距，更有现代感
         font-size: 14px;
 
+        /* 在 .breadcrumb-item.current 内部修改 status-indicator */
         .status-indicator {
-          width: 6px;
-          height: 6px;
+          width: 8px;  // 稍微调大一点点更醒目
+          height: 8px;
           border-radius: 50%;
-          background: var(--success);
-          box-shadow: 0 0 8px var(--success-60);
-          margin-right: 4px;
+          margin-right: 8px;
+          transition: all 0.3s ease;
+
+          // 1. 在线状态 (绿色)
+          &.is-active {
+            background: var(--success);
+            box-shadow: 0 0 8px var(--success-60, rgba(34, 197, 94, 0.4));
+          }
+
+          // 2. 失败状态 (红色)
+          &.is-error {
+            background: var(--danger, #ef4444);
+            box-shadow: 0 0 8px rgba(239, 68, 68, 0.5);
+            animation: error-shake 0.4s ease-in-out; // 失败时抖动一下
+          }
+
+          // 3. 连接中状态 (黄色/橙色)
+          &.is-connecting {
+            background: var(--accent-orange, #f97316);
+            box-shadow: 0 0 8px rgba(249, 115, 22, 0.4);
+            animation: status-pulse 1.5s infinite; // 正在连接时有呼吸效果
+          }
+        }
+
+        // 呼吸灯动画
+        @keyframes status-pulse {
+          0% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.5; transform: scale(1.1); }
+          100% { opacity: 1; transform: scale(1); }
+        }
+
+        // 错误时的轻微抖动
+        @keyframes error-shake {
+          0%, 100% { transform: translateX(0); }
+          25% { transform: translateX(-2px); }
+          75% { transform: translateX(2px); }
         }
       }
     }

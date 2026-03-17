@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import {ref, computed, onMounted, onUnmounted, nextTick, watch} from "vue";
-import {Terminal} from "xterm";
-import {FitAddon} from "xterm-addon-fit";
-import { WebglAddon } from '@xterm/addon-webgl';
-import "xterm/css/xterm.css";
+import { Terminal } from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
+import { WebglAddon } from "@xterm/addon-webgl";
+import "@xterm/xterm/css/xterm.css";
 import {invoke} from "@tauri-apps/api/core";
 import { homeDir } from '@tauri-apps/api/path';
 import {listen, UnlistenFn} from "@tauri-apps/api/event";
@@ -330,11 +330,27 @@ const connectToServer = async () => {
 
 const getTerminalTheme = () => {
   const style = getComputedStyle(document.documentElement);
+
+  // 辅助函数：清理空格并提供回退色
+  const getProp = (name: string, fallback: string) => {
+    const val = style.getPropertyValue(name).trim();
+    return val || fallback;
+  };
+
   return {
-    background: style.getPropertyValue('--bg-primary').trim(),
-    foreground: style.getPropertyValue('--text-main').trim(),
-    cursor: style.getPropertyValue('--accent').trim(),
-    selectionBackground: style.getPropertyValue('--accent-glow').trim(),
+    background: getProp('--bg-primary', '#1a1b26'), // 默认一个深色背景
+    foreground: getProp('--text-main', '#a9b1d6'),
+    cursor: getProp('--accent', '#7aa2f7'),
+    selectionBackground: getProp('--accent-glow', 'rgba(122, 162, 247, 0.3)'),
+    // 建议同时设置 ANSI 颜色，防止 ls 命令出来的颜色看不清
+    black: '#15161e',
+    red: '#f7768e',
+    green: '#9ece6a',
+    yellow: '#e0af68',
+    blue: '#7aa2f7',
+    magenta: '#bb9af7',
+    cyan: '#7dcfff',
+    white: '#a9b1d6',
   };
 };
 
@@ -357,6 +373,7 @@ const initTerminal = async (sessionId: string) => {
   const container = document.getElementById(`terminal-${sessionId}`);
   if (container) {
     term.open(container);
+    term.options.theme = getTerminalTheme();
     try {
       const webglAddon = new WebglAddon();
       term.loadAddon(webglAddon);
@@ -562,6 +579,22 @@ const initLocalRootPath = async () => {
     refreshLocalFiles();
   }
 }
+
+watch(defaultTheme, async () => {
+  // 必须等待 DOM 重新渲染，CSS 变量才会更新
+  await nextTick();
+
+  // 这里稍微延迟一下（可选），确保浏览器已经完成了重绘计算
+  const newTheme = getTerminalTheme();
+
+  console.log('主题切换中，新颜色为:', newTheme.background);
+
+  // 遍历更新所有已打开的终端
+  terminalMap.forEach(({ term }) => {
+    // xterm.js 的 options 是响应式的，直接赋值会触发重绘
+    term.options.theme = newTheme;
+  });
+}, { immediate: false });
 
 onMounted(async () => {
   const themeId = localStorage.getItem('app-theme-id') || defaultTheme.value;

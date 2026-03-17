@@ -295,6 +295,27 @@
       margin-bottom: 12px;
       transition: all 0.2s ease;
 
+      .online-badge {
+        position: absolute;
+        top: -2px;
+        right: -2px;
+        background: #ff4d4f; /* 红色警告色 */
+        color: white;
+        font-size: 10px;
+        font-weight: bold;
+        min-width: 14px;
+        height: 14px;
+        border-radius: 7px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0 4px;
+        border: 1.5px solid var(--bg-secondary); /* 用背景色做描边，更融合 */
+        box-shadow: 0 0 4px rgba(0, 0, 0, 0.3);
+        pointer-events: none; /* 防止遮挡图标点击 */
+        z-index: 10;
+      }
+
       &:hover {
         background: var(--accent-10);
         color: var(--accent);
@@ -319,6 +340,13 @@
       i {
         font-size: 16px;
       }
+    }
+
+    .scale-enter-active, .scale-leave-active {
+      transition: transform 0.2s ease;
+    }
+    .scale-enter-from, .scale-leave-to {
+      transform: scale(0);
     }
 
     .bottom-group {

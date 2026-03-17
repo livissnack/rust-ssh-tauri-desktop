@@ -51,6 +51,7 @@ const activeSessionId = ref<string | null>(null);
 const showPassword = ref(false);
 const sessionViewModes = ref<Record<string, 'terminal' | 'sftp'>>({});
 const terminalMap = new Map<string, { term: Terminal; fitAddon: FitAddon }>();
+const onlineUserCount = ref(0);
 
 // --- UI 状态 ---
 const isConnecting = ref(false);
@@ -580,6 +581,19 @@ const initLocalRootPath = async () => {
   }
 }
 
+const handleOnlineCountUpdate = (count: number) => {
+  onlineUserCount.value = count;
+};
+
+const updateOnlineCount = async () => {
+  try {
+    const peers = await invoke<string[]>("get_online_peers");
+    onlineUserCount.value = peers.length;
+  } catch (err) {
+    console.error("无法获取在线人数:", err);
+  }
+};
+
 watch(defaultTheme, async () => {
   // 必须等待 DOM 重新渲染，CSS 变量才会更新
   await nextTick();
@@ -604,6 +618,7 @@ onMounted(async () => {
   const saved = localStorage.getItem('right-panel-width');
   if (saved) panelWidth.value = parseInt(saved);
   loadServers();
+  updateOnlineCount();
   unlisten = await listen("ssh-output", (event) => {
     const payload = event.payload as { session_id: string, data: string };
     const instance = terminalMap.get(payload.session_id);
@@ -826,7 +841,11 @@ onUnmounted(() => {
                  :class="{ active: rightPanelVisible && rightPanelType === 'chat' }"
                  @click="toggleRightPanel('chat')">
               <i class="fas fa-comment-alt"></i>
-              <span v-if="true" class="online-dot"></span>
+              <Transition name="scale">
+                <span v-if="onlineUserCount > 0" class="online-badge">
+                  {{ onlineUserCount }}
+                </span>
+              </Transition>
             </div>
             <div class="icon-item" title="同步设置"
                  :class="{
@@ -855,7 +874,7 @@ onUnmounted(() => {
 
             <div class="panel-content-wrapper">
               <KeepAlive :max="5">
-                <component :is="rightPanelComponent" :activeSessionId="activeSessionId"/>
+                <component :is="rightPanelComponent" :activeSessionId="activeSessionId" @update-online-count="handleOnlineCountUpdate"/>
               </KeepAlive>
             </div>
           </div>

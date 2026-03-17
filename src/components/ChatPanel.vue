@@ -52,6 +52,13 @@ const currentChatHistory = computed(() => {
   return allChatHistories.value[currentPeer.value.id] || [];
 });
 
+const emit = defineEmits(['update-online-count']);
+
+const notifyOnlineCount = () => {
+  const count = peers.value.filter(p => p.isOnline).length;
+  emit('update-online-count', count);
+};
+
 const scrollToBottom = async (force = false) => {
   await nextTick();
   if (messageBox.value) {
@@ -185,11 +192,13 @@ onMounted(async () => {
   await listen('p2p-peer-discovered', (e: any) => {
     console.log("TS 接收到发现事件，PeerID:", e.payload);
     addPeerToList(e.payload);
+    notifyOnlineCount();
   });
 
   try {
     const existingPeers: string[] = await invoke('get_online_peers');
     existingPeers.forEach(id => addPeerToList(id));
+    notifyOnlineCount();
   } catch (err) {
     console.error("拉取在线列表失败:", err);
   }
@@ -218,6 +227,7 @@ onMounted(async () => {
     const peer = peers.value.find(p => p.id === offlinePeerId);
     if (peer) {
       peer.isOnline = false;
+      notifyOnlineCount();
       if (currentPeer.value?.id === offlinePeerId) {
         toast.warning('对方已离线')
       }

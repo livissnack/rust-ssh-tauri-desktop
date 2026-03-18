@@ -56,7 +56,8 @@ watch(() => props.currentServer?.id, async (newId) => {
   try {
     currentLatency.value = await invoke<number>("get_server_latency", {
       host: props.currentServer.host,
-      port: props.currentServer.port || 22
+      port: props.currentServer.port || 22,
+      jumpHostId: props.currentServer.jump_host_id || null
     });
   } catch (err) {
     console.error("测速失败:", err);

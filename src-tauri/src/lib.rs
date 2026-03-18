@@ -22,6 +22,8 @@ use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 use redb::{Database, TableDefinition, ReadableTable};
 use uuid::Uuid;
+use std::future::Future;
+use tokio::time::{timeout};
 use std::fs;
 use russh_sftp::client::SftpSession;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -111,11 +113,16 @@ pub struct ClientHandler<R: Runtime> {
 impl<R: Runtime> client::Handler for ClientHandler<R> {
     type Error = russh::Error;
 
-    async fn check_server_key(
+    // 在你的 ClientHandler 实现里增加这个方法
+    fn check_server_key(
         &mut self,
-        _server_public_key: &russh::keys::PublicKey,
-    ) -> Result<bool, Self::Error> {
-        Ok(true)
+        server_public_key: &russh::keys::PublicKey,
+    ) -> impl Future<Output = Result<bool, Self::Error>> + Send {
+        let fingerprint = server_public_key.fingerprint(russh::keys::HashAlg::Sha256);
+        println!("正在连接的服务器指纹 (SHA256): {:?}", fingerprint);
+        async move {
+            Ok(true)
+        }
     }
 
     async fn data(
@@ -206,6 +213,7 @@ async fn create_recursive_session<R: Runtime>(
 ) -> Result<client::Handle<ClientHandler<R>>, String> {
     let config = client::Config::default();
     let client_config = Arc::new(config);
+    let connect_timeout = Duration::from_secs(10);
 
     let handler = ClientHandler {
         window: window.clone(),
@@ -217,8 +225,13 @@ async fn create_recursive_session<R: Runtime>(
     match target_config.jump_host_id.as_deref() {
         None | Some("") => {
             let addr = format!("{}:{}", target_config.host, target_config.port);
-            let mut handle = client::connect(client_config, addr, handler).await
+
+            // ✅ 修正：使用 .await 结尾，并确保 timeout 已经导入
+            let mut handle = timeout(connect_timeout, client::connect(client_config, addr, handler))
+                .await
+                .map_err(|_| format!("连接目标 {} 超时", target_config.host))?
                 .map_err(|e| format!("直连失败: {}", e))?;
+
             authenticate(&mut handle, target_config).await?;
             Ok(handle)
         }
@@ -233,16 +246,26 @@ async fn create_recursive_session<R: Runtime>(
                 format!("{}_tunnel", session_id),
                 shell_channel_id.clone()
             )).await?;
+            println!("隧道已建立，正在尝试在隧道内连接目标: {}:{}", target_config.host, target_config.port);
+            let channel = timeout(
+                Duration::from_secs(8),
+                jump_handle.channel_open_direct_tcpip(
+                    &target_config.host,
+                    target_config.port as u32,
+                    "127.0.0.1",
+                    0
+                )
+            ).await // ✅ 修正：.await 放在这里
+            .map_err(|_| "跳板机建立隧道响应超时".to_string())?
+            .map_err(|e| format!("隧道建立失败: {}", e))?;
 
-            let channel = jump_handle.channel_open_direct_tcpip(
-                &target_config.host,
-                target_config.port as u32,
-                "127.0.0.1",
-                0
-            ).await.map_err(|e| format!("隧道建立失败: {}", e))?;
-
-            let mut handle = client::connect_stream(client_config, channel.into_stream(), handler).await
-                .map_err(|e| format!("隧道内握手失败: {}", e))?;
+            let mut handle = timeout(
+                connect_timeout,
+                client::connect_stream(client_config, channel.into_stream(), handler)
+            )
+            .await
+            .map_err(|_| format!("隧道内与目标 {} 握手超时", target_config.host))?
+            .map_err(|e| format!("隧道内握手失败: {}", e))?;
 
             authenticate(&mut handle, target_config).await?;
             Ok(handle)

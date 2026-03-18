@@ -167,7 +167,7 @@ onMounted(loadCommands);
   justify-content: space-between;
   align-items: center;
   border-bottom: 1px solid var(--border);
-  background: var(--bg-secondary); // 使用次要背景增强层级
+  background: var(--bg-secondary);
   z-index: 10;
 
   .title {

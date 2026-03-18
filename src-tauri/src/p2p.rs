@@ -157,6 +157,7 @@ pub async fn start_p2p_node(
             noise::Config::new,
             yamux::Config::default,
         )?
+        .with_quic()
         .with_behaviour(|key| {
             let mdns = mdns::tokio::Behaviour::new(
                 mdns::Config::default(),
@@ -172,6 +173,7 @@ pub async fn start_p2p_node(
         .build();
 
     swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
+    swarm.listen_on("/ip4/0.0.0.0/udp/0/quic-v1".parse()?)?;
 
     loop {
         tokio::select! {
@@ -190,6 +192,8 @@ pub async fn start_p2p_node(
                             };
                             let _ = save_msg(&db, &record);
                             swarm.behaviour_mut().chat.send_request(&peer_id, ChatRequest::Text { content });
+                        } else {
+                            eprintln!("[P2P] ❌ 无效的 PeerId: {}", target);
                         }
                     }
                     P2PCommand::SendFile { target, path } => {
@@ -264,13 +268,20 @@ pub async fn start_p2p_node(
                             direction: "receive".into(),
                             timestamp: get_now(),
                         },
+                        // 在 match request 块中处理文件接收
                         ChatRequest::File { name, data } => {
-                            let _ = std::fs::write(format!("./{}", name), data);
+                            // 💡 获取下载目录而非当前目录
+                            if let Ok(download_dir) = app_handle.path().download_dir() {
+                                let save_path = download_dir.join(&name);
+                                let _ = std::fs::write(&save_path, data);
+                                println!("[P2P] 文件已保存至: {:?}", save_path);
+                            }
+
                             ChatMessageRecord {
                                 id: Uuid::new_v4().to_string(),
                                 self_id: self_id_str.clone(),
-                                peer_id: peer_id_str,
-                                content: name,
+                                peer_id: peer.to_string(),
+                                content: format!("文件已保存到下载目录: {}", name),
                                 msg_type: "file".into(),
                                 direction: "receive".into(),
                                 timestamp: get_now(),

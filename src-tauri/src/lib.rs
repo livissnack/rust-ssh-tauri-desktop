@@ -824,8 +824,17 @@ async fn send_p2p_message(
     target: String,
     content: String,
 ) -> Result<(), String> {
+    println!("[Command] 准备发送消息到 P2P 队列: target={}, content={}", target, content);
+
     state.p2p_sender.send(p2p::P2PCommand::SendMessage { target, content })
-        .map_err(|e: tokio::sync::mpsc::error::SendError<p2p::P2PCommand>| e.to_string()) // 💡 显式指定类型
+        .map_err(|e| {
+            let err_msg = format!("发送到后台任务失败: {}", e);
+            eprintln!("[Command] 错误: {}", err_msg);
+            err_msg
+        })?;
+
+    println!("[Command] 消息已成功推入异步队列");
+    Ok(())
 }
 
 #[tauri::command]

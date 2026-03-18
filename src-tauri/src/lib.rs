@@ -995,6 +995,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             connect_ssh,
             disconnect_ssh,
+            write_to_ssh,
             list_local_dir,
             list_remote_dir,
             sftp_upload,
@@ -1008,7 +1009,6 @@ pub fn run() {
             get_ai_config,
             ask_ai,
             get_server_latency,
-            write_to_ssh,
             get_servers,
             save_server,
             delete_server,

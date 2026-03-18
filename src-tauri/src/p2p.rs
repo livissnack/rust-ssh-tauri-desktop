@@ -4,7 +4,7 @@ use libp2p::{
 };
 use serde::{Deserialize, Serialize};
 use std::error::Error;
-use tauri::Emitter;
+use tauri::{Manager, Emitter};
 use tokio::sync::mpsc;
 use std::path::PathBuf;
 use serde_json::json;
@@ -251,48 +251,78 @@ pub async fn start_p2p_node(
                     println!("[P2P] 物理连接已关闭: {}。只要 mDNS 没过期，依然在线。", peer_id);
                 }
 
-                // 处理消息收发
-                SwarmEvent::Behaviour(HiphupBehaviourEvent::Chat(request_response::Event::Message {
-                    peer,
-                    message: request_response::Message::Request { request, channel, .. },
-                    ..
-                })) => {
-                    let peer_id_str = peer.to_string();
-                    let record = match request {
-                        ChatRequest::Text { content } => ChatMessageRecord {
-                            id: Uuid::new_v4().to_string(),
-                            self_id: self_id_str.clone(),
-                            peer_id: peer_id_str,
-                            content,
-                            msg_type: "text".into(),
-                            direction: "receive".into(),
-                            timestamp: get_now(),
-                        },
-                        // 在 match request 块中处理文件接收
-                        ChatRequest::File { name, data } => {
-                            // 💡 获取下载目录而非当前目录
-                            if let Ok(download_dir) = app_handle.path().download_dir() {
-                                let save_path = download_dir.join(&name);
-                                let _ = std::fs::write(&save_path, data);
-                                println!("[P2P] 文件已保存至: {:?}", save_path);
-                            }
+               // 处理消息收发
+               SwarmEvent::Behaviour(HiphupBehaviourEvent::Chat(request_response::Event::Message {
+                   peer,
+                   message: request_response::Message::Request { request, channel, .. },
+                   ..
+               })) => {
+                   let peer_id_str = peer.to_string();
+                   println!("[P2P] 正在处理来自 {} 的请求...", peer_id_str);
 
-                            ChatMessageRecord {
-                                id: Uuid::new_v4().to_string(),
-                                self_id: self_id_str.clone(),
-                                peer_id: peer.to_string(),
-                                content: format!("文件已保存到下载目录: {}", name),
-                                msg_type: "file".into(),
-                                direction: "receive".into(),
-                                timestamp: get_now(),
-                            }
-                        }
-                    };
+                   let record = match request {
+                       ChatRequest::Text { content } => ChatMessageRecord {
+                           id: Uuid::new_v4().to_string(),
+                           self_id: self_id_str.clone(),
+                           peer_id: peer_id_str.clone(),
+                           content,
+                           msg_type: "text".into(),
+                           direction: "receive".into(),
+                           timestamp: get_now(),
+                       },
+                       ChatRequest::File { name, data } => {
+                           let mut final_content = format!("收到文件: {}", name);
 
-                    let _ = save_msg(&db, &record);
-                    let _ = app_handle.emit("p2p-receive-msg", json!(record));
-                    let _ = swarm.behaviour_mut().chat.send_response(channel, ChatResponse { status: "ok".into() });
-                }
+                           // 💡 增加路径获取与文件写入的错误检查
+                           match app_handle.path().download_dir() {
+                               Ok(download_dir) => {
+                                   let save_path = download_dir.join(&name);
+                                   match std::fs::write(&save_path, data) {
+                                       Ok(_) => {
+                                           println!("[P2P] ✅ 文件成功保存至: {:?}", save_path);
+                                           final_content = format!("文件已保存到下载目录: {}", name);
+                                       },
+                                       Err(e) => {
+                                           eprintln!("[P2P] ❌ 文件写入失败: {} (路径: {:?})", e, save_path);
+                                           final_content = format!("文件接收失败 (写入错误): {}", name);
+                                       }
+                                   }
+                               },
+                               Err(e) => {
+                                   eprintln!("[P2P] ❌ 无法定位下载目录: {}", e);
+                                   final_content = format!("文件接收失败 (系统路径错误): {}", name);
+                               }
+                           }
+
+                           ChatMessageRecord {
+                               id: Uuid::new_v4().to_string(),
+                               self_id: self_id_str.clone(),
+                               peer_id: peer_id_str.clone(),
+                               content: final_content,
+                               msg_type: "file".into(),
+                               direction: "receive".into(),
+                               timestamp: get_now(),
+                           }
+                       }
+                   };
+
+                   // 💡 增加数据库保存错误检查
+                   if let Err(e) = save_msg(&db, &record) {
+                       eprintln!("[P2P] ❌ 消息持久化失败: {}", e);
+                   }
+
+                   // 💡 增加前端事件推送错误检查
+                   if let Err(e) = app_handle.emit("p2p-receive-msg", json!(record)) {
+                       eprintln!("[P2P] ❌ Tauri 事件推送失败: {}", e);
+                   }
+
+                   // 💡 增加发送响应回执的错误检查
+                   if let Err(e) = swarm.behaviour_mut().chat.send_response(channel, ChatResponse { status: "ok".into() }) {
+                       eprintln!("[P2P] ❌ 无法向 {} 发送响应回执: {:?}", peer_id_str, e);
+                   } else {
+                       println!("[P2P] 已成功向 {} 发送处理回执", peer_id_str);
+                   }
+               }
 
                 SwarmEvent::NewListenAddr { address, .. } => {
                     println!("[P2P] 本地监听地址: {}", address);

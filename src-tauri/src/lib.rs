@@ -12,7 +12,6 @@ use crate::sync::{
 use security::{encrypt_secret, decrypt_secret};
 use p2p::{set_p2p_remark, start_p2p_node, get_p2p_remarks, search_p2p_messages, get_online_peers};
 use redis_manager::{redis_connect, redis_get_keys, redis_get_value, redis_set_value, redis_del_key, redis_rename_key, redis_get_ttl, redis_get_type, save_redis_config, get_redis_configs, delete_redis_config, clear_all_redis_configs};
-use async_trait::async_trait;
 use tokio::sync::mpsc;
 use russh::*;
 use russh::client::DisconnectReason;
@@ -109,29 +108,32 @@ pub struct ClientHandler<R: Runtime> {
     shell_channel_id: Arc<Mutex<Option<ChannelId>>>,
 }
 
-#[async_trait]
 impl<R: Runtime> client::Handler for ClientHandler<R> {
     type Error = russh::Error;
 
     async fn check_server_key(
         &mut self,
-        _server_public_key: &russh_keys::key::PublicKey,
+        _server_public_key: &russh::keys::PublicKey,
     ) -> Result<bool, Self::Error> {
         Ok(true)
     }
 
-    async fn data(&mut self, channel: ChannelId, data: &[u8], _session: &mut client::Session) -> Result<(), Self::Error> {
+    async fn data(
+        &mut self,
+        channel: ChannelId,
+        data: &[u8],
+        _session: &mut client::Session
+    ) -> Result<(), Self::Error> {
          let shell_id_opt = *self.shell_channel_id.lock().await;
 
          if Some(channel) == shell_id_opt {
              let text = String::from_utf8_lossy(data).to_string();
+             // 使用 tauri 2.x 的 emit
              let _ = self.window.emit("ssh-output", SshPayload {
                  server_id: self.server_id.clone(),
                  session_id: self.session_id.clone(),
                  data: text,
              });
-         } else {
-             println!("[SSH] 拦截到非 Shell 通道数据 (ID: {:?})", channel);
          }
          Ok(())
     }
@@ -173,16 +175,25 @@ async fn authenticate<R: Runtime>(
 ) -> Result<(), String> {
     if config.auth_type == "key" {
         let path_str = config.private_key_path.as_ref().ok_or("未配置私钥路径")?;
-        let key_pair = russh_keys::load_secret_key(path_str, None)
+        let key_pair = russh::keys::load_secret_key(path_str, None)
             .map_err(|e| format!("加载私钥失败: {}", e))?;
-        let auth_res = handle.authenticate_publickey(&config.username, Arc::new(key_pair)).await
+
+        let key_with_alg = russh::keys::PrivateKeyWithHashAlg::new(Arc::new(key_pair), None);
+
+        let auth_res = handle.authenticate_publickey(&config.username, key_with_alg).await
             .map_err(|e| format!("私钥认证出错: {}", e))?;
-        if !auth_res { return Err("私钥认证被拒绝".into()); }
+
+        if !matches!(auth_res, russh::client::AuthResult::Success) {
+            return Err("私钥认证被拒绝".into());
+        }
     } else {
         let pass = config.password.as_deref().unwrap_or("");
         let auth_res = handle.authenticate_password(&config.username, pass).await
             .map_err(|e| format!("密码认证出错: {}", e))?;
-        if !auth_res { return Err("用户名或密码错误".into()); }
+
+        if !matches!(auth_res, russh::client::AuthResult::Success) {
+            return Err("用户名或密码错误".into());
+        }
     }
     Ok(())
 }
@@ -194,7 +205,9 @@ async fn create_recursive_session<R: Runtime>(
     session_id: String,
     shell_channel_id: Arc<Mutex<Option<ChannelId>>>,
 ) -> Result<client::Handle<ClientHandler<R>>, String> {
-    let client_config = Arc::new(client::Config::default());
+    let config = client::Config::default();
+    let client_config = Arc::new(config);
+
     let handler = ClientHandler {
         window: window.clone(),
         server_id: target_config.id.clone(),
@@ -202,27 +215,17 @@ async fn create_recursive_session<R: Runtime>(
         shell_channel_id: shell_channel_id.clone(),
     };
 
-    println!("[SSH] 尝试连接 - 目标服务器：{} ({}:{})",
-             target_config.name, target_config.host, target_config.port);
-    println!("[SSH] jump_host_id: {:?}", target_config.jump_host_id);
-
     match target_config.jump_host_id.as_deref() {
         None | Some("") => {
-            println!("[SSH] 直连模式");
             let addr = format!("{}:{}", target_config.host, target_config.port);
             let mut handle = client::connect(client_config, addr, handler).await
-                .map_err(|e| format!("连接 {} 失败：{}", target_config.host, e))?;
+                .map_err(|e| format!("直连失败: {}", e))?;
             authenticate(&mut handle, target_config).await?;
             Ok(handle)
         }
         Some(jump_id) => {
-            println!("[SSH] 隧道模式 - 跳板机 ID: {}", jump_id);
-
             let jump_config = all_configs.iter().find(|s| s.id == jump_id)
-                .ok_or(format!("找不到跳板机配置：{}", jump_id))?;
-
-            println!("[SSH] 跳板机信息：{} ({}:{})",
-                     jump_config.name, jump_config.host, jump_config.port);
+                .ok_or(format!("找不到跳板机: {}", jump_id))?;
 
             let jump_handle = Box::pin(create_recursive_session(
                 window.clone(),
@@ -232,24 +235,16 @@ async fn create_recursive_session<R: Runtime>(
                 shell_channel_id.clone()
             )).await?;
 
-            println!("[SSH] 跳板机连接成功，尝试建立隧道到 {}:{}",
-                     target_config.host, target_config.port);
-
             let channel = jump_handle.channel_open_direct_tcpip(
                 &target_config.host,
                 target_config.port as u32,
                 "127.0.0.1",
                 0
-            ).await
-            .map_err(|e| {
-                println!("[SSH] 隧道建立失败：{:?}", e);
-                format!("隧道建立失败：{:?}", e)
-            })?;
-
-            println!("[SSH] 隧道建立成功");
+            ).await.map_err(|e| format!("隧道建立失败: {}", e))?;
 
             let mut handle = client::connect_stream(client_config, channel.into_stream(), handler).await
-                .map_err(|e| format!("隧道内连接失败：{}", e))?;
+                .map_err(|e| format!("隧道内握手失败: {}", e))?;
+
             authenticate(&mut handle, target_config).await?;
             Ok(handle)
         }
@@ -434,10 +429,8 @@ async fn connect_ssh(
 async fn write_to_ssh(state: State<'_, AppState>, session_id: String, data: String) -> Result<(), String> {
     let mut sessions = state.sessions.lock().await;
     if let Some(sess) = sessions.get_mut(&session_id) {
-        let mut crypto_data = russh::CryptoVec::new();
-        crypto_data.extend(data.as_bytes());
-        sess.handle.data(sess.channel_id, crypto_data).await
-            .map_err(|_| "Failed to write data to SSH channel".to_string())?;
+        sess.handle.data(sess.channel_id, data.into()).await
+            .map_err(|e| format!("写入 SSH 通道失败: {:?}", e))?;
     }
     Ok(())
 }
@@ -480,12 +473,20 @@ async fn list_local_dir(path: String) -> Result<Vec<FileInfo>, String> {
 async fn list_remote_dir(state: State<'_, AppState>, session_id: String, path: String) -> Result<Vec<FileInfo>, String> {
     let mut sessions = state.sessions.lock().await;
     let sess = sessions.get_mut(&session_id).ok_or("Session not found")?;
+
+    // 打开会话通道并启动 sftp 子系统
     let channel = sess.handle.channel_open_session().await.map_err(|e| e.to_string())?;
     channel.request_subsystem(true, "sftp").await.map_err(|e| e.to_string())?;
-    let sftp = SftpSession::new(channel.into_stream()).await.map_err(|e| e.to_string())?;
+
+    // 💡 适配 2.1.1：SftpSession::new 是异步的，且直接消耗 channel 转换的 stream
+    let sftp = SftpSession::new(channel.into_stream())
+        .await
+        .map_err(|e| format!("SFTP 初始化失败: {}", e))?;
+
     let entries = sftp.read_dir(path).await.map_err(|e| e.to_string())?;
     let mut files = Vec::new();
     files.push(FileInfo { name: "..".to_string(), is_dir: true, size: 0 });
+
     for entry in entries {
         let filename = entry.file_name();
         if filename == "." || filename == ".." { continue; }
@@ -500,6 +501,8 @@ async fn list_remote_dir(state: State<'_, AppState>, session_id: String, path: S
     Ok(files)
 }
 
+
+
 #[tauri::command]
 async fn sftp_upload(
     window: tauri::Window,
@@ -509,32 +512,49 @@ async fn sftp_upload(
     remote_path: String,
     task_id: String
 ) -> Result<(), String> {
+    // 1. 获取 Handle 并创建 SFTP 实例
+    // 💡 快速释放锁，避免阻塞其他 SSH 操作
     let sftp = {
         let mut sessions = state.sessions.lock().await;
         let sess = sessions.get_mut(&session_id).ok_or("Session not found")?;
-        let channel = sess.handle.channel_open_session().await.map_err(|e| e.to_string())?;
-        channel.request_subsystem(true, "sftp").await.map_err(|e| e.to_string())?;
-        SftpSession::new(channel.into_stream()).await.map_err(|e| e.to_string())?
+
+        let channel = sess.handle.channel_open_session().await.map_err(|e| format!("打开通道失败: {:?}", e))?;
+        channel.request_subsystem(true, "sftp").await.map_err(|e| format!("请求子系统失败: {:?}", e))?;
+
+        // 适配 russh-sftp 2.1.1 的异步 new
+        SftpSession::new(channel.into_stream()).await.map_err(|e| format!("初始化 SFTP 失败: {:?}", e))?
     };
 
+    // 2. 准备本地文件
     let mut local_file = tokio::fs::File::open(&local_path).await.map_err(|e| e.to_string())?;
     let total_size = local_file.metadata().await.map_err(|e| e.to_string())?.len();
+
+    // 3. 创建远程文件
     let mut remote_file = sftp.create(&remote_path).await.map_err(|e| e.to_string())?;
 
-    let mut buffer = [0u8; 32768];
+    let mut buffer = vec![0u8; 65536]; // 64KB 缓冲区提升传输性能
     let mut uploaded_size = 0u64;
 
+    // 4. 开始循环写入
     while let Ok(n) = local_file.read(&mut buffer).await {
         if n == 0 { break; }
 
+        // 检查任务取消状态
         if state.cancelled_tasks.lock().await.contains(&task_id) {
             state.cancelled_tasks.lock().await.remove(&task_id);
+            drop(remote_file);
             return Err("Task cancelled".into());
         }
 
         remote_file.write_all(&buffer[..n]).await.map_err(|e| e.to_string())?;
         uploaded_size += n as u64;
-        let _ = window.emit("transfer-progress", ProgressPayload { task_id: task_id.clone(), progress: (uploaded_size * 100 / total_size) });
+
+        // 发送进度 (使用浮点数防止大文件计算溢出)
+        let progress = ((uploaded_size as f64 / total_size as f64) * 100.0) as u64;
+        let _ = window.emit("transfer-progress", ProgressPayload {
+            task_id: task_id.clone(),
+            progress
+        });
     }
     Ok(())
 }
@@ -548,36 +568,56 @@ async fn sftp_download(
     remote_path: String,
     task_id: String
 ) -> Result<(), String> {
+    // 1. 获取 Handle 并创建 SFTP 实例
     let sftp = {
         let mut sessions = state.sessions.lock().await;
         let sess = sessions.get_mut(&session_id).ok_or("Session not found")?;
-        let channel = sess.handle.channel_open_session().await.map_err(|e| e.to_string())?;
-        channel.request_subsystem(true, "sftp").await.map_err(|e| e.to_string())?;
-        SftpSession::new(channel.into_stream()).await.map_err(|e| e.to_string())?
+
+        let channel = sess.handle.channel_open_session().await.map_err(|e| format!("{:?}", e))?;
+        channel.request_subsystem(true, "sftp").await.map_err(|e| format!("{:?}", e))?;
+
+        SftpSession::new(channel.into_stream()).await.map_err(|e| format!("{:?}", e))?
     };
 
+    // 2. 打开远程文件获取大小
     let mut remote_file = sftp.open(&remote_path).await.map_err(|e| e.to_string())?;
-    let total_size = remote_file.metadata().await.map_err(|e| e.to_string())?.size.unwrap_or(0);
+    let metadata = remote_file.metadata().await.map_err(|e| e.to_string())?;
+    let total_size = metadata.size.unwrap_or(0);
+
+    // 3. 准备本地文件
     let mut local_file = tokio::fs::File::create(&local_path).await.map_err(|e| e.to_string())?;
 
-    let mut buffer = [0u8; 32768];
+    let mut buffer = vec![0u8; 65536];
     let mut downloaded_size = 0u64;
 
+    // 4. 开始循环读取
     while let Ok(n) = remote_file.read(&mut buffer).await {
         if n == 0 { break; }
 
         if state.cancelled_tasks.lock().await.contains(&task_id) {
             state.cancelled_tasks.lock().await.remove(&task_id);
+            drop(remote_file);
             return Err("Task cancelled".into());
         }
 
         local_file.write_all(&buffer[..n]).await.map_err(|e| e.to_string())?;
         downloaded_size += n as u64;
+
         if total_size > 0 {
-            let _ = window.emit("transfer-progress", ProgressPayload { task_id: task_id.clone(), progress: (downloaded_size * 100 / total_size) });
+            let progress = ((downloaded_size as f64 / total_size as f64) * 100.0) as u64;
+            let _ = window.emit("transfer-progress", ProgressPayload {
+                task_id: task_id.clone(),
+                progress
+            });
         }
     }
-    let _ = window.emit("transfer-progress", ProgressPayload { task_id: task_id.clone(), progress: 100 });
+
+    // 强制发送 100% 信号
+    let _ = window.emit("transfer-progress", ProgressPayload {
+        task_id: task_id.clone(),
+        progress: 100
+    });
+
     Ok(())
 }
 

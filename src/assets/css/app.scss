@@ -393,12 +393,15 @@
   bottom: 60px;
   right: 25px;
   width: 320px;
+  max-height: 400px; // 💡 必须限制高度，防止任务多时撑破屏幕
   background: var(--bg-card-95);
   backdrop-filter: blur(12px);
   border: 1px solid var(--border);
   border-radius: 12px;
   box-shadow: 0 12px 40px var(--shadow);
   z-index: 2000;
+  display: flex;
+  flex-direction: column; // 💡 改为 flex 布局以支持内部滚动
   overflow: hidden;
 
   .status-header {
@@ -408,13 +411,17 @@
     justify-content: space-between;
     align-items: center;
     border-bottom: 1px solid var(--border);
+    flex-shrink: 0; // 💡 防止头部被压缩
 
     .header-left {
       display: flex;
       align-items: center;
       gap: 10px;
       color: var(--accent);
+      font-size: 13px;
       font-weight: bold;
+
+      i { font-size: 14px; }
     }
 
     .header-status-dot.is-syncing {
@@ -427,43 +434,135 @@
     }
   }
 
+  .task-list-wrapper {
+    flex: 1;
+    overflow-y: auto; // 💡 任务多了这里会自动滚动
+    padding: 4px 0;
+
+    &::-webkit-scrollbar {
+      width: 4px;
+    }
+    &::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 2px;
+    }
+  }
+
   .task-row {
     background: var(--bg-primary-30);
-    padding: 10px;
+    padding: 12px;
     border-radius: 8px;
-    margin: 8px;
+    margin: 8px 12px;
+    border: 1px solid transparent;
+    transition: all 0.2s ease;
 
     &.status-success {
       border-left: 3px solid var(--success);
-
-      .task-percent {
-        color: var(--success);
-      }
+      .task-percent { color: var(--success); }
     }
 
     &.status-error {
       border-left: 3px solid var(--error);
+      .task-percent { color: var(--error); }
+    }
 
-      .task-percent {
-        color: var(--error);
+    .task-info {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+      gap: 8px;
+
+      .name-box {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex: 1;
+        min-width: 0; // 💡 关键：配合 ellipsis 使用
+
+        .type-icon {
+          font-size: 14px;
+          color: var(--accent);
+          flex-shrink: 0;
+        }
+
+        .task-name {
+          font-size: 12px;
+          color: var(--text-main);
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis; // 💡 文件名过长显示省略号
+        }
+      }
+
+      .task-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-shrink: 0;
+
+        .cancel-btn {
+          background: transparent;
+          border: none;
+          color: var(--text-dim);
+          cursor: pointer;
+          padding: 2px;
+          font-size: 12px;
+          transition: color 0.2s;
+          &:hover { color: var(--error); }
+        }
+
+        .task-percent {
+          font-family: 'JetBrains Mono', monospace;
+          font-size: 11px;
+          min-width: 32px;
+          text-align: right;
+        }
       }
     }
 
-    .progress-bar {
+    .progress-container {
       height: 4px;
-      background: var(--accent);
+      background: var(--border-30);
       border-radius: 2px;
+      overflow: hidden;
+      position: relative;
 
-      &.transferring::after {
-        content: "";
-        position: absolute;
-        inset: 0;
-        background-image: linear-gradient(-45deg, rgba(255, 255, 255, 0.2) 25%, transparent 25%, transparent 50%, rgba(255, 255, 255, 0.2) 50%, rgba(255, 255, 255, 0.2) 75%, transparent 75%);
-        background-size: 20px 20px;
-        animation: move-stripes 2s linear infinite;
+      .progress-bar {
+        height: 100%;
+        background: var(--accent);
+        border-radius: 2px;
+        transition: width 0.3s ease; // 💡 进度条平滑移动
+        position: relative;
+
+        &.transferring::after {
+          content: "";
+          position: absolute;
+          inset: 0;
+          background-image: linear-gradient(
+                          -45deg,
+                          rgba(255, 255, 255, 0.15) 25%,
+                          transparent 25%,
+                          transparent 50%,
+                          rgba(255, 255, 255, 0.15) 50%,
+                          rgba(255, 255, 255, 0.15) 75%,
+                          transparent 75%
+          );
+          background-size: 20px 20px;
+          animation: move-stripes 2s linear infinite;
+        }
       }
     }
   }
+}
+
+// 动画组效果
+.task-list-enter-active, .task-list-leave-active {
+  transition: all 0.4s ease;
+}
+.task-list-enter-from, .task-list-leave-to {
+  opacity: 0;
+  transform: translateX(30px);
 }
 
 .context-menu {

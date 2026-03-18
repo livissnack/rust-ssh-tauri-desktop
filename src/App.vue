@@ -107,6 +107,7 @@ const handleContextMenu = (e: MouseEvent, file: any, source: 'local' | 'remote')
   if (file.name === '..') return;
   contextFile.value = file;
   contextSource.value = source;
+  menuVisible.value = true;
   const menuWidth = 160;
   const menuHeight = 100;
   let x = e.clientX;
@@ -121,7 +122,9 @@ const handleContextMenu = (e: MouseEvent, file: any, source: 'local' | 'remote')
     menuVisible.value = false;
     window.removeEventListener('click', closeMenu);
   };
-  window.addEventListener('click', closeMenu);
+  setTimeout(() => {
+    window.addEventListener('click', closeMenu);
+  }, 10);
 };
 
 const handleMenuAction = async (action: 'transfer' | 'delete') => {
@@ -717,7 +720,7 @@ onUnmounted(() => {
                        @contextmenu="handleContextMenu($event, file, 'local')">
                     <span class="file-icon">
                       <i class="fas"
-                         :class="file.name === '..' ? 'fa-level-up-alt' : (file.is_dir ? 'fa-folder' : 'fa-file-alt')"></i>
+                         :class="file.name === '..' ? 'fa-level-up-alt' : (file.is_dir ? 'fa-folder' : 'fa-file-alt')" title="双击"></i>
                     </span>
                     <span class="file-name">{{ file.name }}</span>
                     <span class="file-size" v-if="!file.is_dir">
@@ -746,7 +749,7 @@ onUnmounted(() => {
                        @contextmenu="handleContextMenu($event, file, 'remote')">
                     <span class="file-icon">
                       <i class="fas"
-                         :class="file.name === '..' ? 'fa-level-up-alt' : (file.is_dir ? 'fa-folder' : 'fa-file-alt')"></i>
+                         :class="file.name === '..' ? 'fa-level-up-alt' : (file.is_dir ? 'fa-folder' : 'fa-file-alt')" title="双击"></i>
                     </span>
                     <span class="file-name">{{ file.name }}</span>
                     <span class="file-size" v-if="!file.is_dir">{{ (file.size / 1024).toFixed(1) }} KB</span>

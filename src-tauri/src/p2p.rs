@@ -149,7 +149,6 @@ pub async fn start_p2p_node(
 
     let _ = app_handle.emit("p2p-my-id", &self_id_str);
 
-    // 0.56.0 推荐的 SwarmBuilder 写法
     let mut swarm = libp2p::SwarmBuilder::with_existing_identity(local_key)
         .with_tokio()
         .with_tcp(
@@ -218,7 +217,6 @@ pub async fn start_p2p_node(
             }
 
             event = swarm.select_next_some() => match event {
-                // 处理 mDNS 发现
                 SwarmEvent::Behaviour(HiphupBehaviourEvent::Mdns(mdns::Event::Discovered(list))) => {
                     for (peer_id, addr) in list {
                         let id_str = peer_id.to_string();
@@ -233,7 +231,6 @@ pub async fn start_p2p_node(
                     }
                 }
 
-                // 处理 mDNS 过期（真正的下线）
                 SwarmEvent::Behaviour(HiphupBehaviourEvent::Mdns(mdns::Event::Expired(list))) => {
                     for (peer_id, _addr) in list {
                         let id_str = peer_id.to_string();
@@ -246,12 +243,10 @@ pub async fn start_p2p_node(
                     }
                 }
 
-                // 物理连接关闭（不再标记为下线）
                 SwarmEvent::ConnectionClosed { peer_id, .. } => {
                     println!("[P2P] 物理连接已关闭: {}。只要 mDNS 没过期，依然在线。", peer_id);
                 }
 
-               // 处理消息收发
                SwarmEvent::Behaviour(HiphupBehaviourEvent::Chat(request_response::Event::Message {
                    peer,
                    message: request_response::Message::Request { request, channel, .. },
@@ -273,7 +268,6 @@ pub async fn start_p2p_node(
                        ChatRequest::File { name, data } => {
                            let mut final_content = format!("收到文件: {}", name);
 
-                           // 💡 增加路径获取与文件写入的错误检查
                            match app_handle.path().download_dir() {
                                Ok(download_dir) => {
                                    let save_path = download_dir.join(&name);
@@ -306,17 +300,14 @@ pub async fn start_p2p_node(
                        }
                    };
 
-                   // 💡 增加数据库保存错误检查
                    if let Err(e) = save_msg(&db, &record) {
                        eprintln!("[P2P] ❌ 消息持久化失败: {}", e);
                    }
 
-                   // 💡 增加前端事件推送错误检查
                    if let Err(e) = app_handle.emit("p2p-receive-msg", json!(record)) {
                        eprintln!("[P2P] ❌ Tauri 事件推送失败: {}", e);
                    }
 
-                   // 💡 增加发送响应回执的错误检查
                    if let Err(e) = swarm.behaviour_mut().chat.send_response(channel, ChatResponse { status: "ok".into() }) {
                        eprintln!("[P2P] ❌ 无法向 {} 发送响应回执: {:?}", peer_id_str, e);
                    } else {

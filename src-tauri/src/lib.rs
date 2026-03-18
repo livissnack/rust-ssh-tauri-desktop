@@ -154,7 +154,6 @@ pub struct AppState {
     pub sessions: Arc<Mutex<HashMap<String, ActiveSession>>>,
     pub db: Arc<redb::Database>,
     pub cancelled_tasks: Arc<Mutex<HashSet<String>>>,
-    // 💡 新增：P2P 发送句柄
     pub p2p_sender: mpsc::UnboundedSender<p2p::P2PCommand>,
 }
 
@@ -474,11 +473,9 @@ async fn list_remote_dir(state: State<'_, AppState>, session_id: String, path: S
     let mut sessions = state.sessions.lock().await;
     let sess = sessions.get_mut(&session_id).ok_or("Session not found")?;
 
-    // 打开会话通道并启动 sftp 子系统
     let channel = sess.handle.channel_open_session().await.map_err(|e| e.to_string())?;
     channel.request_subsystem(true, "sftp").await.map_err(|e| e.to_string())?;
 
-    // 💡 适配 2.1.1：SftpSession::new 是异步的，且直接消耗 channel 转换的 stream
     let sftp = SftpSession::new(channel.into_stream())
         .await
         .map_err(|e| format!("SFTP 初始化失败: {}", e))?;
@@ -512,8 +509,6 @@ async fn sftp_upload(
     remote_path: String,
     task_id: String
 ) -> Result<(), String> {
-    // 1. 获取 Handle 并创建 SFTP 实例
-    // 💡 快速释放锁，避免阻塞其他 SSH 操作
     let sftp = {
         let mut sessions = state.sessions.lock().await;
         let sess = sessions.get_mut(&session_id).ok_or("Session not found")?;
@@ -521,25 +516,20 @@ async fn sftp_upload(
         let channel = sess.handle.channel_open_session().await.map_err(|e| format!("打开通道失败: {:?}", e))?;
         channel.request_subsystem(true, "sftp").await.map_err(|e| format!("请求子系统失败: {:?}", e))?;
 
-        // 适配 russh-sftp 2.1.1 的异步 new
         SftpSession::new(channel.into_stream()).await.map_err(|e| format!("初始化 SFTP 失败: {:?}", e))?
     };
 
-    // 2. 准备本地文件
     let mut local_file = tokio::fs::File::open(&local_path).await.map_err(|e| e.to_string())?;
     let total_size = local_file.metadata().await.map_err(|e| e.to_string())?.len();
 
-    // 3. 创建远程文件
     let mut remote_file = sftp.create(&remote_path).await.map_err(|e| e.to_string())?;
 
-    let mut buffer = vec![0u8; 65536]; // 64KB 缓冲区提升传输性能
+    let mut buffer = vec![0u8; 65536];
     let mut uploaded_size = 0u64;
 
-    // 4. 开始循环写入
     while let Ok(n) = local_file.read(&mut buffer).await {
         if n == 0 { break; }
 
-        // 检查任务取消状态
         if state.cancelled_tasks.lock().await.contains(&task_id) {
             state.cancelled_tasks.lock().await.remove(&task_id);
             drop(remote_file);
@@ -549,7 +539,6 @@ async fn sftp_upload(
         remote_file.write_all(&buffer[..n]).await.map_err(|e| e.to_string())?;
         uploaded_size += n as u64;
 
-        // 发送进度 (使用浮点数防止大文件计算溢出)
         let progress = ((uploaded_size as f64 / total_size as f64) * 100.0) as u64;
         let _ = window.emit("transfer-progress", ProgressPayload {
             task_id: task_id.clone(),
@@ -568,7 +557,6 @@ async fn sftp_download(
     remote_path: String,
     task_id: String
 ) -> Result<(), String> {
-    // 1. 获取 Handle 并创建 SFTP 实例
     let sftp = {
         let mut sessions = state.sessions.lock().await;
         let sess = sessions.get_mut(&session_id).ok_or("Session not found")?;
@@ -579,18 +567,15 @@ async fn sftp_download(
         SftpSession::new(channel.into_stream()).await.map_err(|e| format!("{:?}", e))?
     };
 
-    // 2. 打开远程文件获取大小
     let mut remote_file = sftp.open(&remote_path).await.map_err(|e| e.to_string())?;
     let metadata = remote_file.metadata().await.map_err(|e| e.to_string())?;
     let total_size = metadata.size.unwrap_or(0);
 
-    // 3. 准备本地文件
     let mut local_file = tokio::fs::File::create(&local_path).await.map_err(|e| e.to_string())?;
 
     let mut buffer = vec![0u8; 65536];
     let mut downloaded_size = 0u64;
 
-    // 4. 开始循环读取
     while let Ok(n) = remote_file.read(&mut buffer).await {
         if n == 0 { break; }
 
@@ -612,7 +597,6 @@ async fn sftp_download(
         }
     }
 
-    // 强制发送 100% 信号
     let _ = window.emit("transfer-progress", ProgressPayload {
         task_id: task_id.clone(),
         progress: 100

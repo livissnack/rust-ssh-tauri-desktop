@@ -1,6 +1,7 @@
 {
   "version": "5",
   "specifiers": {
+    "npm:@fontsource/jetbrains-mono@^5.2.8": "5.2.8",
     "npm:@fortawesome/fontawesome-free@^7.2.0": "7.2.0",
     "npm:@tauri-apps/api@2": "2.10.1",
     "npm:@tauri-apps/cli@2": "2.10.0",
@@ -173,6 +174,9 @@
       "integrity": "sha512-alJC0uCZpTFrSL0CCDjcgleBXPnCrEAhTBILpeAp7M/OFgoqtAetfBzX0xM00MUsVVPpVjlPuMbREqnZCXaTnA==",
       "os": ["win32"],
       "cpu": ["x64"]
+    },
+    "@fontsource/jetbrains-mono@5.2.8": {
+      "integrity": "sha512-6w8/SG4kqvIMu7xd7wt6x3idn1Qux3p9N62s6G3rfldOUYHpWcc2FKrqf+Vo44jRvqWj2oAtTHrZXEP23oSKwQ=="
     },
     "@fortawesome/fontawesome-free@7.2.0": {
       "integrity": "sha512-3DguDv/oUE+7vjMeTSOjCSG+KeawgVQOHrKRnvUuqYh1mfArrh7s+s8hXW3e4RerBA1+Wh+hBqf8sJNpqNrBWg=="
@@ -956,9 +960,6 @@
       ],
       "bin": true
     },
-    "sortablejs@1.14.0": {
-      "integrity": "sha512-pBXvQCs5/33fdN1/39pPL0NZF20LeRbLQ5jtnheIPN9JQAaufGjKdWduZn4U7wCtVuzKhmRkI0DFYHYRbB2H1w=="
-    },
     "source-map-js@1.2.1": {
       "integrity": "sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA=="
     },
@@ -1038,18 +1039,12 @@
       "optionalPeers": [
         "typescript"
       ]
-    },
-    "vuedraggable@4.1.0_vue@3.5.29__typescript@5.6.3_typescript@5.6.3": {
-      "integrity": "sha512-FU5HCWBmsf20GpP3eudURW3WdWTKIbEIQxh9/8GE806hydR9qZqRRxRE3RjqX7PkuLuMQG/A7n3cfj9rCEchww==",
-      "dependencies": [
-        "sortablejs",
-        "vue"
-      ]
     }
   },
   "workspace": {
     "packageJson": {
       "dependencies": [
+        "npm:@fontsource/jetbrains-mono@^5.2.8",
         "npm:@fortawesome/fontawesome-free@^7.2.0",
         "npm:@tauri-apps/api@2",
         "npm:@tauri-apps/cli@2",

@@ -346,6 +346,9 @@ const initTerminal = async (sessionId: string) => {
   const term = new Terminal({
     cursorBlink: true,
     fontSize: 14,
+    lineHeight: 1.2,
+    letterSpacing: 0.5,
+    fontWeight: '500',
     fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
     theme: getTerminalTheme(),
     allowProposedApi: true,

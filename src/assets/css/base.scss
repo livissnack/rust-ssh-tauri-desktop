@@ -200,6 +200,7 @@ $current-theme: map.get($themes, $active-theme);
 
 $is-light: map.get($current-theme, 'is-light');
 
+$font-terminal: "JetBrains Mono", monospace;
 
 // 主题变量混合器 (使用 map.get)
 @function theme($key) {
@@ -249,6 +250,7 @@ $logo-text-color: #ffffff;
 // 🎯 CSS 变量定义
 // ============================================
 :root {
+  --font-terminal: #{$font-terminal};
   --bg-main: #{$bg-dark};
   --bg-primary: #{$bg-primary};
   --bg-secondary: #{$bg-secondary};

@@ -56,6 +56,8 @@ pub struct ServerConfig {
     pub updated_at: u64,
     #[serde(default)]
     pub deleted: bool,
+    #[serde(default)]
+    pub sort_order: i32,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -299,9 +301,54 @@ async fn get_servers(state: State<'_, AppState>) -> Result<Vec<ServerConfig>, St
         servers.push(server);
     }
 
-    servers.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    servers.sort_by(|a, b| {
+        a.sort_order.cmp(&b.sort_order)
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
 
     Ok(servers)
+}
+
+#[tauri::command]
+async fn update_server_order(
+    app_handle: tauri::AppHandle,
+    state: State<'_, AppState>,
+    ids: Vec<String>
+) -> Result<(), String> {
+    let write_txn = state.db.begin_write().map_err(|e| e.to_string())?;
+    {
+        let mut table = write_txn.open_table(SERVERS_TABLE).map_err(|e| e.to_string())?;
+
+        for (index, id) in ids.iter().enumerate() {
+            // --- 核心修复：通过作用域或显式转换，确保读取动作结束 ---
+            let existing_json = {
+                // get 返回的 AccessGuard 在这个花括号结束时会被 drop
+                table.get(id.as_str())
+                    .map_err(|e| e.to_string())?
+                    .map(|v| v.value().to_string()) // 转换为 Owned String
+            };
+
+            if let Some(json_str) = existing_json {
+                let mut server: ServerConfig = serde_json::from_str(&json_str).map_err(|e| e.to_string())?;
+
+                server.sort_order = index as i32;
+                server.updated_at = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64;
+
+                let new_json = serde_json::to_string(&server).map_err(|e| e.to_string())?;
+
+                // 此时原有不可变借用已失效，可以安全地进行 mutable borrow (insert)
+                table.insert(id.as_str(), new_json.as_str()).map_err(|e| e.to_string())?;
+            }
+        }
+    }
+
+    write_txn.commit().map_err(|e| e.to_string())?;
+    trigger_auto_sync(state.inner(), app_handle).await;
+
+    Ok(())
 }
 
 
@@ -1057,6 +1104,7 @@ pub fn run() {
             ask_ai,
             get_server_latency,
             get_servers,
+            update_server_order,
             save_server,
             delete_server,
             sync_to_cloud,

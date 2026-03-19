@@ -7,8 +7,8 @@ import "@xterm/xterm/css/xterm.css";
 import {invoke} from "@tauri-apps/api/core";
 import { homeDir } from '@tauri-apps/api/path';
 import {listen, UnlistenFn} from "@tauri-apps/api/event";
-import {ask} from '@tauri-apps/plugin-dialog';
 import {toast} from './utils/toast.ts';
+import {confirm} from './utils/confirm.ts';
 import {throttle, formatSize} from "./utils/async";
 import {applyTheme, defaultTheme} from "./utils/theme";
 
@@ -137,12 +137,12 @@ const handleMenuAction = async (action: 'transfer' | 'delete') => {
     const type = source === 'local' ? 'upload' : 'download';
     await startTransfer(type, file);
   } else if (action === 'delete') {
-    const confirmed = await ask(`确定删除${source === 'local' ? '本地' : '远程'}文件 "${file.name}"？`, {
-      title: '确认删除',
-      kind: 'warning',
-    });
+    const ok = await confirm.error(
+        `确定要永久删除${source === 'local' ? '本地' : '远程'}文件 "${file.name}" 吗？`,
+        '确认删除'
+    );
 
-    if (confirmed) {
+    if (ok) {
       try {
         if (source === 'remote') {
           const path = `${remotePath.value.replace(/\/$/, '')}/${file.name}`;
@@ -576,6 +576,18 @@ const updateOnlineCount = async () => {
   }
 };
 
+const handleOrderChange = async (newList) => {
+  servers.value = newList;
+
+  const ids = newList.map(s => s.id);
+  try {
+    await invoke("update_server_order", { ids });
+    console.log("后端排序更新成功");
+  } catch (err) {
+    toast.error("保存排序失败: " + err);
+  }
+};
+
 watch(defaultTheme, async () => {
   await nextTick();
   const newTheme = getTerminalTheme();
@@ -646,6 +658,7 @@ onUnmounted(() => {
           @connect="connectToServer"
           @edit="openEditModal"
           @delete="loadServers"
+          @update:servers="handleOrderChange"
           @open-add-modal="openAddModal"
       />
 

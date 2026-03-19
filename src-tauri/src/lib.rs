@@ -115,13 +115,10 @@ pub struct ClientHandler<R: Runtime> {
 impl<R: Runtime> client::Handler for ClientHandler<R> {
     type Error = russh::Error;
 
-    // 在你的 ClientHandler 实现里增加这个方法
     fn check_server_key(
         &mut self,
-        server_public_key: &russh::keys::PublicKey,
+        _server_public_key: &russh::keys::PublicKey,
     ) -> impl Future<Output = Result<bool, Self::Error>> + Send {
-        let fingerprint = server_public_key.fingerprint(russh::keys::HashAlg::Sha256);
-        println!("正在连接的服务器指纹 (SHA256): {:?}", fingerprint);
         async move {
             Ok(true)
         }

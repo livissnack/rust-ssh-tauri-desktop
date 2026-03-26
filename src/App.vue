@@ -371,7 +371,44 @@ const initTerminal = async (sessionId: string) => {
       console.warn("WebGL 加速启动失败，自动降级为 Canvas 渲染", e);
     }
     fitAddon.fit();
-    term.onData((data) => invoke("write_to_ssh", {sessionId, data}));
+
+    // 性能优先：不要引入定时器延迟。只做串行化发送（避免并发触发后端 handle 锁争抢）。
+    let sendQueue: string[] = [];
+    let isSending = false;
+    let flushScheduled = false;
+
+    const flush = async () => {
+      if (isSending) return;
+      if (sendQueue.length === 0) return;
+
+      isSending = true;
+      flushScheduled = false;
+
+      // drain 成一个 chunk，减少 invoke 次数；但不等定时器，尽量保持低延迟
+      const chunk = sendQueue.join("");
+      sendQueue = [];
+
+      await invoke("write_to_ssh", { sessionId, data: chunk }).catch((e) =>
+        console.error("write_to_ssh failed:", e)
+      );
+
+      isSending = false;
+      if (sendQueue.length > 0) scheduleFlush();
+    };
+
+    const scheduleFlush = () => {
+      if (flushScheduled || isSending) return;
+      flushScheduled = true;
+      // 使用微任务，尽量降低输入到达服务器的延迟
+      Promise.resolve().then(() => flush());
+    };
+
+    term.onData((data) => {
+      // Enter 通常是 '\r'，有的远端 pty 需要 '\r\n' 才当作完整一行结束
+      const normalized = data.replace(/\r/g, "\r\n");
+      sendQueue.push(normalized);
+      scheduleFlush();
+    });
     terminalMap.set(sessionId, {term, fitAddon});
   }
 };
@@ -445,11 +482,16 @@ const focusTerminal = async (sessionId: string | null) => {
   if (instance) instance.term.focus();
 };
 
-const handleResize = throttle(() => {
-  if (activeSessionId.value) {
-    const instance = terminalMap.get(activeSessionId.value);
-    instance?.fitAddon.fit();
-  }
+const handleResize = throttle(async () => {
+  await nextTick();
+  terminalMap.forEach(({ fitAddon, term }, sessionId) => {
+    fitAddon.fit();
+    invoke("resize_ssh", {
+      sessionId,
+      rows: term.rows,
+      cols: term.cols
+    }).catch(console.error);
+  });
 }, 100);
 
 const openAddModal = () => {

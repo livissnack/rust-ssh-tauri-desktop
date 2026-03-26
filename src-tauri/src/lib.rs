@@ -133,13 +133,13 @@ impl<R: Runtime> client::Handler for ClientHandler<R> {
          let shell_id_opt = *self.shell_channel_id.lock().await;
 
          if Some(channel) == shell_id_opt {
-             let text = String::from_utf8_lossy(data).to_string();
-             // 使用 tauri 2.x 的 emit
-             let _ = self.window.emit("ssh-output", SshPayload {
-                 server_id: self.server_id.clone(),
-                 session_id: self.session_id.clone(),
-                 data: text,
-             });
+            // 性能优先：收到一段输出就立刻 emit，避免 vim 这类交互程序因输出延迟导致光标异常跳动。
+            let text = String::from_utf8_lossy(data).to_string();
+            let _ = self.window.emit("ssh-output", SshPayload {
+                server_id: self.server_id.clone(),
+                session_id: self.session_id.clone(),
+                data: text,
+            });
          }
          Ok(())
     }
@@ -151,8 +151,9 @@ impl<R: Runtime> client::Handler for ClientHandler<R> {
 }
 
 pub struct ActiveSession {
-    pub handle: client::Handle<ClientHandler<tauri::Wry>>,
+    pub handle: Arc<Mutex<client::Handle<ClientHandler<tauri::Wry>>>>,
     pub channel_id: ChannelId,
+    pub channel: Arc<Mutex<russh::Channel<russh::client::Msg>>>,
     pub sftp: Arc<Mutex<Option<SftpSession>>>,
 }
 
@@ -210,7 +211,11 @@ async fn create_recursive_session<R: Runtime>(
     session_id: String,
     shell_channel_id: Arc<Mutex<Option<ChannelId>>>,
 ) -> Result<client::Handle<ClientHandler<R>>, String> {
-    let config = client::Config::default();
+    // Increase channel_buffer_size to reduce backpressure-induced stalls
+    // under bursty interactive input (e.g. vim scrolling).
+    let mut config = client::Config::default();
+    config.channel_buffer_size = 4096;
+    config.nodelay = true; // reduce latency for small packets
     let client_config = Arc::new(config);
     let connect_timeout = Duration::from_secs(10);
 
@@ -478,7 +483,8 @@ async fn connect_ssh(
     let servers = get_servers(state.clone()).await?;
     let target_config = servers.iter().find(|s| s.id == server_id)
         .ok_or("配置不存在")?.clone();
-    let handle = create_recursive_session(window.clone(), &target_config, &servers, session_id.clone(), shell_id_container.clone()).await?;
+    let handle = create_recursive_session(window.clone(), &target_config, &servers, session_id.clone(), shell_id_container.clone())
+        .await?;
     let channel = handle.channel_open_session().await.map_err(|e| e.to_string())?;
     {
         let mut id_lock = shell_id_container.lock().await;
@@ -487,32 +493,88 @@ async fn connect_ssh(
     channel.request_pty(true, "xterm", 80, 24, 0, 0, &[]).await.map_err(|e| e.to_string())?;
     channel.request_shell(true).await.map_err(|e| e.to_string())?;
     let channel_id = channel.id();
-    state.sessions.lock().await.insert(session_id, ActiveSession { handle, channel_id, sftp: Arc::new(Mutex::new(None)) });
+    state.sessions.lock().await.insert(
+        session_id,
+        ActiveSession {
+            handle: Arc::new(Mutex::new(handle)),
+            channel_id,
+            channel: Arc::new(Mutex::new(channel)),
+            sftp: Arc::new(Mutex::new(None)),
+        },
+    );
     Ok(())
 }
 
 #[tauri::command]
 async fn write_to_ssh(state: State<'_, AppState>, session_id: String, data: String) -> Result<(), String> {
-    let mut sessions = state.sessions.lock().await;
-    if let Some(sess) = sessions.get_mut(&session_id) {
-        sess.handle.data(sess.channel_id, data.into()).await
-            .map_err(|e| format!("写入 SSH 通道失败: {:?}", e))?;
+    // 不要在持有全局 sessions 锁的情况下 await 网络/通道写操作。
+    // 否则当输入频繁（例如 vim 上下移动不断发控制序列）时，会堆积请求导致终端假死。
+    let (handle_mutex, channel_id) = {
+        let sessions = state.sessions.lock().await;
+        let sess = sessions.get(&session_id).ok_or("Session not found")?;
+        (sess.handle.clone(), sess.channel_id)
+    };
+
+    // 给写入过程分别加超时：
+    // 1) 锁等待超时：说明前一次写入还没释放 session 级 Handle 锁
+    // 2) 写入超时：说明拿到锁后，handle.data(...).await 本身卡住
+    let lock_timeout = Duration::from_secs(2);
+    let write_timeout = Duration::from_secs(15);
+
+    let handle = match timeout(lock_timeout, handle_mutex.lock()).await {
+        Ok(guard) => guard,
+        Err(_) => return Err(format!("写入 SSH 锁超时: session_id={}", session_id)),
+    };
+
+    match timeout(write_timeout, handle.data(channel_id, data.into())).await {
+        Ok(res) => res.map_err(|e| format!("写入 SSH 通道失败: {:?}", e)),
+        Err(_) => Err(format!("写入 SSH 写入超时: session_id={}", session_id)),
+    }
+}
+
+#[tauri::command]
+async fn disconnect_ssh(state: State<'_, AppState>, session_id: String) -> Result<(), String> {
+    let session_opt = {
+        let mut sessions = state.sessions.lock().await;
+        sessions.remove(&session_id)
+    };
+
+    if let Some(session) = session_opt {
+        let handle = session.handle.lock().await;
+        let _ = handle
+            .disconnect(
+                russh::Disconnect::ByApplication,
+                "User closed connection",
+                "en",
+            )
+            .await;
     }
     Ok(())
 }
 
 #[tauri::command]
-async fn disconnect_ssh(state: State<'_, AppState>, session_id: String) -> Result<(), String> {
-    let mut sessions = state.sessions.lock().await;
-    if let Some(session) = sessions.remove(&session_id) {
-        let _ = session.handle.disconnect(
-            russh::Disconnect::ByApplication,
-            "User closed connection",
-            "en"
-        ).await;
-        drop(session);
+async fn resize_ssh(
+    state: State<'_, AppState>,
+    session_id: String,
+    rows: u32,
+    cols: u32,
+) -> Result<(), String> {
+    let channel_arc = {
+        let sessions = state.sessions.lock().await;
+        sessions.get(&session_id).map(|sess| sess.channel.clone())
+    };
+
+    if let Some(channel_mutex) = channel_arc {
+        let channel = channel_mutex.lock().await;
+        channel
+            .window_change(cols, rows, 0, 0)
+            .await
+            .map_err(|e| format!("同步 PTY 尺寸失败: {:?}", e))?;
+
+        Ok(())
+    } else {
+        Err("会话已丢失".into())
     }
-    Ok(())
 }
 
 #[tauri::command]
@@ -537,10 +599,19 @@ async fn list_local_dir(path: String) -> Result<Vec<FileInfo>, String> {
 
 #[tauri::command]
 async fn list_remote_dir(state: State<'_, AppState>, session_id: String, path: String) -> Result<Vec<FileInfo>, String> {
-    let mut sessions = state.sessions.lock().await;
-    let sess = sessions.get_mut(&session_id).ok_or("Session not found")?;
+    let handle_mutex = {
+        let sessions = state.sessions.lock().await;
+        let sess = sessions.get(&session_id).ok_or("Session not found")?;
+        sess.handle.clone()
+    };
 
-    let channel = sess.handle.channel_open_session().await.map_err(|e| e.to_string())?;
+    let channel = {
+        let handle = handle_mutex.lock().await;
+        handle
+            .channel_open_session()
+            .await
+            .map_err(|e| e.to_string())?
+    };
     channel.request_subsystem(true, "sftp").await.map_err(|e| e.to_string())?;
 
     let sftp = SftpSession::new(channel.into_stream())
@@ -577,10 +648,19 @@ async fn sftp_upload(
     task_id: String
 ) -> Result<(), String> {
     let sftp = {
-        let mut sessions = state.sessions.lock().await;
-        let sess = sessions.get_mut(&session_id).ok_or("Session not found")?;
+        let handle_mutex = {
+            let sessions = state.sessions.lock().await;
+            let sess = sessions.get(&session_id).ok_or("Session not found")?;
+            sess.handle.clone()
+        };
 
-        let channel = sess.handle.channel_open_session().await.map_err(|e| format!("打开通道失败: {:?}", e))?;
+        let channel = {
+            let handle = handle_mutex.lock().await;
+            handle
+                .channel_open_session()
+                .await
+                .map_err(|e| format!("打开通道失败: {:?}", e))?
+        };
         channel.request_subsystem(true, "sftp").await.map_err(|e| format!("请求子系统失败: {:?}", e))?;
 
         SftpSession::new(channel.into_stream()).await.map_err(|e| format!("初始化 SFTP 失败: {:?}", e))?
@@ -625,10 +705,19 @@ async fn sftp_download(
     task_id: String
 ) -> Result<(), String> {
     let sftp = {
-        let mut sessions = state.sessions.lock().await;
-        let sess = sessions.get_mut(&session_id).ok_or("Session not found")?;
+        let handle_mutex = {
+            let sessions = state.sessions.lock().await;
+            let sess = sessions.get(&session_id).ok_or("Session not found")?;
+            sess.handle.clone()
+        };
 
-        let channel = sess.handle.channel_open_session().await.map_err(|e| format!("{:?}", e))?;
+        let channel = {
+            let handle = handle_mutex.lock().await;
+            handle
+                .channel_open_session()
+                .await
+                .map_err(|e| format!("{:?}", e))?
+        };
         channel.request_subsystem(true, "sftp").await.map_err(|e| format!("{:?}", e))?;
 
         SftpSession::new(channel.into_stream()).await.map_err(|e| format!("{:?}", e))?
@@ -686,9 +775,16 @@ async fn delete_remote_file(
     is_dir: bool
 ) -> Result<(), String> {
     let sftp = {
-        let mut sessions = state.sessions.lock().await;
-        let sess = sessions.get_mut(&session_id).ok_or("Session not found")?;
-        let ch = sess.handle.channel_open_session().await.map_err(|e| e.to_string())?;
+        let handle_mutex = {
+            let sessions = state.sessions.lock().await;
+            let sess = sessions.get(&session_id).ok_or("Session not found")?;
+            sess.handle.clone()
+        };
+
+        let ch = {
+            let handle = handle_mutex.lock().await;
+            handle.channel_open_session().await.map_err(|e| e.to_string())?
+        };
         ch.request_subsystem(true, "sftp").await.map_err(|e| e.to_string())?;
         SftpSession::new(ch.into_stream()).await.map_err(|e| e.to_string())?
     };
@@ -1085,6 +1181,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             connect_ssh,
+            resize_ssh,
             disconnect_ssh,
             write_to_ssh,
             list_local_dir,

@@ -10,39 +10,55 @@ const props = defineProps<{
   currentViewMode: 'terminal' | 'sftp';
   openSessions: Array<{ id: string; serverId: string; name: string }>;
   servers: any[];
+  isLocalSession?: boolean;
 }>();
 
 const emit = defineEmits<{
   (e: 'toggleViewMode'): void;
-  (e: 'cloneSession'): void;
   (e: 'connect'): void;
 }>();
 
-const displayServerName = computed(() => {
-  // 优先显示当前会话对应的服务器名称
+const activeServer = computed(() => {
   if (props.activeSessionId) {
     const session = props.openSessions?.find(s => s.id === props.activeSessionId);
+    if (session && props.isLocalSession) {
+      return { name: session.name };
+    }
     if (session) {
-      const server = props.servers?.find(s => s.id === session.serverId);
-      if (server) {
-        return server.name;
-      }
+      return props.servers?.find(s => s.id === session.serverId) ?? null;
     }
   }
+  return props.currentServer ?? null;
+});
 
-  // 如果没有活动会话，显示选中的服务器
-  if (props.currentServer) {
-    return props.currentServer.name;
+const displayServerName = computed(() => {
+  if (props.isLocalSession && props.activeSessionId) {
+    const session = props.openSessions?.find(s => s.id === props.activeSessionId);
+    if (session) return session.name;
   }
-
+  if (activeServer.value?.name) return activeServer.value.name;
   return 'Select a host';
+});
+
+const displayHostMeta = computed(() => {
+  if (props.isLocalSession) return 'Local Shell';
+  const server = activeServer.value;
+  if (!server?.host) return null;
+  return `${server.username}@${server.host}:${server.port}`;
 });
 
 const statusClass = computed(() => {
   if (props.isConnecting) return 'is-connecting';
   if (props.isError) return 'is-error';
   if (props.activeSessionId) return 'is-active';
-  return '';
+  return 'is-idle';
+});
+
+const statusLabel = computed(() => {
+  if (props.isConnecting) return 'Connecting';
+  if (props.isError) return 'Failed';
+  if (props.activeSessionId) return 'Connected';
+  return 'Ready';
 });
 
 const connectButtonText = computed(() => {
@@ -54,50 +70,63 @@ const connectButtonIcon = computed(() => {
   if (props.isConnecting) return 'fa-circle-notch fa-spin';
   return 'fa-plug';
 });
+
+const viewModeLabel = computed(() =>
+  props.currentViewMode === 'sftp' ? 'Terminal' : 'SFTP'
+);
+
+const viewModeIcon = computed(() =>
+  props.currentViewMode === 'sftp' ? 'fa-terminal' : 'fa-folder-open'
+);
 </script>
 
 <template>
   <header class="workspace-header">
-    <div class="breadcrumb">
-      <div class="breadcrumb-item">
-        <span>Hosts</span>
+    <div class="header-left">
+      <div class="header-icon" :class="statusClass">
+        <i class="fas fa-server"></i>
       </div>
-      <span class="sep">/</span>
-      <div class="breadcrumb-item current">
-        <span
-            class="status-indicator"
-            v-if="activeSessionId || isConnecting || isError"
-            :class="statusClass"
-        ></span>
-        <span class="name">{{ displayServerName }}</span>
+
+      <div class="header-info">
+        <nav class="breadcrumb" aria-label="Breadcrumb">
+          <span class="breadcrumb__root">Hosts</span>
+          <i class="fas fa-chevron-right breadcrumb__sep" aria-hidden="true"></i>
+          <span class="breadcrumb__current" :class="{ 'is-placeholder': !activeServer }">
+            {{ displayServerName }}
+          </span>
+        </nav>
+
+        <div v-if="displayHostMeta" class="header-meta">
+          <span class="status-badge" :class="statusClass">
+            <span class="status-badge__dot"></span>
+            {{ statusLabel }}
+          </span>
+          <span class="header-meta__address">{{ displayHostMeta }}</span>
+        </div>
+        <p v-else class="header-hint">从侧栏选择主机以建立连接</p>
       </div>
     </div>
+
     <div class="toolbar">
-      <button
-          class="action-btn mode-toggle"
-          :class="{ 'is-sftp': currentViewMode === 'sftp' }"
-          @click="emit('toggleViewMode')"
-      >
-        <i class="fas" :class="currentViewMode === 'sftp' ? 'fa-terminal' : 'fa-folder-open'"></i>
-        <span>{{ currentViewMode === 'sftp' ? 'Terminal' : 'SFTP' }}</span>
-      </button>
-
-      <div class="separator"></div>
-
-      <button
-          class="action-btn clone-btn"
-          @click="emit('cloneSession')"
-          :disabled="!activeSessionId"
-      >
-        <i class="fas fa-copy"></i>
-        <span>Clone</span>
-      </button>
+      <Tooltip :text="isLocalSession ? '本地终端不支持 SFTP' : `Switch to ${viewModeLabel}`">
+        <button
+            type="button"
+            class="tool-btn tool-btn--mode"
+            :class="{ 'is-sftp': currentViewMode === 'sftp' }"
+            :disabled="isLocalSession || !activeSessionId"
+            @click="emit('toggleViewMode')"
+        >
+          <i class="fas" :class="viewModeIcon"></i>
+          <span>{{ viewModeLabel }}</span>
+        </button>
+      </Tooltip>
 
       <button
+          type="button"
           class="connect-btn"
-          @click="emit('connect')"
+          :class="{ 'is-loading': isConnecting }"
           :disabled="!activeId || isConnecting"
-          :class="{ 'loading': isConnecting }"
+          @click="emit('connect')"
       >
         <i class="fas" :class="connectButtonIcon"></i>
         <span>{{ connectButtonText }}</span>
@@ -107,92 +136,181 @@ const connectButtonIcon = computed(() => {
 </template>
 
 <style lang="scss" scoped>
-@use "sass:color";
-@use '../assets/css/base.scss';
-
 .workspace-header {
-  height: 56px;
+  height: 60px;
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  padding: 0 24px;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 20px;
   flex-shrink: 0;
   background: var(--bg-primary);
+  border-bottom: 1px solid var(--border-30);
+}
 
-  .breadcrumb {
-    display: flex;
-    align-items: center;
-    gap: 4px; // 整体间距缩小，依靠 padding 撑开点击区域
-    font-family: 'Inter', sans-serif;
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 1;
+}
 
-    .breadcrumb-item {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 6px 10px;
-      border-radius: 6px;
-      transition: all 0.2s ease;
+.header-icon {
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-30);
+  color: var(--text-dim);
+  font-size: 14px;
+  transition: all 0.25s ease;
 
-      &.current {
-        color: var(--text-main);
-        font-weight: 700;
-        letter-spacing: -0.2px; // 略微收紧字间距，更有现代感
-        font-size: 14px;
+  &.is-active {
+    background: var(--bg-input);
+    border-color: var(--success);
+    color: var(--success);
+  }
 
-        /* 在 .breadcrumb-item.current 内部修改 status-indicator */
-        .status-indicator {
-          width: 8px;  // 稍微调大一点点更醒目
-          height: 8px;
-          border-radius: 50%;
-          margin-right: 8px;
-          transition: all 0.3s ease;
+  &.is-connecting {
+    background: var(--accent-orange-10);
+    border-color: var(--accent-orange-20);
+    color: var(--accent-orange);
+  }
 
-          // 1. 在线状态 (绿色)
-          &.is-active {
-            background: var(--success);
-            box-shadow: 0 0 8px var(--success-60, rgba(34, 197, 94, 0.4));
-          }
+  &.is-error {
+    background: var(--error-15);
+    border-color: var(--error-30);
+    color: var(--error);
+  }
+}
 
-          // 2. 失败状态 (红色)
-          &.is-error {
-            background: var(--danger, #ef4444);
-            box-shadow: 0 0 8px rgba(239, 68, 68, 0.5);
-            animation: error-shake 0.4s ease-in-out; // 失败时抖动一下
-          }
+.header-info {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
 
-          // 3. 连接中状态 (黄色/橙色)
-          &.is-connecting {
-            background: var(--accent-orange, #f97316);
-            box-shadow: 0 0 8px rgba(249, 115, 22, 0.4);
-            animation: status-pulse 1.5s infinite; // 正在连接时有呼吸效果
-          }
-        }
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 
-        // 呼吸灯动画
-        @keyframes status-pulse {
-          0% { opacity: 1; transform: scale(1); }
-          50% { opacity: 0.5; transform: scale(1.1); }
-          100% { opacity: 1; transform: scale(1); }
-        }
+  &__root {
+    flex-shrink: 0;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-dim);
+    letter-spacing: 0.02em;
+  }
 
-        // 错误时的轻微抖动
-        @keyframes error-shake {
-          0%, 100% { transform: translateX(0); }
-          25% { transform: translateX(-2px); }
-          75% { transform: translateX(2px); }
-        }
-      }
-    }
+  &__sep {
+    flex-shrink: 0;
+    font-size: 8px;
+    color: var(--text-dim);
+    opacity: 0.45;
+  }
 
-    .sep {
+  &__current {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text-main);
+    letter-spacing: -0.01em;
+    line-height: 1.2;
+
+    &.is-placeholder {
+      font-weight: 500;
       color: var(--text-dim);
-      font-family: "JetBrains Mono", "Cascadia Code", monospace;
       font-size: 14px;
-      font-weight: 300;
-      user-select: none;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
+    }
+  }
+}
+
+.header-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+
+  &__address {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--font-terminal);
+    font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: 0.02em;
+  }
+}
+
+.header-hint {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-dim);
+  opacity: 0.75;
+}
+
+.status-badge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 18px;
+  padding: 0 8px;
+  border-radius: 9px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  background: var(--bg-input);
+  border: 1px solid var(--border-30);
+  color: var(--text-dim);
+
+  &__dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+
+  &.is-active {
+    background: var(--bg-input);
+    border-color: var(--success);
+    color: var(--success);
+
+    .status-badge__dot {
+      box-shadow: 0 0 6px var(--success-60);
+    }
+  }
+
+  &.is-connecting {
+    background: var(--accent-orange-10);
+    border-color: var(--accent-orange-20);
+    color: var(--accent-orange);
+
+    .status-badge__dot {
+      animation: status-pulse 1.5s infinite;
+    }
+  }
+
+  &.is-error {
+    background: var(--error-15);
+    border-color: var(--error-30);
+    color: var(--error);
+
+    .status-badge__dot {
+      animation: error-shake 0.4s ease-in-out;
     }
   }
 }
@@ -201,98 +319,113 @@ const connectButtonIcon = computed(() => {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
   padding: 4px;
+  border-radius: 11px;
   background: var(--bg-secondary);
-  border-radius: 10px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-30);
+}
 
-  .separator {
-    width: 1px;
-    height: 18px;
-    background: var(--border);
-    margin: 0 4px;
-    opacity: 0.6;
+.tool-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+
+  i { font-size: 12px; }
+
+  &:hover:not(:disabled) {
+    background: var(--accent-08);
+    border-color: var(--accent-15);
+    color: var(--accent);
   }
 
-  .action-btn {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 12px;
-    border-radius: 6px;
-    border: 1px solid transparent;
-    background: transparent;
-    color: var(--text-dim); // 使用统一 dim 变量
-    font-size: 12px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  &:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
 
-    i { font-size: 14px; }
+  &--mode.is-sftp {
+    background: var(--accent-orange-10);
+    border-color: var(--accent-orange-20);
+    color: var(--accent-orange);
 
-    &:hover:not(:disabled) {
-      background: var(--accent-10); // 修复点：使用预计算透明变量
-      color: var(--accent);
-      border-color: var(--accent-20);
-    }
-
-    &:disabled {
-      opacity: 0.3;
-      cursor: not-allowed;
-    }
-
-    /* SFTP 模式特定样式 - 使用橙色/警告色变量 */
-    &.mode-toggle.is-sftp {
-      background: var(--accent-orange-10, rgba(249, 115, 22, 0.1));
-      color: var(--accent-orange, #f97316);
-      border-color: var(--accent-orange-20, rgba(249, 115, 22, 0.2));
-
-      &:hover {
-        background: var(--accent-orange-20);
-        border-color: var(--accent-orange);
-      }
+    &:hover {
+      background: var(--accent-orange-20);
+      border-color: var(--accent-orange-50);
     }
   }
 
-  /* 主连接按钮 */
-  .connect-btn {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 16px;
-    border-radius: 6px;
-    border: none;
-    background: var(--accent);
-    color: var(--bg-primary); // 按钮文字使用深色以增强对比
-    font-size: 12px;
-    font-weight: 700;
-    cursor: pointer;
-    transition: all 0.2s;
-    box-shadow: 0 4px 12px var(--accent-20); // 修复点
-
-    &:hover:not(:disabled) {
-      filter: brightness(1.1);
-      transform: translateY(-1px);
-      box-shadow: 0 6px 16px var(--accent-30);
-    }
-
-    &:active {
-      transform: translateY(0);
-      filter: brightness(0.9);
-    }
-
-    &:disabled {
-      background: var(--bg-input);
-      color: var(--text-dim);
-      box-shadow: none;
-      cursor: not-allowed;
-      opacity: 0.6;
-    }
-
-    &.loading i {
-      animation: spin 1s linear infinite;
-    }
+  &:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--accent-glow);
   }
+}
+
+.connect-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 16px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 3px 12px var(--accent-20);
+
+  i { font-size: 11px; }
+
+  &:hover:not(:disabled) {
+    filter: brightness(1.08);
+    transform: translateY(-1px);
+    box-shadow: 0 5px 16px var(--accent-30);
+  }
+
+  &:active:not(:disabled) {
+    transform: translateY(0);
+  }
+
+  &:disabled {
+    background: var(--bg-input);
+    color: var(--text-dim);
+    box-shadow: none;
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  &.is-loading i {
+    animation: spin 1s linear infinite;
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--accent-glow);
+  }
+}
+
+@keyframes status-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.85); }
+}
+
+@keyframes error-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-2px); }
+  75% { transform: translateX(2px); }
 }
 
 @keyframes spin {

@@ -13,6 +13,7 @@ const props = defineProps<{
 }>();
 
 const isConfigMode = ref(false);
+const showApiKey = ref(false);
 const messages = ref([
   {role: 'assistant', content: '你好！我是你的 SSH 助手。请点击右上方设置配置 API Key 以启用 AI 功能。'}
 ]);
@@ -81,6 +82,7 @@ const saveSettings = async () => {
     await invoke('save_ai_config', { config: { ...aiConfig.value } });
     toast.success("配置已保存到数据库");
     isConfigMode.value = false;
+    showApiKey.value = false;
     await loadSettings();
   } catch (err) {
     toast.error("保存失败: " + err);
@@ -163,8 +165,19 @@ const currentModels = computed(() => {
   return p ? p.models : [];
 });
 
+const providerOptions = computed(() =>
+  providers.map((provider) => ({ value: provider.id, label: provider.name }))
+);
+
+const modelOptions = computed(() =>
+  currentModels.value.map((model) => ({ value: model, label: model }))
+);
+
 const handleToggleConfig = throttle(() => {
   isConfigMode.value = !isConfigMode.value;
+  if (!isConfigMode.value) {
+    showApiKey.value = false;
+  }
 }, 300);
 
 watch(() => aiConfig.value.currentProvider, (newProvider, oldProvider) => {
@@ -208,26 +221,39 @@ onUnmounted(() => {
     <div v-if="isConfigMode" class="config-container custom-scrollbar">
       <div class="config-group">
         <label>模型供应商</label>
-        <select v-model="aiConfig.currentProvider">
-          <option v-for="p in providers" :key="p.id" :value="p.id">{{ p.name }}</option>
-        </select>
+        <AppSelect
+            v-model="aiConfig.currentProvider"
+            :options="providerOptions"
+            icon="fas fa-cloud"
+        />
       </div>
 
       <div class="config-group">
         <label>API Key</label>
         <div class="input-with-icon">
-          <input type="password" v-model="aiConfig.apiKey" placeholder="在此输入 API 令牌..."/>
-          <i class="fas fa-key"></i>
+          <input
+              v-model="aiConfig.apiKey"
+              :type="showApiKey ? 'text' : 'password'"
+              placeholder="在此输入 API 令牌..."
+          />
+          <button
+              type="button"
+              class="key-btn"
+              :class="{ 'is-active': showApiKey }"
+              @click="showApiKey = !showApiKey"
+          >
+            <i class="fas fa-key"></i>
+          </button>
         </div>
       </div>
 
       <div class="config-group">
         <label>指定模型</label>
-        <select v-model="aiConfig.model">
-          <option v-for="m in currentModels" :key="m" :value="m">
-            {{ m }}
-          </option>
-        </select>
+        <AppSelect
+            v-model="aiConfig.model"
+            :options="modelOptions"
+            icon="fas fa-microchip"
+        />
       </div>
 
       <div class="config-group">
@@ -314,7 +340,7 @@ onUnmounted(() => {
     color: var(--accent);
     padding: 2px 4px;
     border-radius: 4px;
-    font-family: 'Fira Code', monospace;
+    font-family: var(--font-terminal);
   }
 
   pre {
@@ -408,42 +434,21 @@ onUnmounted(() => {
     }
 
     input[type="password"],
-    input[type="text"],
-    select {
-      -webkit-appearance: none; /* 强制移除 macOS/Linux 原生外观 */
-      -moz-appearance: none;    /* Firefox 适配 */
-      appearance: none;
-
+    input[type="text"] {
       background: var(--bg-input);
       border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 10px;
+      border-radius: 8px;
+      padding: 10px 12px;
       color: var(--text-main);
       font-size: 13px;
       width: 100%;
       box-sizing: border-box;
-      transition: all 0.2s ease;
+      transition: border-color 0.2s, box-shadow 0.2s;
 
       &:focus {
         border-color: var(--accent);
         outline: none;
-        /* Windows 平台常见的焦点光晕 */
-        box-shadow: 0 0 0 3px var(--accent-20);
-      }
-    }
-
-    select {
-      cursor: pointer;
-      background-image: url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
-      background-repeat: no-repeat;
-      background-position: right 10px center;
-      background-size: 14px;
-      padding-right: 30px;
-
-      /* 解决 Linux 下 option 颜色可能发白的问题 */
-      option {
-        background: var(--bg-secondary);
-        color: var(--text-main);
+        box-shadow: 0 0 0 3px var(--accent-15);
       }
     }
 
@@ -480,14 +485,34 @@ onUnmounted(() => {
 
     .input-with-icon {
       position: relative;
-      i {
+
+      input {
+        padding-right: 40px;
+      }
+
+      .key-btn {
         position: absolute;
-        right: 12px;
+        right: 4px;
         top: 50%;
         transform: translateY(-50%);
+        width: 28px;
+        height: 28px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: none;
+        border-radius: 6px;
+        background: transparent;
         color: var(--text-dim);
         font-size: 12px;
-        pointer-events: none; /* 防止图标挡住点击事件 */
+        cursor: pointer;
+        transition: background 0.15s ease, color 0.15s ease;
+
+        &:hover,
+        &.is-active {
+          background: var(--accent-10);
+          color: var(--accent);
+        }
       }
     }
   }

@@ -2,6 +2,7 @@ mod sync;
 mod p2p;
 mod security;
 mod redis_manager;
+mod local_shell;
 use crate::sync::{
     get_sync_settings,
     save_sync_settings,
@@ -11,12 +12,13 @@ use crate::sync::{
 };
 use security::{encrypt_secret, decrypt_secret};
 use p2p::{set_p2p_remark, start_p2p_node, get_p2p_remarks, search_p2p_messages, get_online_peers};
+use local_shell::{LocalSessionMap, LOCAL_SERVER_ID};
 use redis_manager::{redis_connect, redis_get_keys, redis_get_value, redis_set_value, redis_del_key, redis_rename_key, redis_get_ttl, redis_get_type, save_redis_config, get_redis_configs, delete_redis_config, clear_all_redis_configs};
 use tokio::sync::mpsc;
 use russh::*;
 use russh::client::DisconnectReason;
 use std::sync::Arc;
-use tauri::{Emitter, Window, Runtime, State, Manager};
+use tauri::{Emitter, Window, Runtime, State, Manager, WebviewUrl, WebviewWindowBuilder};
 use tokio::sync::Mutex;
 use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
@@ -145,7 +147,10 @@ impl<R: Runtime> client::Handler for ClientHandler<R> {
     }
 
     async fn disconnected(&mut self, _reason: DisconnectReason<Self::Error>) -> Result<(), Self::Error> {
-        let _ = self.window.emit("ssh-closed", serde_json::json!({ "server_id": self.server_id }));
+        let _ = self.window.emit("ssh-closed", serde_json::json!({
+            "server_id": self.server_id,
+            "session_id": self.session_id,
+        }));
         Ok(())
     }
 }
@@ -159,6 +164,7 @@ pub struct ActiveSession {
 
 pub struct AppState {
     pub sessions: Arc<Mutex<HashMap<String, ActiveSession>>>,
+    pub local_sessions: LocalSessionMap,
     pub db: Arc<redb::Database>,
     pub cancelled_tasks: Arc<Mutex<HashSet<String>>>,
     pub p2p_sender: mpsc::UnboundedSender<p2p::P2PCommand>,
@@ -168,6 +174,7 @@ impl Clone for AppState {
     fn clone(&self) -> Self {
         Self {
             sessions: self.sessions.clone(),
+            local_sessions: self.local_sessions.clone(),
             db: self.db.clone(),
             cancelled_tasks: self.cancelled_tasks.clone(),
             p2p_sender: self.p2p_sender.clone(),
@@ -468,6 +475,148 @@ async fn delete_server(app_handle: tauri::AppHandle, state: State<'_, AppState>,
     Ok(())
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+struct SessionWindowBootstrap {
+    server_id: String,
+    session_id: String,
+    session_name: String,
+    #[serde(default)]
+    is_local: bool,
+}
+
+fn collect_servers_json(db: &Arc<redb::Database>) -> String {
+    (|| -> Option<String> {
+        let read_txn = db.begin_read().ok()?;
+        let table = read_txn.open_table(SERVERS_TABLE).ok()?;
+        let mut list = Vec::new();
+
+        for result in table.iter().ok()? {
+            if let Ok((_, value)) = result {
+                if let Ok(mut val) = serde_json::from_str::<serde_json::Value>(value.value()) {
+                    if val.get("deleted").and_then(|d| d.as_bool()) == Some(false) {
+                        if let Some(host) = val.get_mut("host").and_then(|h| h.as_str()) {
+                            if let Ok(decrypted) = decrypt_secret(host) {
+                                val["host"] = serde_json::Value::String(decrypted);
+                            }
+                        }
+                        list.push(val);
+                    }
+                }
+            }
+        }
+
+        list.sort_by(|a, b| {
+            let name_a = a.get("name").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
+            let name_b = b.get("name").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
+            name_a.cmp(&name_b)
+        });
+
+        serde_json::to_string(&list).ok()
+    })()
+    .unwrap_or_else(|| "[]".to_string())
+}
+
+#[tauri::command]
+async fn open_session_window(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    server_id: String,
+    base_name: String,
+) -> Result<String, String> {
+    let is_local = server_id == LOCAL_SERVER_ID;
+    let session_id = if is_local {
+        format!("local-{}", &Uuid::new_v4().simple().to_string()[..8])
+    } else {
+        format!(
+            "{}-{}",
+            server_id,
+            &Uuid::new_v4().simple().to_string()[..8]
+        )
+    };
+    let session_name = format!("{} (窗口)", base_name.trim());
+    let label = format!(
+        "session-{}",
+        session_id.replace(['/', '\\', ':', ' '], "-")
+    );
+
+    if app.get_webview_window(&label).is_some() {
+        return Err("该会话窗口已打开".into());
+    }
+
+    let bootstrap = SessionWindowBootstrap {
+        server_id: server_id.clone(),
+        session_id: session_id.clone(),
+        session_name: session_name.clone(),
+        is_local,
+    };
+    let bootstrap_json = serde_json::to_string(&bootstrap).map_err(|e| e.to_string())?;
+    let servers_json = collect_servers_json(&state.db);
+    let init_script = format!(
+        "window.__SESSION_BOOTSTRAP__ = {}; window.__INITIAL_SERVERS__ = {};",
+        bootstrap_json, servers_json
+    );
+
+    let url = if cfg!(debug_assertions) {
+        WebviewUrl::External(
+            "http://localhost:1420"
+                .parse()
+                .map_err(|e| format!("无效的 dev URL: {}", e))?,
+        )
+    } else {
+        WebviewUrl::App("index.html".into())
+    };
+
+    let window = WebviewWindowBuilder::new(&app, &label, url)
+        .title(&session_name)
+        .inner_size(1200.0, 800.0)
+        .decorations(false)
+        .transparent(true)
+        .resizable(true)
+        .initialization_script(&init_script)
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let win = window.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let _ = win.show();
+        let _ = win.unminimize();
+        let _ = win.set_focus();
+    });
+
+    Ok(session_id)
+}
+
+#[tauri::command]
+fn get_local_shell_label() -> String {
+    local_shell::local_shell_label().to_string()
+}
+
+#[tauri::command]
+async fn spawn_local_shell(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+    session_id: String,
+    cols: u32,
+    rows: u32,
+) -> Result<(), String> {
+    {
+        let locals = state.local_sessions.lock().await;
+        if locals.contains_key(&session_id) {
+            return Ok(());
+        }
+    }
+
+    local_shell::spawn_local_shell(
+        window,
+        session_id,
+        state.local_sessions.clone(),
+        cols.clamp(40, u32::from(u16::MAX)) as u16,
+        rows.clamp(8, u32::from(u16::MAX)) as u16,
+    )
+    .await
+}
+
 #[tauri::command]
 async fn connect_ssh(
     window: tauri::Window,
@@ -507,6 +656,10 @@ async fn connect_ssh(
 
 #[tauri::command]
 async fn write_to_ssh(state: State<'_, AppState>, session_id: String, data: String) -> Result<(), String> {
+    if state.local_sessions.lock().await.contains_key(&session_id) {
+        return local_shell::write_local_shell(&state.local_sessions, &session_id, data).await;
+    }
+
     // 不要在持有全局 sessions 锁的情况下 await 网络/通道写操作。
     // 否则当输入频繁（例如 vim 上下移动不断发控制序列）时，会堆积请求导致终端假死。
     let (handle_mutex, channel_id) = {
@@ -534,6 +687,10 @@ async fn write_to_ssh(state: State<'_, AppState>, session_id: String, data: Stri
 
 #[tauri::command]
 async fn disconnect_ssh(state: State<'_, AppState>, session_id: String) -> Result<(), String> {
+    if state.local_sessions.lock().await.contains_key(&session_id) {
+        return local_shell::disconnect_local_shell(&state.local_sessions, &session_id).await;
+    }
+
     let session_opt = {
         let mut sessions = state.sessions.lock().await;
         sessions.remove(&session_id)
@@ -559,6 +716,10 @@ async fn resize_ssh(
     rows: u32,
     cols: u32,
 ) -> Result<(), String> {
+    if state.local_sessions.lock().await.contains_key(&session_id) {
+        return local_shell::resize_local_shell(&state.local_sessions, &session_id, rows, cols).await;
+    }
+
     let channel_arc = {
         let sessions = state.sessions.lock().await;
         sessions.get(&session_id).map(|sess| sess.channel.clone())
@@ -573,7 +734,8 @@ async fn resize_ssh(
 
         Ok(())
     } else {
-        Err("会话已丢失".into())
+        // 终端 UI 可能先于 SSH 连接完成初始化，此时忽略 resize 即可
+        Ok(())
     }
 }
 
@@ -1101,6 +1263,7 @@ pub fn run() {
             // 3. 注入状态 (使用标准库 Mutex)
             app.manage(AppState {
                 sessions: Arc::new(Mutex::new(HashMap::new())),
+                local_sessions: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
                 db: db_arc.clone(),
                 cancelled_tasks: Arc::new(Mutex::new(HashSet::new())),
                 p2p_sender: tx,
@@ -1180,6 +1343,9 @@ pub fn run() {
             _ => {}
         })
         .invoke_handler(tauri::generate_handler![
+            get_local_shell_label,
+            spawn_local_shell,
+            open_session_window,
             connect_ssh,
             resize_ssh,
             disconnect_ssh,
@@ -1271,39 +1437,6 @@ fn setup_tray<R: tauri::Runtime>(app: &tauri::App<R>) -> Result<(), Box<dyn std:
 
 /// 💡 提取出的数据预热方法
 fn preheat_servers(window: &tauri::WebviewWindow, db: &Arc<redb::Database>) {
-    let servers_json = (|| -> Option<String> {
-        let read_txn = db.begin_read().ok()?;
-        let table = read_txn.open_table(SERVERS_TABLE).ok()?;
-        let mut list = Vec::new();
-
-        for result in table.iter().ok()? {
-            if let Ok((_, value)) = result {
-                // 使用 from_str 解决之前的类型匹配问题
-                if let Ok(mut val) = serde_json::from_str::<serde_json::Value>(value.value()) {
-                    // 1. 过滤已删除
-                    if val.get("deleted").and_then(|d| d.as_bool()) == Some(false) {
-                        // 2. 预热时解密 Host (防止界面闪烁)
-                        if let Some(host) = val.get_mut("host").and_then(|h| h.as_str()) {
-                            if let Ok(decrypted) = decrypt_secret(host) {
-                                val["host"] = serde_json::Value::String(decrypted);
-                            }
-                        }
-                        list.push(val);
-                    }
-                }
-            }
-        }
-
-        // 3. 统一排序逻辑 (A-Z)
-        list.sort_by(|a, b| {
-            let name_a = a.get("name").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
-            let name_b = b.get("name").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
-            name_a.cmp(&name_b)
-        });
-
-        serde_json::to_string(&list).ok()
-    })().unwrap_or_else(|| "[]".to_string());
-
-    // 注入 JS
+    let servers_json = collect_servers_json(db);
     let _ = window.eval(&format!("window.__INITIAL_SERVERS__ = {};", servers_json));
 }

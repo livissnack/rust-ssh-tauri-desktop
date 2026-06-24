@@ -2,6 +2,7 @@
 import {ref, computed, onMounted, onUnmounted, nextTick, watch, defineAsyncComponent} from "vue";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { WebglAddon } from "@xterm/addon-webgl";
 import "@xterm/xterm/css/xterm.css";
 import {invoke} from "@tauri-apps/api/core";
@@ -11,6 +12,8 @@ import {toast} from './utils/toast.ts';
 import {confirm} from './utils/confirm.ts';
 import {throttle, formatSize} from "./utils/async";
 import {applyTheme, defaultTheme} from "./utils/theme";
+import { getTerminalTheme, applyTerminalTheme } from "./utils/terminalTheme";
+import { LOCAL_SERVER_ID, isLocalSession, type OpenSession } from "./utils/session.ts";
 
 import Sidebar from "./components/Sidebar.vue";
 import TerminalTabs from "./components/TerminalTabs.vue";
@@ -41,11 +44,23 @@ const rightPanelComponent = computed(() => {
 
 const servers = ref<any[]>(window.__INITIAL_SERVERS__ || []);
 const activeId = ref<string | null>(null);
-const openSessions = ref<{ id: string, serverId: string, name: string }[]>([]);
+const openSessions = ref<OpenSession[]>([]);
 const activeSessionId = ref<string | null>(null);
 const showPassword = ref(false);
 const sessionViewModes = ref<Record<string, 'terminal' | 'sftp'>>({});
-const terminalMap = new Map<string, { term: Terminal; fitAddon: FitAddon }>();
+type TerminalInstance = {
+  term: Terminal;
+  fitAddon: FitAddon;
+  isLocal: boolean;
+  backendReady: boolean;
+  resizeObserver?: ResizeObserver;
+};
+const terminalMap = new Map<string, TerminalInstance>();
+
+const markSessionBackendReady = (sessionId: string) => {
+  const instance = terminalMap.get(sessionId);
+  if (instance) instance.backendReady = true;
+};
 const onlineUserCount = ref(0);
 
 const isConnecting = ref(false);
@@ -84,6 +99,12 @@ const currentViewMode = computed(() => {
   if (!activeSessionId.value) return 'terminal';
   return sessionViewModes.value[activeSessionId.value] || 'terminal';
 });
+
+const activeOpenSession = computed(() =>
+  openSessions.value.find(s => s.id === activeSessionId.value) ?? null
+);
+
+const isActiveLocalSession = computed(() => isLocalSession(activeOpenSession.value));
 
 const currentServer = computed(() => servers.value.find(s => s.id === activeId.value));
 
@@ -303,6 +324,8 @@ const connectToServer = async () => {
   await initTerminal(sessionId);
   try {
     await invoke("connect_ssh", {serverId: server.id, sessionId});
+    markSessionBackendReady(sessionId);
+    await syncTerminalSize(sessionId);
     focusTerminal(sessionId);
     isConnectError.value = false;
   } catch (err) {
@@ -313,31 +336,58 @@ const connectToServer = async () => {
   }
 };
 
-const getTerminalTheme = () => {
-  const style = getComputedStyle(document.documentElement);
+const isTerminalContainerVisible = (sessionId: string) => {
+  const container = document.getElementById(`terminal-${sessionId}`);
+  return !!container && container.offsetWidth > 0 && container.offsetHeight > 0;
+};
 
-  const getProp = (name: string, fallback: string) => {
-    const val = style.getPropertyValue(name).trim();
-    return val || fallback;
-  };
+const measureTerminalSize = async (sessionId: string) => {
+  await nextTick();
+  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 
+  const instance = terminalMap.get(sessionId);
+  if (!instance || !isTerminalContainerVisible(sessionId)) {
+    return { rows: 24, cols: 120 };
+  }
+
+  instance.fitAddon.fit();
   return {
-    background: getProp('--bg-primary', '#1a1b26'),
-    foreground: getProp('--text-main', '#a9b1d6'),
-    cursor: getProp('--accent', '#7aa2f7'),
-    selectionBackground: getProp('--accent-glow', 'rgba(122, 162, 247, 0.3)'),
-    black: '#15161e',
-    red: '#f7768e',
-    green: '#9ece6a',
-    yellow: '#e0af68',
-    blue: '#7aa2f7',
-    magenta: '#bb9af7',
-    cyan: '#7dcfff',
-    white: '#a9b1d6',
+    rows: Math.max(instance.term.rows, 8),
+    cols: Math.max(instance.term.cols, 40),
   };
 };
 
-const initTerminal = async (sessionId: string) => {
+const syncTerminalSize = async (sessionId: string) => {
+  const instance = terminalMap.get(sessionId);
+  if (!instance || !isTerminalContainerVisible(sessionId)) return;
+
+  instance.fitAddon.fit();
+  if (!instance.backendReady) return;
+
+  const rows = Math.max(instance.term.rows, 8);
+  const cols = Math.max(instance.term.cols, 40);
+  if (rows === 0 || cols === 0) return;
+
+  await invoke("resize_ssh", { sessionId, rows, cols }).catch(console.error);
+};
+
+const scheduleLocalTerminalSizeSync = async (sessionId: string) => {
+  await syncTerminalSize(sessionId);
+  for (const delay of [50, 200]) {
+    await new Promise<void>((resolve) => setTimeout(resolve, delay));
+    await syncTerminalSize(sessionId);
+  }
+};
+
+const attachTerminalResizeObserver = (sessionId: string, container: HTMLElement) => {
+  const observer = new ResizeObserver(() => {
+    void syncTerminalSize(sessionId);
+  });
+  observer.observe(container);
+  return observer;
+};
+
+const initTerminal = async (sessionId: string, isLocal = false) => {
   if (terminalMap.has(sessionId)) {
     await nextTick();
     terminalMap.get(sessionId)?.fitAddon.fit();
@@ -345,32 +395,47 @@ const initTerminal = async (sessionId: string) => {
   }
   const term = new Terminal({
     cursorBlink: true,
+    cursorStyle: 'bar',
     fontSize: 14,
-    lineHeight: 1.2,
-    letterSpacing: 0.5,
-    fontWeight: '500',
-    fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+    lineHeight: isLocal ? 1 : 1.3,
+    letterSpacing: 0,
+    fontWeight: '400',
+    fontWeightBold: '700',
+    fontFamily: isLocal
+      ? "'Cascadia Mono', 'Cascadia Code', 'Microsoft YaHei UI', Consolas, monospace"
+      : "'Cascadia Mono', 'Cascadia Code', Consolas, 'SF Mono', Menlo, monospace",
     theme: getTerminalTheme(),
     allowProposedApi: true,
+    drawBoldTextInBrightColors: true,
+    minimumContrastRatio: 1,
+    scrollback: 8000,
   });
   const fitAddon = new FitAddon();
   term.loadAddon(fitAddon);
+  if (isLocal) {
+    const unicode11Addon = new Unicode11Addon();
+    term.loadAddon(unicode11Addon);
+    term.unicode.activeVersion = "11";
+  }
   await nextTick();
   const container = document.getElementById(`terminal-${sessionId}`);
   if (container) {
     term.open(container);
-    term.options.theme = getTerminalTheme();
-    try {
-      const webglAddon = new WebglAddon();
-      term.loadAddon(webglAddon);
-      webglAddon.onContextLoss(() => {
-        webglAddon.dispose();
-      });
-      console.log(`Terminal ${sessionId} 启用 WebGL 加速`);
-    } catch (e) {
-      console.warn("WebGL 加速启动失败，自动降级为 Canvas 渲染", e);
+    applyTerminalTheme(term);
+    if (!isLocal) {
+      try {
+        const webglAddon = new WebglAddon();
+        term.loadAddon(webglAddon);
+        webglAddon.onContextLoss(() => {
+          webglAddon.dispose();
+        });
+        console.log(`Terminal ${sessionId} 启用 WebGL 加速`);
+      } catch (e) {
+        console.warn("WebGL 加速启动失败，自动降级为 Canvas 渲染", e);
+      }
     }
     fitAddon.fit();
+    const resizeObserver = attachTerminalResizeObserver(sessionId, container);
 
     // 性能优先：不要引入定时器延迟。只做串行化发送（避免并发触发后端 handle 锁争抢）。
     let sendQueue: string[] = [];
@@ -404,12 +469,12 @@ const initTerminal = async (sessionId: string) => {
     };
 
     term.onData((data) => {
-      // Enter 通常是 '\r'，有的远端 pty 需要 '\r\n' 才当作完整一行结束
-      const normalized = data.replace(/\r/g, "\r\n");
-      sendQueue.push(normalized);
+      // 本地 ConPTY（PowerShell / macOS Terminal）必须原样发送；SSH 远端才需要 \r\n
+      const payload = isLocal ? data : data.replace(/\r/g, "\r\n");
+      sendQueue.push(payload);
       scheduleFlush();
     });
-    terminalMap.set(sessionId, {term, fitAddon});
+    terminalMap.set(sessionId, { term, fitAddon, isLocal, backendReady: false, resizeObserver });
   }
 };
 
@@ -421,6 +486,7 @@ const closeTab = async (id: string) => {
 const internalUiCleanup = (id: string) => {
   const instance = terminalMap.get(id);
   if (instance) {
+    instance.resizeObserver?.disconnect();
     instance.term.dispose();
     terminalMap.delete(id);
   }
@@ -432,7 +498,7 @@ const internalUiCleanup = (id: string) => {
 };
 
 const toggleViewMode = async () => {
-  if (!activeSessionId.value) return;
+  if (!activeSessionId.value || isActiveLocalSession.value) return;
   const currentMode = sessionViewModes.value[activeSessionId.value] || 'terminal';
   const newMode = currentMode === 'terminal' ? 'sftp' : 'terminal';
   sessionViewModes.value[activeSessionId.value] = newMode;
@@ -457,21 +523,144 @@ const refreshRemoteFiles = async () => {
   }
 };
 
-const cloneSession = async () => {
-  if (!activeSessionId.value) return;
-  const sessionToClone = openSessions.value.find(s => s.id === activeSessionId.value);
-  const server = servers.value.find(s => s.id === sessionToClone?.serverId);
-  if (server) {
-    const newSessionId = `${server.id}-${Math.random().toString(36).substring(7)}`;
-    openSessions.value.push({id: newSessionId, serverId: server.id, name: `${server.name} (Copy)`});
-    activeSessionId.value = newSessionId;
-    sessionViewModes.value[newSessionId] = 'terminal';
-    await initTerminal(newSessionId);
+const getSessionContext = (sourceSessionId?: string | null) => {
+  const sessionId = sourceSessionId ?? activeSessionId.value;
+  if (!sessionId) return null;
+  const session = openSessions.value.find(s => s.id === sessionId);
+  if (!session) return null;
+  if (isLocalSession(session)) {
+    return {
+      session,
+      server: { id: LOCAL_SERVER_ID, name: session.name },
+    };
+  }
+  const server = servers.value.find(s => s.id === session.serverId);
+  if (!server) return null;
+  return { session, server };
+};
+
+const buildClonedSessionMeta = (server: { id: string; name: string }) => {
+  const siblingCount = openSessions.value.filter(s => s.serverId === server.id).length;
+  const newSessionId = `${server.id}-${Math.random().toString(36).substring(2, 9)}`;
+  const name = siblingCount >= 1
+    ? `${server.name} (${siblingCount + 1})`
+    : `${server.name} (Copy)`;
+  return { newSessionId, name };
+};
+
+const cloneSessionToTab = async (sourceSessionId?: string) => {
+  const ctx = getSessionContext(sourceSessionId);
+  if (!ctx) return;
+
+  if (isLocalSession(ctx.session)) {
+    await openLocalShell();
+    return;
+  }
+
+  const { server } = ctx;
+  const { newSessionId, name } = buildClonedSessionMeta(server);
+
+  openSessions.value.push({ id: newSessionId, serverId: server.id, name });
+  activeSessionId.value = newSessionId;
+  sessionViewModes.value[newSessionId] = 'terminal';
+  await initTerminal(newSessionId, false);
+
+  isConnecting.value = true;
+  try {
+    await invoke("connect_ssh", { serverId: server.id, sessionId: newSessionId });
+    markSessionBackendReady(newSessionId);
+    await syncTerminalSize(newSessionId);
+    focusTerminal(newSessionId);
+    toast.success('已在新标签打开会话');
+  } catch (err) {
+    toast.error(`克隆失败: ${err}`);
+    internalUiCleanup(newSessionId);
+  } finally {
+    isConnecting.value = false;
+  }
+};
+
+const cloneSessionToWindow = async (sourceSessionId?: string) => {
+  const ctx = getSessionContext(sourceSessionId);
+  if (!ctx) return;
+
+  const { session, server } = ctx;
+  try {
+    await invoke('open_session_window', {
+      serverId: isLocalSession(session) ? LOCAL_SERVER_ID : server.id,
+      baseName: session.name || server.name,
+    });
+    toast.success('已在新窗口打开会话');
+  } catch (err) {
+    toast.error(`打开新窗口失败: ${err}`);
+  }
+};
+
+const bootstrapSessionWindow = async () => {
+  const bootstrap = window.__SESSION_BOOTSTRAP__;
+  if (!bootstrap) return;
+
+  delete window.__SESSION_BOOTSTRAP__;
+
+  if (bootstrap.server_id === LOCAL_SERVER_ID || bootstrap.is_local) {
+    const name = bootstrap.session_name || await invoke<string>('get_local_shell_label');
+    openSessions.value.push({
+      id: bootstrap.session_id,
+      serverId: LOCAL_SERVER_ID,
+      name,
+      kind: 'local',
+    });
+    activeSessionId.value = bootstrap.session_id;
+    sessionViewModes.value[bootstrap.session_id] = 'terminal';
+    await initTerminal(bootstrap.session_id, true);
     try {
-      await invoke("connect_ssh", {serverId: server.id, sessionId: newSessionId});
+      const { rows, cols } = await measureTerminalSize(bootstrap.session_id);
+      await invoke('spawn_local_shell', {
+        sessionId: bootstrap.session_id,
+        rows,
+        cols,
+      });
+      markSessionBackendReady(bootstrap.session_id);
+      await scheduleLocalTerminalSizeSync(bootstrap.session_id);
+      focusTerminal(bootstrap.session_id);
     } catch (err) {
-      console.error(err);
+      toast.error(`打开本地终端失败: ${err}`);
+      internalUiCleanup(bootstrap.session_id);
     }
+    return;
+  }
+
+  const server = servers.value.find(s => s.id === bootstrap.server_id);
+  if (!server) {
+    toast.error('无法找到主机配置');
+    return;
+  }
+
+  activeId.value = server.id;
+  openSessions.value.push({
+    id: bootstrap.session_id,
+    serverId: bootstrap.server_id,
+    name: bootstrap.session_name,
+  });
+  activeSessionId.value = bootstrap.session_id;
+  sessionViewModes.value[bootstrap.session_id] = 'terminal';
+  isConnecting.value = true;
+
+  await initTerminal(bootstrap.session_id);
+  try {
+    await invoke('connect_ssh', {
+      serverId: bootstrap.server_id,
+      sessionId: bootstrap.session_id,
+    });
+    markSessionBackendReady(bootstrap.session_id);
+    await syncTerminalSize(bootstrap.session_id);
+    focusTerminal(bootstrap.session_id);
+    isConnectError.value = false;
+  } catch (err) {
+    toast.error(`连接失败: ${err}`);
+    isConnectError.value = true;
+  } finally {
+    isConnecting.value = false;
   }
 };
 
@@ -479,20 +668,46 @@ const focusTerminal = async (sessionId: string | null) => {
   if (!sessionId) return;
   await nextTick();
   const instance = terminalMap.get(sessionId);
-  if (instance) instance.term.focus();
+  if (!instance) return;
+  if (isTerminalContainerVisible(sessionId)) {
+    await syncTerminalSize(sessionId);
+  }
+  instance.term.focus();
 };
 
 const handleResize = throttle(async () => {
   await nextTick();
-  terminalMap.forEach(({ fitAddon, term }, sessionId) => {
-    fitAddon.fit();
-    invoke("resize_ssh", {
-      sessionId,
-      rows: term.rows,
-      cols: term.cols
-    }).catch(console.error);
-  });
+  for (const [sessionId] of terminalMap) {
+    if (!isTerminalContainerVisible(sessionId)) continue;
+    await syncTerminalSize(sessionId);
+  }
 }, 100);
+
+const openLocalShell = async () => {
+  try {
+    const label = await invoke<string>('get_local_shell_label');
+    const sessionId = `local-${Math.random().toString(36).substring(2, 9)}`;
+    const localCount = openSessions.value.filter(s => isLocalSession(s)).length;
+    const name = localCount > 0 ? `${label} (${localCount + 1})` : label;
+
+    openSessions.value.push({
+      id: sessionId,
+      serverId: LOCAL_SERVER_ID,
+      name,
+      kind: 'local',
+    });
+    activeSessionId.value = sessionId;
+    sessionViewModes.value[sessionId] = 'terminal';
+    await initTerminal(sessionId, true);
+    const { rows, cols } = await measureTerminalSize(sessionId);
+    await invoke('spawn_local_shell', { sessionId, rows, cols });
+    markSessionBackendReady(sessionId);
+    await scheduleLocalTerminalSizeSync(sessionId);
+    focusTerminal(sessionId);
+  } catch (err) {
+    toast.error(`打开本地终端失败: ${err}`);
+  }
+};
 
 const openAddModal = () => {
   isEditing.value = false;
@@ -559,8 +774,14 @@ const cancelTask = async (taskId: string) => {
   }
 };
 
-watch(activeSessionId, (newId) => {
-  if (newId) focusTerminal(newId);
+watch(activeSessionId, async (newId) => {
+  if (newId) {
+    const session = openSessions.value.find(s => s.id === newId);
+    if (isLocalSession(session)) {
+      sessionViewModes.value[newId] = 'terminal';
+    }
+    await focusTerminal(newId);
+  }
 });
 
 const panelWidth = ref(420);
@@ -635,10 +856,7 @@ const handleOrderChange = async (newList) => {
 
 watch(defaultTheme, async () => {
   await nextTick();
-  const newTheme = getTerminalTheme();
-  terminalMap.forEach(({ term }) => {
-    term.options.theme = newTheme;
-  });
+  terminalMap.forEach(({ term }) => applyTerminalTheme(term));
 }, { immediate: false });
 
 onMounted(async () => {
@@ -653,11 +871,15 @@ onMounted(async () => {
   unlisten = await listen("ssh-output", (event) => {
     const payload = event.payload as { session_id: string, data: string };
     const instance = terminalMap.get(payload.session_id);
-    if (instance && currentViewMode.value === 'terminal') instance.term.write(payload.data);
+    if (instance) instance.term.write(payload.data);
   });
   await listen('database-changed', () => loadServers());
+  await bootstrapSessionWindow();
   unlistenClosed = await listen("ssh-closed", (event) => {
-    internalUiCleanup((event.payload as any).session_id);
+    const payload = event.payload as { session_id?: string; server_id?: string };
+    if (payload.session_id) {
+      internalUiCleanup(payload.session_id);
+    }
   });
   unlistenTransfer = await listen("transfer-progress", (event) => {
     const {taskId, progress} = event.payload as { taskId: string, progress: number };
@@ -680,7 +902,10 @@ onMounted(async () => {
   });
 });
 
-onUnmounted(() => {
+onUnmounted(async () => {
+  for (const session of openSessions.value) {
+    await invoke("disconnect_ssh", { sessionId: session.id }).catch(console.error);
+  }
   terminalMap.forEach(instance => {
     instance.term.dispose();
   });
@@ -712,7 +937,9 @@ onUnmounted(() => {
             :open-sessions="openSessions"
             v-model:active-session-id="activeSessionId"
             @close="closeTab"
-            @open-add-modal="openAddModal"
+            @clone-tab="cloneSessionToTab"
+            @clone-window="cloneSessionToWindow"
+            @new-local-shell="openLocalShell"
         />
         <WorkspaceHeader
             :current-server="currentServer"
@@ -723,8 +950,8 @@ onUnmounted(() => {
             :current-view-mode="currentViewMode"
             :open-sessions="openSessions"
             :servers="servers"
+            :is-local-session="isActiveLocalSession"
             @toggle-view-mode="toggleViewMode"
-            @clone-session="cloneSession"
             @connect="connectToServer"
         />
 
@@ -777,8 +1004,10 @@ onUnmounted(() => {
                        @dblclick.stop="handleFileDblClick(file, 'local')"
                        @contextmenu="handleContextMenu($event, file, 'local')">
                     <span class="file-icon">
-                      <i class="fas"
-                         :class="file.name === '..' ? 'fa-level-up-alt' : (file.is_dir ? 'fa-folder' : 'fa-file-alt')" title="双击"></i>
+                      <Tooltip text="双击" inline>
+                        <i class="fas"
+                           :class="file.name === '..' ? 'fa-level-up-alt' : (file.is_dir ? 'fa-folder' : 'fa-file-alt')"></i>
+                      </Tooltip>
                     </span>
                     <span class="file-name">{{ file.name }}</span>
                     <span class="file-size" v-if="!file.is_dir">
@@ -806,8 +1035,10 @@ onUnmounted(() => {
                        @dblclick.stop="handleFileDblClick(file, 'remote')"
                        @contextmenu="handleContextMenu($event, file, 'remote')">
                     <span class="file-icon">
-                      <i class="fas"
-                         :class="file.name === '..' ? 'fa-level-up-alt' : (file.is_dir ? 'fa-folder' : 'fa-file-alt')" title="双击"></i>
+                      <Tooltip text="双击" inline>
+                        <i class="fas"
+                           :class="file.name === '..' ? 'fa-level-up-alt' : (file.is_dir ? 'fa-folder' : 'fa-file-alt')"></i>
+                      </Tooltip>
                     </span>
                     <span class="file-name">{{ file.name }}</span>
                     <span class="file-size" v-if="!file.is_dir">{{ (file.size / 1024).toFixed(1) }} KB</span>
@@ -827,9 +1058,12 @@ onUnmounted(() => {
                     <div v-for="task in transferTasks" :key="task.id" class="task-row"
                          :class="[`status-${task.status}`]">
                       <div class="task-info">
-                        <div class="name-box" :title="task.name"><i :class="getTaskIcon(task)"
-                                                                    class="type-icon"></i><span
-                            class="task-name">{{ task.name }}</span></div>
+                        <Tooltip :text="task.name" block wrap>
+                          <div class="name-box">
+                            <i :class="getTaskIcon(task)" class="type-icon"></i>
+                            <span class="task-name">{{ task.name }}</span>
+                          </div>
+                        </Tooltip>
                         <div class="task-actions">
                           <button v-if="task.status === 'transferring'" class="cancel-btn"
                                   @click.stop="cancelTask(task.id)"><i class="fas fa-times"></i></button>
@@ -852,46 +1086,58 @@ onUnmounted(() => {
       <div class="right-dock">
         <div class="icon-bar">
           <div class="top-group">
-            <div class="icon-item" title="快捷命令" :class="{ active: rightPanelVisible && rightPanelType === 'quick' }"
-                 @click="toggleRightPanel('quick')">
-              <i class="fas fa-bolt"></i>
-            </div>
-            <div class="icon-item" title="AI 助手" :class="{ active: rightPanelVisible && rightPanelType === 'ai' }"
-                 @click="toggleRightPanel('ai')">
-              <i class="fas fa-robot"></i>
-            </div>
-            <div class="icon-item" title="Redis 数据库"
-                 :class="{ active: rightPanelVisible && rightPanelType === 'redis' }"
-                 @click="toggleRightPanel('redis')">
-              <svg class="redis-icon" viewBox="0 0 24 24" width="18" height="18">
-                <path fill="currentColor" d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
-              </svg>
-            </div>
+            <Tooltip text="快捷命令" placement="left">
+              <div class="icon-item" :class="{ active: rightPanelVisible && rightPanelType === 'quick' }"
+                   @click="toggleRightPanel('quick')">
+                <i class="fas fa-bolt"></i>
+              </div>
+            </Tooltip>
+            <Tooltip text="AI 助手" placement="left">
+              <div class="icon-item" :class="{ active: rightPanelVisible && rightPanelType === 'ai' }"
+                   @click="toggleRightPanel('ai')">
+                <i class="fas fa-robot"></i>
+              </div>
+            </Tooltip>
+            <Tooltip text="Redis 数据库" placement="left">
+              <div class="icon-item"
+                   :class="{ active: rightPanelVisible && rightPanelType === 'redis' }"
+                   @click="toggleRightPanel('redis')">
+                <svg class="redis-icon" viewBox="0 0 24 24" width="18" height="18">
+                  <path fill="currentColor" d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+                </svg>
+              </div>
+            </Tooltip>
           </div>
           <div class="bottom-group">
-            <div class="icon-item" title="局域网聊天"
-                 :class="{ active: rightPanelVisible && rightPanelType === 'chat' }"
-                 @click="toggleRightPanel('chat')">
-              <i class="fas fa-comment-alt"></i>
-              <Transition name="scale">
-                <span v-if="onlineUserCount > 0" class="online-badge">
-                  {{ onlineUserCount }}
-                </span>
-              </Transition>
-            </div>
-            <div class="icon-item" title="同步设置"
-                 :class="{
-                   active: rightPanelVisible && rightPanelType === 'sync-settings',
-                   'is-syncing': isSyncing
-                 }"
-                 @click="toggleRightPanel('sync-settings')">
-              <i class="fas fa-sync-alt" :class="{ 'fa-spin': isSyncing }"></i>
-            </div>
-            <div class="icon-item" title="主题设置"
-                 :class="{ active: rightPanelVisible && rightPanelType === 'theme-settings' }"
-                 @click="toggleRightPanel('theme-settings')">
-              <i class="fas fa-palette"></i>
-            </div>
+            <Tooltip text="局域网聊天" placement="left">
+              <div class="icon-item"
+                   :class="{ active: rightPanelVisible && rightPanelType === 'chat' }"
+                   @click="toggleRightPanel('chat')">
+                <i class="fas fa-comment-alt"></i>
+                <Transition name="scale">
+                  <span v-if="onlineUserCount > 0" class="online-badge">
+                    {{ onlineUserCount }}
+                  </span>
+                </Transition>
+              </div>
+            </Tooltip>
+            <Tooltip text="同步设置" placement="left">
+              <div class="icon-item"
+                   :class="{
+                     active: rightPanelVisible && rightPanelType === 'sync-settings',
+                     'is-syncing': isSyncing
+                   }"
+                   @click="toggleRightPanel('sync-settings')">
+                <i class="fas fa-sync-alt" :class="{ 'fa-spin': isSyncing }"></i>
+              </div>
+            </Tooltip>
+            <Tooltip text="主题设置" placement="left">
+              <div class="icon-item"
+                   :class="{ active: rightPanelVisible && rightPanelType === 'theme-settings' }"
+                   @click="toggleRightPanel('theme-settings')">
+                <i class="fas fa-palette"></i>
+              </div>
+            </Tooltip>
           </div>
         </div>
 
@@ -935,6 +1181,7 @@ onUnmounted(() => {
         </div>
       </div>
     </Transition>
+
   </div>
 </template>
 

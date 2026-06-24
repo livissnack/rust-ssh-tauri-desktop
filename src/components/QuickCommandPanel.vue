@@ -133,9 +133,11 @@ onMounted(loadCommands);
         </div>
 
         <div class="card-actions">
-          <button class="delete-btn" @click.stop="deleteCommand(cmd.id)" title="删除指令">
-            <i class="fas fa-trash-alt"></i>
-          </button>
+          <Tooltip text="删除指令">
+            <button class="delete-btn" @click.stop="deleteCommand(cmd.id)">
+              <i class="fas fa-trash-alt"></i>
+            </button>
+          </Tooltip>
           <div class="execute-icon">
             <i class="fas fa-terminal"></i>
           </div>
@@ -246,7 +248,7 @@ onMounted(loadCommands);
   .form-textarea {
     height: 80px;
     resize: none;
-    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-family: var(--font-terminal);
   }
 
   .form-actions {
@@ -361,7 +363,7 @@ onMounted(loadCommands);
       .cmd-code {
         font-size: 10px;
         color: var(--text-dim);
-        font-family: 'JetBrains Mono', monospace;
+        font-family: var(--font-terminal);
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;

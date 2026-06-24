@@ -13,10 +13,11 @@
     "windows": [
       {
         "title": "hiphup-terminal",
-        "width": 1000,
-        "height": 700,
+        "width": 1200,
+        "height": 800,
         "decorations": false,
         "transparent": true,
+        "label": "main",
         "fullscreen": false,
         "resizable": true,
         "visible": false,

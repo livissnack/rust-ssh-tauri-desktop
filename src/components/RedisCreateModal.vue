@@ -93,14 +93,7 @@ const handleConfirm = async () => {
 
               <div class="form-group flex-2">
                 <label>过期 (秒) <span class="hint">(-1永久)</span></label>
-                <div class="ttl-input-container">
-                  <input
-                      v-model.number="formData.ttl"
-                      type="number"
-                      class="dark-input ttl-input"
-                  />
-                  <i class="fas fa-clock clock-icon"></i>
-                </div>
+                <NumberInput v-model="formData.ttl" :min="-1" />
               </div>
             </div>
 
@@ -284,42 +277,11 @@ const handleConfirm = async () => {
   }
 }
 
-/* TTL 数字输入框专项美化 */
-.ttl-input-container {
-  position: relative;
-  display: flex;
-  align-items: center;
-
-  .clock-icon {
-    position: absolute;
-    right: 12px;
-    font-size: 12px;
-    color: var(--text-dim);
-    pointer-events: none;
-  }
-
-  &:focus-within .clock-icon { color: var(--accent); }
-}
-
-.ttl-input {
-  padding-right: 32px !important;
-
-  &::-webkit-inner-spin-button {
-    opacity: 0.7;
-    cursor: pointer;
-    /* 亮色主题下保持默认，暗色主题下通过滤镜翻转箭头颜色 */
-    filter: var(--spin-button-filter, invert(0.8));
-    height: 18px;
-  }
-
-  -moz-appearance: textfield;
-}
-
 .value-area {
   padding: 10px 0 10px 12px;
   height: 120px;
   resize: none;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-family: var(--font-terminal);
   line-height: 1.5;
 }
 

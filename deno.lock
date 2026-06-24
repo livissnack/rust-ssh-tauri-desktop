@@ -1,7 +1,6 @@
 {
   "version": "5",
   "specifiers": {
-    "npm:@fontsource/jetbrains-mono@^5.2.8": "5.2.8",
     "npm:@fortawesome/fontawesome-free@^7.2.0": "7.2.0",
     "npm:@tauri-apps/api@2": "2.10.1",
     "npm:@tauri-apps/cli@2": "2.10.0",
@@ -11,6 +10,7 @@
     "npm:@tauri-apps/plugin-updater@^2.10.0": "2.10.0",
     "npm:@vitejs/plugin-vue@^5.2.1": "5.2.4_vite@6.4.1__sass-embedded@1.97.3__picomatch@4.0.3_vue@3.5.29__typescript@5.6.3_sass-embedded@1.97.3_typescript@5.6.3",
     "npm:@xterm/addon-fit@0.11": "0.11.0",
+    "npm:@xterm/addon-unicode11@0.9": "0.9.0",
     "npm:@xterm/addon-webgl@0.19": "0.19.0",
     "npm:@xterm/xterm@6": "6.0.0",
     "npm:highlight.js@^11.11.1": "11.11.1",
@@ -174,9 +174,6 @@
       "integrity": "sha512-alJC0uCZpTFrSL0CCDjcgleBXPnCrEAhTBILpeAp7M/OFgoqtAetfBzX0xM00MUsVVPpVjlPuMbREqnZCXaTnA==",
       "os": ["win32"],
       "cpu": ["x64"]
-    },
-    "@fontsource/jetbrains-mono@5.2.8": {
-      "integrity": "sha512-6w8/SG4kqvIMu7xd7wt6x3idn1Qux3p9N62s6G3rfldOUYHpWcc2FKrqf+Vo44jRvqWj2oAtTHrZXEP23oSKwQ=="
     },
     "@fortawesome/fontawesome-free@7.2.0": {
       "integrity": "sha512-3DguDv/oUE+7vjMeTSOjCSG+KeawgVQOHrKRnvUuqYh1mfArrh7s+s8hXW3e4RerBA1+Wh+hBqf8sJNpqNrBWg=="
@@ -623,6 +620,9 @@
     "@xterm/addon-fit@0.11.0": {
       "integrity": "sha512-jYcgT6xtVYhnhgxh3QgYDnnNMYTcf8ElbxxFzX0IZo+vabQqSPAjC3c1wJrKB5E19VwQei89QCiZZP86DCPF7g=="
     },
+    "@xterm/addon-unicode11@0.9.0": {
+      "integrity": "sha512-FxDnYcyuXhNl+XSqGZL/t0U9eiNb/q3EWT5rYkQT/zuig8Gz/VagnQANKHdDWFM2lTMk9ly0EFQxxxtZUoRetw=="
+    },
     "@xterm/addon-webgl@0.19.0": {
       "integrity": "sha512-b3fMOsyLVuCeNJWxolACEUED0vm7qC0cy4wRvf3oURSzDTYVQiGPhTnhWZwIHdvC48Y+oLhvYXnY4XDXPoJo6A=="
     },
@@ -1044,7 +1044,6 @@
   "workspace": {
     "packageJson": {
       "dependencies": [
-        "npm:@fontsource/jetbrains-mono@^5.2.8",
         "npm:@fortawesome/fontawesome-free@^7.2.0",
         "npm:@tauri-apps/api@2",
         "npm:@tauri-apps/cli@2",
@@ -1054,6 +1053,7 @@
         "npm:@tauri-apps/plugin-updater@^2.10.0",
         "npm:@vitejs/plugin-vue@^5.2.1",
         "npm:@xterm/addon-fit@0.11",
+        "npm:@xterm/addon-unicode11@0.9",
         "npm:@xterm/addon-webgl@0.19",
         "npm:@xterm/xterm@6",
         "npm:highlight.js@^11.11.1",

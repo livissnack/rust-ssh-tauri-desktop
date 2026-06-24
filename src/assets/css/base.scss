@@ -200,7 +200,8 @@ $current-theme: map.get($themes, $active-theme);
 
 $is-light: map.get($current-theme, 'is-light');
 
-$font-terminal: "JetBrains Mono", monospace;
+$font-ui: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+$font-terminal: "Cascadia Mono", "Cascadia Code", Consolas, "SF Mono", Menlo, Monaco, monospace;
 
 // 主题变量混合器 (使用 map.get)
 @function theme($key) {
@@ -250,6 +251,7 @@ $logo-text-color: #ffffff;
 // 🎯 CSS 变量定义
 // ============================================
 :root {
+  --font-ui: #{$font-ui};
   --font-terminal: #{$font-terminal};
   --bg-main: #{$bg-dark};
   --bg-primary: #{$bg-primary};
@@ -296,8 +298,10 @@ body {
   overflow: hidden;
   background-color: var(--bg-main);
   user-select: none;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font-ui);
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 // 滚动条美化

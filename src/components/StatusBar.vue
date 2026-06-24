@@ -123,7 +123,7 @@ onMounted(() => {
 
   .latency {
     color: var(--accent-orange, #f97316);
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-terminal);
     font-weight: 500;
     display: flex;
     align-items: center;

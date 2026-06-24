@@ -1,14 +1,41 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, onMounted, onUnmounted } from "vue";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import {
+  detectAppPlatform,
+  useMacTitlebar,
+  useWinStyleTitlebar,
+} from "../utils/platform";
 
 const appWindow = getCurrentWindow();
 
-const props = defineProps<{
+defineProps<{
   activeSessionId?: string | null;
 }>();
 
+const platform = detectAppPlatform();
+const isMacOs = useMacTitlebar(platform);
+const isWinLayout = useWinStyleTitlebar(platform);
+
 const controlsHover = ref(false);
+const isMaximized = ref(false);
+
+let unlistenResized: (() => void) | null = null;
+
+onMounted(async () => {
+  try {
+    isMaximized.value = await appWindow.isMaximized();
+    unlistenResized = await appWindow.onResized(async () => {
+      isMaximized.value = await appWindow.isMaximized();
+    });
+  } catch (err) {
+    console.warn("TitleBar: window state unavailable", err);
+  }
+});
+
+onUnmounted(() => {
+  unlistenResized?.();
+});
 
 const minimize = () => appWindow.minimize();
 const toggleMaximize = () => appWindow.toggleMaximize();
@@ -16,10 +43,23 @@ const closeApp = () => appWindow.close();
 </script>
 
 <template>
-  <header class="titlebar">
+  <header
+    class="titlebar"
+    :class="{
+      'is-mac': isMacOs,
+      'is-win-layout': isWinLayout,
+      [`platform-${platform}`]: true,
+    }"
+  >
     <div class="titlebar-drag-handle" data-tauri-drag-region></div>
     <div class="titlebar-ui-layer">
-      <div class="window-controls" @mouseenter="controlsHover = true" @mouseleave="controlsHover = false">
+      <!-- macOS：左侧交通灯 -->
+      <div
+        v-if="isMacOs"
+        class="window-controls mac-controls"
+        @mouseenter="controlsHover = true"
+        @mouseleave="controlsHover = false"
+      >
         <div class="dot close" @click="closeApp">
           <i v-show="controlsHover" class="fas fa-times"></i>
         </div>
@@ -30,6 +70,7 @@ const closeApp = () => appWindow.close();
           <i v-show="controlsHover" class="fas fa-expand-alt"></i>
         </div>
       </div>
+
       <div class="title-text-container">
         <div class="app-icon">
           <i class="fas fa-terminal"></i>
@@ -37,13 +78,56 @@ const closeApp = () => appWindow.close();
         <div class="title-main">Hiphup Terminal</div>
         <div class="session-badge" v-if="activeSessionId">SSH</div>
       </div>
-      <div class="titlebar-spacer"></div>
+
+      <!-- macOS：右侧占位，与左侧交通灯等宽，保证标题居中 -->
+      <div v-if="isMacOs" class="titlebar-spacer" aria-hidden="true"></div>
+
+      <!-- Windows / Linux / 其他：右侧窗口按钮 -->
+      <div v-if="isWinLayout" class="window-controls win-controls">
+        <button type="button" class="win-btn" title="最小化" aria-label="最小化" @click="minimize">
+          <svg viewBox="0 0 10 10" aria-hidden="true">
+            <path d="M0 4.5h10v1H0z" fill="currentColor" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          class="win-btn"
+          :title="isMaximized ? '向下还原' : '最大化'"
+          :aria-label="isMaximized ? '向下还原' : '最大化'"
+          @click="toggleMaximize"
+        >
+          <svg v-if="isMaximized" viewBox="0 0 10 10" aria-hidden="true">
+            <path
+              d="M2 2h6v6H2V2zm1 1v4h4V3H3zm2.5-2h4.5v1H7V1H3v1h2.5z"
+              fill="currentColor"
+            />
+          </svg>
+          <svg v-else viewBox="0 0 10 10" aria-hidden="true">
+            <path
+              d="M0 0h10v10H0V0zm1 1v8h8V1H1z"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1"
+            />
+          </svg>
+        </button>
+        <button type="button" class="win-btn close" title="关闭" aria-label="关闭" @click="closeApp">
+          <svg viewBox="0 0 10 10" aria-hidden="true">
+            <path
+              d="M1.5 1.5l7 7M8.5 1.5l-7 7"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.2"
+              stroke-linecap="round"
+            />
+          </svg>
+        </button>
+      </div>
     </div>
   </header>
 </template>
 
 <style lang="scss" scoped>
-@use "sass:color";
 @use '../assets/css/base.scss';
 
 .titlebar {
@@ -57,19 +141,13 @@ const closeApp = () => appWindow.close();
 
   .titlebar-drag-handle {
     position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
+    inset: 0;
     z-index: 10;
   }
 
   .titlebar-ui-layer {
     position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
+    inset: 0;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -78,9 +156,16 @@ const closeApp = () => appWindow.close();
     pointer-events: none;
 
     .window-controls {
+      pointer-events: auto;
+      flex-shrink: 0;
+      position: relative;
+      z-index: 2;
+    }
+
+    .mac-controls {
       display: flex;
       gap: 8px;
-      pointer-events: auto;
+      width: 52px;
 
       &:hover .dot i {
         opacity: 1;
@@ -93,19 +178,19 @@ const closeApp = () => appWindow.close();
         display: flex;
         align-items: center;
         justify-content: center;
-        position: relative;
-        border: 0.5px solid rgba(0, 0, 0, 0.12); // macOS 特有的微细边框
+        border: 0.5px solid rgba(0, 0, 0, 0.12);
+        cursor: default;
 
         i {
-          font-size: 7px; // 符号非常小
-          opacity: 0; // 默认隐藏
-          color: rgba(0, 0, 0, 0.5); // 符号颜色是半透明黑
+          font-size: 7px;
+          opacity: 0;
+          color: rgba(0, 0, 0, 0.5);
           transition: opacity 0.1s ease;
         }
 
         &.close {
           background: #ff5f57;
-          &:active { background: #bf4942; } // 点击时变深
+          &:active { background: #bf4942; }
         }
 
         &.minimize {
@@ -120,20 +205,6 @@ const closeApp = () => appWindow.close();
       }
     }
 
-    .title-text {
-      font-size: 10px;
-      color: var(--text-dim);
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 1.5px;
-      opacity: 0.8;
-      transition: color 0.3s ease;
-
-      .is-inactive & {
-        color: var(--text-dim-40);
-      }
-    }
-
     .title-text-container {
       position: absolute;
       left: 50%;
@@ -143,12 +214,15 @@ const closeApp = () => appWindow.close();
       align-items: center;
       gap: 10px;
       pointer-events: none;
+      max-width: calc(100% - 140px);
+      white-space: nowrap;
 
       .app-icon {
         font-size: 14px;
         color: var(--accent);
         filter: drop-shadow(0 0 4px var(--accent-30));
         opacity: 0.9;
+        flex-shrink: 0;
       }
 
       .title-main {
@@ -156,7 +230,8 @@ const closeApp = () => appWindow.close();
         color: var(--text-main);
         font-weight: 600;
         letter-spacing: 0.5px;
-        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
 
       .session-badge {
@@ -169,17 +244,70 @@ const closeApp = () => appWindow.close();
         text-transform: uppercase;
         font-weight: 800;
         letter-spacing: 1px;
+        flex-shrink: 0;
       }
     }
 
-    .is-inactive .title-text-container {
-      opacity: 0.5;
-      filter: grayscale(1);
-      transition: all 0.4s ease;
-    }
-
     .titlebar-spacer {
-      width: 60px;
+      width: 52px;
+      flex-shrink: 0;
+    }
+  }
+
+  /* macOS：左右对称，标题视觉居中 */
+  &.is-mac .titlebar-ui-layer {
+    padding: 0 15px;
+  }
+
+  /* Windows / Linux / 其他：右侧三键 */
+  &.is-win-layout .titlebar-ui-layer {
+    padding: 0;
+    justify-content: flex-end;
+
+    .win-controls {
+      display: flex;
+      align-items: stretch;
+      height: 100%;
+      margin-left: auto;
+
+      .win-btn {
+        width: 46px;
+        height: 100%;
+        border: none;
+        background: transparent;
+        color: var(--text-main);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: default;
+        padding: 0;
+        transition: background-color 0.12s ease, color 0.12s ease;
+
+        svg {
+          width: 10px;
+          height: 10px;
+          display: block;
+          flex-shrink: 0;
+        }
+
+        &:hover {
+          background: var(--border-50);
+        }
+
+        &:active {
+          background: var(--border);
+        }
+
+        &.close:hover {
+          background: #e81123;
+          color: #fff;
+        }
+
+        &.close:active {
+          background: #bf0f1d;
+          color: #fff;
+        }
+      }
     }
   }
 }

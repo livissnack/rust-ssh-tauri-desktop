@@ -123,7 +123,15 @@ onMounted(loadSettings);
 
           <div class="form-actions">
             <label class="auto-sync">
-              <input type="checkbox" v-model="syncForm.auto_sync"> 自动同步
+              <input
+                v-model="syncForm.auto_sync"
+                type="checkbox"
+                class="auto-sync__input"
+              />
+              <span class="auto-sync__box" aria-hidden="true">
+                <i class="fas fa-check auto-sync__icon"></i>
+              </span>
+              <span class="auto-sync__label">自动同步</span>
             </label>
             <button @click="saveSettings" class="btn-save">保存配置</button>
           </div>
@@ -277,19 +285,85 @@ onMounted(loadSettings);
     margin-top: 10px;
 
     .auto-sync {
-      font-size: 12px;
-      color: var(--text-dim);
-      display: flex;
+      display: inline-flex;
       align-items: center;
-      gap: 8px;
+      gap: 10px;
       cursor: pointer;
-      transition: color 0.2s;
+      user-select: none;
+      min-height: 32px;
 
-      &:hover { color: var(--text-main); }
+      &__input {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
 
-      input {
-        cursor: pointer;
-        accent-color: var(--accent);
+      &__box {
+        width: 18px;
+        height: 18px;
+        border-radius: 5px;
+        border: 1.5px solid var(--border);
+        background: var(--bg-input);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        transition:
+          background-color 0.2s ease,
+          border-color 0.2s ease,
+          box-shadow 0.2s ease,
+          transform 0.15s ease;
+      }
+
+      &__icon {
+        font-size: 10px;
+        color: var(--bg-primary);
+        opacity: 0;
+        transform: scale(0.6);
+        transition: opacity 0.15s ease, transform 0.15s ease;
+      }
+
+      &__label {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text-main);
+        line-height: 1;
+        transition: color 0.2s ease;
+      }
+
+      &:hover .auto-sync__box {
+        border-color: var(--accent-30);
+        background: var(--bg-card);
+      }
+
+      &:hover .auto-sync__label {
+        color: var(--accent);
+      }
+
+      &__input:checked + .auto-sync__box {
+        background: var(--accent);
+        border-color: var(--accent);
+        box-shadow: 0 0 0 2px var(--accent-10);
+
+        .auto-sync__icon {
+          opacity: 1;
+          transform: scale(1);
+        }
+      }
+
+      &__input:focus-visible + .auto-sync__box {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+
+      &:active .auto-sync__box {
+        transform: scale(0.94);
       }
     }
 

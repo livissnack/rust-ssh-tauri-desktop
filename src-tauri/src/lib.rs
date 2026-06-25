@@ -229,7 +229,17 @@ async fn authenticate<R: Runtime>(
         let key_pair = russh::keys::load_secret_key(path_str, None)
             .map_err(|e| format!("加载私钥失败: {}", e))?;
 
-        let key_with_alg = russh::keys::PrivateKeyWithHashAlg::new(Arc::new(key_pair), None);
+        let hash_alg = if key_pair.algorithm().is_rsa() {
+            handle
+                .best_supported_rsa_hash()
+                .await
+                .map_err(|e| format!("获取 RSA 签名算法失败: {}", e))?
+                .flatten()
+        } else {
+            None
+        };
+
+        let key_with_alg = russh::keys::PrivateKeyWithHashAlg::new(Arc::new(key_pair), hash_alg);
 
         let auth_res = handle.authenticate_publickey(&config.username, key_with_alg).await
             .map_err(|e| format!("私钥认证出错: {}", e))?;

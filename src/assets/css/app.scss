@@ -177,6 +177,12 @@
   height: 100%;
   background: var(--bg-primary);
 
+  &.sftp-manager--local-only {
+    .file-pane.local-pane {
+      border-right: none;
+    }
+  }
+
   .file-pane {
     flex: 1;
     display: flex;

@@ -71,13 +71,22 @@ const connectButtonIcon = computed(() => {
   return 'fa-plug';
 });
 
-const viewModeLabel = computed(() =>
-  props.currentViewMode === 'sftp' ? 'Terminal' : 'SFTP'
-);
+const viewModeLabel = computed(() => {
+  if (props.currentViewMode === 'sftp') return 'Terminal';
+  return props.isLocalSession ? 'Files' : 'SFTP';
+});
 
 const viewModeIcon = computed(() =>
   props.currentViewMode === 'sftp' ? 'fa-terminal' : 'fa-folder-open'
 );
+
+const viewModeTooltip = computed(() => {
+  if (!props.activeSessionId) return '';
+  if (props.isLocalSession) {
+    return props.currentViewMode === 'sftp' ? 'Switch to Terminal' : 'Switch to Files';
+  }
+  return `Switch to ${viewModeLabel.value}`;
+});
 </script>
 
 <template>
@@ -108,12 +117,12 @@ const viewModeIcon = computed(() =>
     </div>
 
     <div class="toolbar">
-      <Tooltip :text="isLocalSession ? '本地终端不支持 SFTP' : `Switch to ${viewModeLabel}`">
+      <Tooltip :text="viewModeTooltip">
         <button
             type="button"
             class="tool-btn tool-btn--mode"
             :class="{ 'is-sftp': currentViewMode === 'sftp' }"
-            :disabled="isLocalSession || !activeSessionId"
+            :disabled="!activeSessionId"
             @click="emit('toggleViewMode')"
         >
           <i class="fas" :class="viewModeIcon"></i>

@@ -926,13 +926,15 @@ const internalUiCleanup = (id: string) => {
 };
 
 const toggleViewMode = async () => {
-  if (!activeSessionId.value || isActiveLocalSession.value) return;
+  if (!activeSessionId.value) return;
   const currentMode = sessionViewModes.value[activeSessionId.value] || 'terminal';
   const newMode = currentMode === 'terminal' ? 'sftp' : 'terminal';
   sessionViewModes.value[activeSessionId.value] = newMode;
   if (newMode === 'sftp') {
-    refreshRemoteFiles();
-    refreshLocalFiles();
+    await refreshLocalFiles();
+    if (!isActiveLocalSession.value) {
+      await refreshRemoteFiles();
+    }
   }
 };
 
@@ -1419,10 +1421,10 @@ onUnmounted(async () => {
           </div>
 
           <div v-show="currentViewMode === 'sftp'" class="sftp-wrapper">
-            <div v-if="activeSessionId" class="sftp-manager">
+            <div v-if="activeSessionId" class="sftp-manager" :class="{ 'sftp-manager--local-only': isActiveLocalSession }">
               <div class="file-pane local-pane">
                 <div class="pane-header">
-                  <i class="fas fa-laptop" style="margin-right: 8px; color: #565f89;"></i>
+                  <i class="fas" :class="isActiveLocalSession ? 'fa-folder-open' : 'fa-laptop'" style="margin-right: 8px; color: #565f89;"></i>
                   <input v-model="localPath" class="path-input" @keyup.enter="refreshLocalFiles"/>
                 </div>
                 <div class="file-list"
@@ -1452,7 +1454,7 @@ onUnmounted(async () => {
                 </div>
               </div>
 
-              <div class="file-pane remote-pane">
+              <div v-if="!isActiveLocalSession" class="file-pane remote-pane">
                 <div class="pane-header">
                   <i class="fas fa-server" style="margin-right: 8px; color: #565f89;"></i>
                   <input v-model="remotePath" class="path-input" @keyup.enter="refreshRemoteFiles"/>
@@ -1482,7 +1484,7 @@ onUnmounted(async () => {
                 </div>
               </div>
 
-              <div class="transfer-status" v-if="transferTasks.length > 0">
+              <div v-if="!isActiveLocalSession && transferTasks.length > 0" class="transfer-status">
                 <div class="status-header">
                   <div class="header-left"><i class="fas fa-layer-group"></i><span>传输队列 ({{
                       transferTasks.length
@@ -1654,14 +1656,14 @@ onUnmounted(async () => {
 
           <div class="menu-divider"></div>
 
-          <div class="menu-item" @click="handleMenuAction('transfer')">
+          <div v-if="!isActiveLocalSession" class="menu-item" @click="handleMenuAction('transfer')">
             <i class="fas" :class="contextSource === 'local' ? 'fa-cloud-upload-alt' : 'fa-cloud-download-alt'"></i>
             <span class="menu-text">
               {{ contextSource === 'local' ? '上传到远程' : '下载到本地' }}
             </span>
           </div>
 
-          <div class="menu-divider"></div>
+          <div v-if="!isActiveLocalSession" class="menu-divider"></div>
 
           <div class="menu-item" @click="handleMenuAction('info')">
             <i class="fas fa-circle-info"></i>

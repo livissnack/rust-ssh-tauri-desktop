@@ -3,9 +3,11 @@ import { ref, onMounted, computed } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from '../utils/toast.ts';
 import { throttle } from '../utils/async.ts';
+import { confirm } from '../utils/confirm.ts';
 
 const props = defineProps<{
-  activeSessionId: string | null
+  activeSessionId: string | null;
+  sessionConnected?: boolean;
 }>();
 
 const commands = ref<any[]>([]);
@@ -68,12 +70,18 @@ const executeCommand = async (content: string) => {
     toast.warning("请先连接到一个 SSH 会话", "未就绪");
     return;
   }
+  if (!props.sessionConnected) {
+    toast.warning("当前会话未连接，无法发送指令", "未就绪");
+    return;
+  }
   const data = content.endsWith('\n') ? content : content + '\n';
   await invoke('write_to_ssh', { sessionId: props.activeSessionId, data });
   toast.success("指令已发送", "终端响应");
 };
 
-const deleteCommand = async (id: string) => {
+const deleteCommand = async (id: string, name: string) => {
+  const ok = await confirm.warning(`确定删除快捷指令「${name}」吗？`, '删除确认');
+  if (!ok) return;
   try {
     await invoke('delete_quick_command', { id });
     await loadCommands();
@@ -134,7 +142,7 @@ onMounted(loadCommands);
 
         <div class="card-actions">
           <Tooltip text="删除指令">
-            <button class="delete-btn" @click.stop="deleteCommand(cmd.id)">
+            <button class="delete-btn" @click.stop="deleteCommand(cmd.id, cmd.name)">
               <i class="fas fa-trash-alt"></i>
             </button>
           </Tooltip>

@@ -1,10 +1,15 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import { LOCAL_SERVER_ID } from '../utils/session.ts';
+import type { SessionStatus } from '../utils/session.ts';
+import { useI18n } from '../utils/i18n.ts';
+
+const { tr } = useI18n();
 
 const props = defineProps<{
   openSessions: Array<{ id: string; serverId: string; name: string }>;
   activeSessionId: string | null;
+  sessionStatuses?: Record<string, SessionStatus>;
 }>();
 
 const emit = defineEmits<{
@@ -13,6 +18,7 @@ const emit = defineEmits<{
   (e: 'cloneTab', id: string): void;
   (e: 'cloneWindow', id: string): void;
   (e: 'newLocalShell'): void;
+  (e: 'reconnect', id: string): void;
 }>();
 
 const activeSessionId = computed({
@@ -23,10 +29,38 @@ const activeSessionId = computed({
 const menuVisible = ref(false);
 const menuPos = ref({ x: 0, y: 0 });
 const menuTargetTabId = ref<string | null>(null);
+const menuElRef = ref<HTMLElement | null>(null);
 
 const menuTargetTab = computed(() =>
   props.openSessions.find(tab => tab.id === menuTargetTabId.value) ?? null
 );
+
+const tabStatusClass = (tabId: string) => {
+  const status = props.sessionStatuses?.[tabId];
+  if (status === 'failed' || status === 'disconnected') return 'is-error';
+  if (status === 'connecting') return 'is-connecting';
+  if (status === 'connected') return 'is-connected';
+  return '';
+};
+
+const canReconnect = (tabId: string) => {
+  const status = props.sessionStatuses?.[tabId];
+  return status === 'failed' || status === 'disconnected';
+};
+
+const clampMenuPosition = (anchorX: number, anchorY: number) => {
+  const el = menuElRef.value;
+  if (!el) return;
+  const pad = 8;
+  const { width, height } = el.getBoundingClientRect();
+  let x = anchorX;
+  let y = anchorY;
+  if (x + width > window.innerWidth - pad) x = anchorX - width;
+  if (y + height > window.innerHeight - pad) y = anchorY - height;
+  x = Math.min(Math.max(x, pad), window.innerWidth - width - pad);
+  y = Math.min(Math.max(y, pad), window.innerHeight - height - pad);
+  menuPos.value = { x, y };
+};
 
 const openTabMenu = (e: MouseEvent, tabId: string) => {
   e.preventDefault();
@@ -34,6 +68,7 @@ const openTabMenu = (e: MouseEvent, tabId: string) => {
   menuTargetTabId.value = tabId;
   menuPos.value = { x: e.clientX, y: e.clientY };
   menuVisible.value = true;
+  nextTick(() => clampMenuPosition(e.clientX, e.clientY));
 };
 
 const closeMenu = () => {
@@ -41,12 +76,13 @@ const closeMenu = () => {
   menuTargetTabId.value = null;
 };
 
-const handleMenuAction = (action: 'cloneTab' | 'cloneWindow' | 'close') => {
+const handleMenuAction = (action: 'cloneTab' | 'cloneWindow' | 'close' | 'reconnect') => {
   const id = menuTargetTabId.value;
   if (!id) return;
   closeMenu();
   if (action === 'cloneTab') emit('cloneTab', id);
   else if (action === 'cloneWindow') emit('cloneWindow', id);
+  else if (action === 'reconnect') emit('reconnect', id);
   else emit('close', id);
 };
 
@@ -73,21 +109,21 @@ onUnmounted(() => {
     <div
         v-for="tab in openSessions"
         :key="tab.id"
-        :class="['tab-item', { active: activeSessionId === tab.id }]"
+        :class="['tab-item', tabStatusClass(tab.id), { active: activeSessionId === tab.id }]"
         @click="activeSessionId = tab.id"
         @contextmenu="openTabMenu($event, tab.id)"
     >
       <i :class="['fas', tab.serverId === LOCAL_SERVER_ID ? 'fa-laptop' : 'fa-terminal', 'tab-icon']"></i>
       <span class="tab-name">{{ tab.name }}</span>
 
-      <Tooltip text="关闭会话" placement="bottom">
+      <Tooltip :text="tr.tabs.closeSession" placement="bottom">
         <button type="button" class="tab-close" @click.stop="emit('close', tab.id)">
           <i class="fas fa-times"></i>
         </button>
       </Tooltip>
     </div>
 
-    <Tooltip text="新建本地终端">
+    <Tooltip :text="tr.tabs.newLocalShell">
       <button class="tab-add-btn" @click="emit('newLocalShell')">
         <i class="fas fa-plus"></i>
       </button>
@@ -97,24 +133,34 @@ onUnmounted(() => {
       <Transition name="tab-menu">
         <div
             v-if="menuVisible && menuTargetTab"
+            ref="menuElRef"
             class="tab-context-menu"
             :style="{ top: `${menuPos.y}px`, left: `${menuPos.x}px` }"
             @contextmenu.prevent
             @click.stop
         >
           <div class="tab-context-menu__title">{{ menuTargetTab.name }}</div>
+          <button
+              v-if="canReconnect(menuTargetTab.id) && menuTargetTab.serverId !== LOCAL_SERVER_ID"
+              type="button"
+              class="tab-context-menu__item"
+              @click="handleMenuAction('reconnect')"
+          >
+            <i class="fas fa-rotate-right"></i>
+            <span>{{ tr.tabs.reconnect }}</span>
+          </button>
           <button type="button" class="tab-context-menu__item" @click="handleMenuAction('cloneTab')">
             <i class="fas fa-copy"></i>
-            <span>克隆到新标签</span>
+            <span>{{ tr.tabs.cloneTab }}</span>
           </button>
           <button type="button" class="tab-context-menu__item" @click="handleMenuAction('cloneWindow')">
             <i class="fas fa-window-restore"></i>
-            <span>克隆到新窗口</span>
+            <span>{{ tr.tabs.cloneWindow }}</span>
           </button>
           <div class="tab-context-menu__divider"></div>
           <button type="button" class="tab-context-menu__item tab-context-menu__item--danger" @click="handleMenuAction('close')">
             <i class="fas fa-times"></i>
-            <span>关闭会话</span>
+            <span>{{ tr.tabs.closeSession }}</span>
           </button>
         </div>
       </Transition>
@@ -222,6 +268,9 @@ onUnmounted(() => {
         border-radius: 6px 6px 0 0;
       }
     }
+
+    &.is-error:not(.active) .tab-name { color: var(--error); }
+    &.is-connecting:not(.active) .tab-name { color: var(--accent-orange); }
   }
 
   .tab-add-btn {

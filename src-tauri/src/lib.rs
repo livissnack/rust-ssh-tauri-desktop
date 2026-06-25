@@ -31,13 +31,13 @@ use redb::{Database, TableDefinition, ReadableTable};
 use uuid::Uuid;
 use std::future::Future;
 use tokio::time::{timeout};
+use std::io::Cursor;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 use russh_sftp::client::SftpSession;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use std::time::{Duration, Instant};
-use tokio::net::TcpStream;
 use futures::StreamExt;
 use serde_json::json;
 use tauri::menu::{Menu, MenuItem};
@@ -227,8 +227,8 @@ impl Clone for AppState {
     }
 }
 
-async fn authenticate<R: Runtime>(
-    handle: &mut client::Handle<ClientHandler<R>>,
+async fn authenticate<H: client::Handler>(
+    handle: &mut client::Handle<H>,
     config: &ServerConfig,
 ) -> Result<(), String> {
     if config.auth_type == "key" {
@@ -264,6 +264,84 @@ async fn authenticate<R: Runtime>(
         }
     }
     Ok(())
+}
+
+struct LatencyProbeHandler;
+
+impl client::Handler for LatencyProbeHandler {
+    type Error = russh::Error;
+
+    fn check_server_key(
+        &mut self,
+        _server_public_key: &russh::keys::PublicKey,
+    ) -> impl Future<Output = Result<bool, Self::Error>> + Send {
+        async move { Ok(true) }
+    }
+}
+
+async fn open_probe_session(
+    target_config: &ServerConfig,
+    all_configs: &[ServerConfig],
+) -> Result<client::Handle<LatencyProbeHandler>, String> {
+    let mut config = client::Config::default();
+    config.channel_buffer_size = 1024;
+    config.nodelay = true;
+    let client_config = Arc::new(config);
+    let connect_timeout = Duration::from_secs(8);
+    let handler = LatencyProbeHandler;
+
+    match target_config.jump_host_id.as_deref() {
+        None | Some("") => {
+            let addr = format!("{}:{}", target_config.host, target_config.port);
+            let mut handle = timeout(connect_timeout, client::connect(client_config, addr, handler))
+                .await
+                .map_err(|_| format!("连接 {} 超时", target_config.host))?
+                .map_err(|e| format!("直连失败: {}", e))?;
+            authenticate(&mut handle, target_config).await?;
+            Ok(handle)
+        }
+        Some(jump_id) => {
+            let jump_config = all_configs
+                .iter()
+                .find(|s| s.id == jump_id)
+                .ok_or(format!("找不到跳板机: {}", jump_id))?;
+
+            let jump_handle = Box::pin(open_probe_session(jump_config, all_configs)).await?;
+
+            let channel = timeout(
+                Duration::from_secs(8),
+                jump_handle.channel_open_direct_tcpip(
+                    &target_config.host,
+                    target_config.port as u32,
+                    "127.0.0.1",
+                    0,
+                ),
+            )
+            .await
+            .map_err(|_| "跳板机建立隧道响应超时".to_string())?
+            .map_err(|e| format!("隧道建立失败: {}", e))?;
+
+            let mut handle = timeout(
+                connect_timeout,
+                client::connect_stream(client_config, channel.into_stream(), handler),
+            )
+            .await
+            .map_err(|_| format!("隧道内与目标 {} 握手超时", target_config.host))?
+            .map_err(|e| format!("隧道内握手失败: {}", e))?;
+
+            authenticate(&mut handle, target_config).await?;
+            Ok(handle)
+        }
+    }
+}
+
+async fn measure_server_latency(
+    target_config: &ServerConfig,
+    all_configs: &[ServerConfig],
+) -> Result<u32, String> {
+    let start = Instant::now();
+    let _handle = open_probe_session(target_config, all_configs).await?;
+    Ok(start.elapsed().as_millis() as u32)
 }
 
 async fn create_recursive_session<R: Runtime>(
@@ -417,18 +495,16 @@ async fn update_server_order(
 
 
 #[tauri::command]
-async fn get_server_latency(host: String, port: u16) -> Result<u32, String> {
-    let address = format!("{}:{}", host, port);
-    let start = Instant::now();
-
-    match tokio::time::timeout(Duration::from_millis(2000), TcpStream::connect(&address)).await {
-        Ok(Ok(_)) => {
-            let duration = start.elapsed().as_millis() as u32;
-            Ok(duration)
-        }
-        Ok(Err(e)) => Err(format!("连接拒绝: {}", e)),
-        Err(_) => Err("连接超时".into()),
-    }
+async fn get_server_latency(
+    state: State<'_, AppState>,
+    server_id: String,
+) -> Result<u32, String> {
+    let servers = get_servers(state).await?;
+    let target = servers
+        .iter()
+        .find(|s| s.id == server_id)
+        .ok_or("配置不存在")?;
+    measure_server_latency(target, &servers).await
 }
 
 #[tauri::command]
@@ -725,24 +801,24 @@ async fn write_to_ssh(state: State<'_, AppState>, session_id: String, data: Stri
 
     // 不要在持有全局 sessions 锁的情况下 await 网络/通道写操作。
     // 否则当输入频繁（例如 vim 上下移动不断发控制序列）时，会堆积请求导致终端假死。
-    let (handle_mutex, channel_id) = {
+    let channel_arc = {
         let sessions = state.sessions.lock().await;
         let sess = sessions.get(&session_id).ok_or("Session not found")?;
-        (sess.handle.clone(), sess.channel_id)
+        sess.channel.clone()
     };
 
     // 给写入过程分别加超时：
-    // 1) 锁等待超时：说明前一次写入还没释放 session 级 Handle 锁
-    // 2) 写入超时：说明拿到锁后，handle.data(...).await 本身卡住
+    // 1) 锁等待超时：说明前一次 channel 操作还没释放
+    // 2) 写入超时：说明 channel.data(...).await 本身卡住
     let lock_timeout = Duration::from_secs(2);
     let write_timeout = Duration::from_secs(15);
 
-    let handle = match timeout(lock_timeout, handle_mutex.lock()).await {
+    let channel = match timeout(lock_timeout, channel_arc.lock()).await {
         Ok(guard) => guard,
-        Err(_) => return Err(format!("写入 SSH 锁超时: session_id={}", session_id)),
+        Err(_) => return Err(format!("写入 SSH 通道锁超时: session_id={}", session_id)),
     };
 
-    match timeout(write_timeout, handle.data(channel_id, data.into())).await {
+    match timeout(write_timeout, channel.data(Cursor::new(data.into_bytes()))).await {
         Ok(res) => res.map_err(|e| format!("写入 SSH 通道失败: {:?}", e)),
         Err(_) => Err(format!("写入 SSH 写入超时: session_id={}", session_id)),
     }

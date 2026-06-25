@@ -1,7 +1,7 @@
 <template>
   <Transition name="confirm-fade">
     <div v-if="visible" class="confirm-overlay" @click="handleCancel">
-      <div class="confirm-box" @click.stop>
+      <div ref="boxRef" class="confirm-box" tabindex="-1" @click.stop @keydown="handleKeydown">
         <div class="confirm-header">
           <i :class="[iconClass, type]"></i>
           <span class="confirm-title">{{ title || '确认操作' }}</span>
@@ -10,8 +10,8 @@
           {{ message }}
         </div>
         <div class="confirm-footer">
-          <button class="btn-cancel" @click="handleCancel">取消</button>
-          <button class="btn-confirm" :class="type" @click="handleConfirm">确定</button>
+          <button ref="cancelBtnRef" type="button" class="btn-cancel" @click="handleCancel">取消</button>
+          <button type="button" class="btn-confirm" :class="type" @click="handleConfirm">确定</button>
         </div>
       </div>
     </div>
@@ -25,10 +25,12 @@ const props = defineProps<{
   message: string;
   title?: string;
   type?: 'info' | 'success' | 'warning' | 'error';
-  onResolve: (result: boolean) => void; // 这里的回调用于 Promise
+  onResolve: (result: boolean) => void;
 }>();
 
 const visible = ref(false);
+const boxRef = ref<HTMLElement | null>(null);
+const cancelBtnRef = ref<HTMLButtonElement | null>(null);
 
 const iconClass = computed(() => {
   switch (props.type) {
@@ -41,7 +43,7 @@ const iconClass = computed(() => {
 
 const handleConfirm = () => {
   visible.value = false;
-  setTimeout(() => props.onResolve(true), 300); // 等动画播完再销毁
+  setTimeout(() => props.onResolve(true), 300);
 };
 
 const handleCancel = () => {
@@ -49,8 +51,25 @@ const handleCancel = () => {
   setTimeout(() => props.onResolve(false), 300);
 };
 
+const handleKeydown = (e: KeyboardEvent) => {
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    handleCancel();
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    handleConfirm();
+  }
+};
+
 onMounted(() => {
   visible.value = true;
+  requestAnimationFrame(() => {
+    if (props.type === 'error') {
+      cancelBtnRef.value?.focus();
+    } else {
+      boxRef.value?.focus();
+    }
+  });
 });
 </script>
 
@@ -79,6 +98,7 @@ onMounted(() => {
   box-shadow: 0 20px 25px -5px var(--shadow, rgba(0, 0, 0, 0.3));
   position: relative;
   overflow: hidden;
+  outline: none;
 
   &::before {
     content: "";
@@ -156,7 +176,7 @@ onMounted(() => {
       &.error {
         background: var(--error);
         &:hover {
-          background: color.mix(#000, #f7768e, 10%); // 稍微深一点
+          background: color.mix(#000, #f7768e, 10%);
           box-shadow: 0 4px 12px var(--error-30);
         }
       }
@@ -175,7 +195,7 @@ onMounted(() => {
 }
 
 .confirm-fade-enter-active, .confirm-fade-leave-active {
-  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); // 增加一点点回弹感
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .confirm-fade-enter-from, .confirm-fade-leave-to {

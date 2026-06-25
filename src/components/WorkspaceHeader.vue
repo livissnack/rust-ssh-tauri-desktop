@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import type { SessionStatus } from "../utils/session.ts";
+import { sessionStatusLabel, useI18n } from "../utils/i18n.ts";
+const { tr } = useI18n();
 
 const props = defineProps<{
   currentServer: any;
   activeId: string | null;
   activeSessionId: string | null;
-  isConnecting: boolean;
-  isError?: boolean;
+  sessionStatus: SessionStatus;
+  sessionError?: string;
   currentViewMode: 'terminal' | 'sftp';
   openSessions: Array<{ id: string; serverId: string; name: string }>;
   servers: any[];
@@ -16,6 +19,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'toggleViewMode'): void;
   (e: 'connect'): void;
+  (e: 'reconnect'): void;
 }>();
 
 const activeServer = computed(() => {
@@ -31,7 +35,7 @@ const activeServer = computed(() => {
   return props.currentServer ?? null;
 });
 
-const hasActiveHost = computed(() => !!activeServer.value?.name && activeServer.value.name !== 'Select a host');
+const hasActiveHost = computed(() => !!activeServer.value?.name && activeServer.value.name !== tr.value.session.selectHost);
 
 const displayServerName = computed(() => {
   if (props.isLocalSession && props.activeSessionId) {
@@ -39,11 +43,11 @@ const displayServerName = computed(() => {
     if (session) return session.name;
   }
   if (activeServer.value?.name) return activeServer.value.name;
-  return 'Select a host';
+  return tr.value.session.selectHost;
 });
 
 const displayHostMeta = computed(() => {
-  if (props.isLocalSession) return 'Local Shell';
+  if (props.isLocalSession) return tr.value.session.localTerminal;
   const server = activeServer.value;
   if (!server?.host) return null;
   return `${server.username}@${server.host}:${server.port}`;
@@ -58,27 +62,36 @@ const headerIconClass = computed(() => {
 });
 
 const statusClass = computed(() => {
-  if (props.isConnecting) return 'is-connecting';
-  if (props.isError) return 'is-error';
-  if (props.activeSessionId) return 'is-active';
+  if (props.sessionStatus === 'connecting') return 'is-connecting';
+  if (props.sessionStatus === 'failed' || props.sessionStatus === 'disconnected') return 'is-error';
+  if (props.sessionStatus === 'connected') return 'is-active';
+  if (props.activeSessionId) return 'is-idle';
   return 'is-idle';
 });
 
-const statusLabel = computed(() => {
-  if (props.isConnecting) return 'Connecting';
-  if (props.isError) return 'Failed';
-  if (props.activeSessionId) return 'Connected';
-  return 'Ready';
-});
+const statusLabel = computed(() =>
+  sessionStatusLabel(props.sessionStatus, !!props.isLocalSession),
+);
+
+const showConnectButton = computed(() =>
+  !props.isLocalSession &&
+  props.sessionStatus !== 'connected' &&
+  props.sessionStatus !== 'connecting',
+);
+
+const showReconnectButton = computed(() =>
+  !props.isLocalSession &&
+  (props.sessionStatus === 'failed' || props.sessionStatus === 'disconnected'),
+);
 
 const connectButtonText = computed(() => {
-  if (props.isConnecting) return 'Connecting';
-  return 'Connect';
+  if (props.sessionStatus === 'connecting') return tr.value.session.connecting;
+  return tr.value.session.connect;
 });
 
 const viewModeLabel = computed(() => {
-  if (props.currentViewMode === 'sftp') return 'Terminal';
-  return props.isLocalSession ? 'Files' : 'SFTP';
+  if (props.currentViewMode === 'sftp') return tr.value.session.terminal;
+  return props.isLocalSession ? tr.value.session.files : tr.value.session.sftp;
 });
 
 const viewModeIcon = computed(() =>
@@ -88,9 +101,9 @@ const viewModeIcon = computed(() =>
 const viewModeTooltip = computed(() => {
   if (!props.activeSessionId) return '';
   if (props.isLocalSession) {
-    return props.currentViewMode === 'sftp' ? 'Switch to Terminal' : 'Switch to Files';
+    return props.currentViewMode === 'sftp' ? tr.value.session.switchToTerminal : tr.value.session.switchToFiles;
   }
-  return `Switch to ${viewModeLabel.value}`;
+  return props.currentViewMode === 'sftp' ? tr.value.session.switchToTerminal : tr.value.session.switchToSftp;
 });
 </script>
 
@@ -117,35 +130,42 @@ const viewModeTooltip = computed(() => {
             <span class="meta-sep">·</span>
             <span class="header-meta__address">{{ displayHostMeta }}</span>
           </div>
-          <p v-else class="header-hint">Select a host from the sidebar</p>
+          <p v-else class="header-hint">{{ tr.session.pickHostHint }}</p>
         </div>
       </div>
 
-      <div class="toolbar">
-        <Tooltip :text="viewModeTooltip">
+      <div class="header-actions">
+        <Tooltip :text="viewModeTooltip" :disabled="!activeSessionId">
           <button
-            type="button"
-            class="mode-toggle"
-            :class="{ 'is-alt': currentViewMode === 'sftp', 'is-disabled': !activeSessionId }"
-            :disabled="!activeSessionId"
-            @click="emit('toggleViewMode')"
+              type="button"
+              class="action-btn action-btn--ghost"
+              :class="{ 'is-alt': currentViewMode === 'sftp', 'is-disabled': !activeSessionId }"
+              :disabled="!activeSessionId"
+              @click="emit('toggleViewMode')"
           >
             <i class="fas" :class="viewModeIcon"></i>
             <span>{{ viewModeLabel }}</span>
           </button>
         </Tooltip>
 
-        <span class="toolbar-split" aria-hidden="true"></span>
+        <button
+            v-if="showReconnectButton"
+            type="button"
+            class="action-btn action-btn--primary"
+            @click="emit('reconnect')"
+        >
+          <i class="fas fa-rotate-right"></i>
+          <span>{{ tr.session.reconnect }}</span>
+        </button>
 
         <button
-          type="button"
-          class="connect-btn"
-          :class="{ 'is-loading': isConnecting }"
-          :disabled="!activeId || isConnecting"
-          @click="emit('connect')"
+            v-else-if="showConnectButton"
+            type="button"
+            class="action-btn action-btn--primary"
+            :disabled="!activeId && !activeSessionId"
+            @click="emit('connect')"
         >
-          <span class="connect-btn__shine" aria-hidden="true"></span>
-          <i class="fas" :class="isConnecting ? 'fa-circle-notch fa-spin' : 'fa-plug'"></i>
+          <i class="fas" :class="sessionStatus === 'connecting' ? 'fa-spinner fa-spin' : 'fa-plug'"></i>
           <span>{{ connectButtonText }}</span>
         </button>
       </div>
@@ -154,338 +174,243 @@ const viewModeTooltip = computed(() => {
 </template>
 
 <style lang="scss" scoped>
-@use 'sass:color';
+@use '../assets/css/base.scss';
 
 .workspace-header {
   position: relative;
   flex-shrink: 0;
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--bg-secondary) 88%, var(--accent) 12%) 0%,
-    var(--bg-primary) 100%
-  );
-  border-bottom: 1px solid var(--border-30);
+  background: var(--bg-secondary);
   overflow: hidden;
+
+  .header-accent {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, var(--accent), var(--accent-purple));
+    opacity: 0.6;
+    transition: opacity 0.3s, background 0.3s;
+  }
 
   &.is-active .header-accent {
-    background: linear-gradient(90deg, transparent, var(--success), transparent);
-    opacity: 0.85;
-  }
-
-  &.is-connecting .header-accent {
-    background: linear-gradient(90deg, transparent, var(--accent-orange), transparent);
-    animation: accent-flow 1.8s ease-in-out infinite;
-  }
-
-  &.is-error .header-accent {
-    background: linear-gradient(90deg, transparent, var(--error), transparent);
-    opacity: 0.9;
-  }
-}
-
-.header-accent {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, var(--accent-30), transparent);
-  opacity: 0.55;
-  pointer-events: none;
-}
-
-.header-body {
-  height: 56px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 0 16px 0 18px;
-}
-
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-  flex: 1;
-}
-
-.header-icon {
-  width: 30px;
-  height: 30px;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 8px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-30);
-  color: var(--text-dim);
-  font-size: 12px;
-  transition: border-color 0.2s ease, color 0.2s ease;
-
-  &.is-local {
-    color: var(--accent-alt);
-  }
-
-  &.is-active {
-    color: var(--success);
-    border-color: color-mix(in srgb, var(--success) 30%, var(--border-30));
-  }
-
-  &.is-connecting {
-    color: var(--accent-orange);
-    border-color: color-mix(in srgb, var(--accent-orange) 30%, var(--border-30));
-  }
-
-  &.is-error {
-    color: var(--error);
-    border-color: color-mix(in srgb, var(--error) 30%, var(--border-30));
-  }
-}
-
-.header-info {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 2px;
-}
-
-.header-title-row {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-}
-
-.header-title {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-main);
-  line-height: 1.2;
-
-  &.is-placeholder {
-    font-weight: 500;
-    color: var(--text-dim);
-  }
-}
-
-.header-meta {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  min-width: 0;
-  font-size: 11px;
-  line-height: 1.2;
-}
-
-.status-dot {
-  width: 5px;
-  height: 5px;
-  flex-shrink: 0;
-  border-radius: 50%;
-  background: var(--text-dim);
-
-  &.is-active {
-    background: var(--success);
-    box-shadow: 0 0 6px var(--success-60);
-  }
-
-  &.is-connecting {
-    background: var(--accent-orange);
-    animation: status-pulse 1.5s infinite;
-  }
-
-  &.is-error {
-    background: var(--error);
-  }
-}
-
-.status-text {
-  flex-shrink: 0;
-  font-size: 10px;
-  font-weight: 500;
-  color: var(--text-dim);
-
-  &.is-active { color: var(--success); }
-  &.is-connecting { color: var(--accent-orange); }
-  &.is-error { color: var(--error); }
-}
-
-.meta-sep {
-  flex-shrink: 0;
-  color: var(--text-dim);
-  opacity: 0.45;
-  user-select: none;
-}
-
-.header-meta__address {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--font-terminal);
-  font-size: 10px;
-  color: var(--text-dim);
-}
-
-.header-hint {
-  margin: 0;
-  font-size: 10px;
-  color: var(--text-dim);
-  opacity: 0.8;
-}
-
-.toolbar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-  padding: 4px 6px;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--bg-secondary) 70%, transparent);
-  border: 1px solid var(--border-30);
-  backdrop-filter: blur(8px);
-}
-
-.toolbar-split {
-  width: 1px;
-  height: 22px;
-  background: var(--border-30);
-  flex-shrink: 0;
-}
-
-.mode-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 10px;
-  border: 1px solid var(--border-30);
-  border-radius: 7px;
-  background: var(--bg-card);
-  color: var(--text-main);
-  font-size: 11px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.22s ease;
-
-  i {
-    font-size: 10px;
-    color: var(--accent);
-  }
-
-  &:hover:not(:disabled) {
-    border-color: var(--accent-30);
-    box-shadow: 0 2px 10px color-mix(in srgb, var(--accent) 10%, transparent);
-  }
-
-  &.is-alt {
-    border-color: color-mix(in srgb, var(--accent-orange) 30%, var(--border-30));
-    background: color-mix(in srgb, var(--accent-orange) 6%, var(--bg-card));
-
-    i {
-      color: var(--accent-orange);
-    }
-  }
-
-  &.is-disabled,
-  &:disabled {
-    opacity: 0.45;
-    cursor: not-allowed;
-    box-shadow: none;
-  }
-
-  &:focus-visible {
-    outline: none;
-    box-shadow: 0 0 0 2px var(--accent-glow);
-  }
-}
-
-.connect-btn {
-  position: relative;
-  overflow: hidden;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 12px;
-  border: none;
-  border-radius: 7px;
-  background: linear-gradient(
-    135deg,
-    var(--accent) 0%,
-    color-mix(in srgb, var(--accent) 78%, var(--accent-alt) 22%) 100%
-  );
-  color: #fff;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  cursor: pointer;
-  transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
-  box-shadow:
-    0 1px 0 color-mix(in srgb, #fff 18%, transparent) inset,
-    0 4px 12px color-mix(in srgb, var(--accent) 24%, transparent);
-
-  &__shine {
-    position: absolute;
-    inset: 0;
+    opacity: 1;
     background: linear-gradient(
-      105deg,
-      transparent 40%,
-      color-mix(in srgb, #fff 16%, transparent) 50%,
-      transparent 60%
+      90deg,
+      var(--success) 0%,
+      color-mix(in srgb, var(--success) 65%, white) 28%,
+      rgba(255, 255, 255, 0.5) 50%,
+      color-mix(in srgb, var(--success) 75%, var(--accent)) 72%,
+      var(--success) 100%
     );
-    transform: translateX(-120%);
-    transition: transform 0.5s ease;
   }
+  &.is-error .header-accent { background: var(--error); opacity: 0.9; }
+  &.is-connecting .header-accent {
+    opacity: 1;
+    overflow: hidden;
+    background: linear-gradient(
+      90deg,
+      var(--accent) 0%,
+      var(--accent-orange) 22%,
+      rgba(255, 255, 255, 0.9) 50%,
+      var(--accent-purple) 78%,
+      var(--accent) 100%
+    );
+    background-size: 220% 100%;
+    animation: header-accent-gradient 1.6s linear infinite;
 
-  i {
-    font-size: 10px;
-  }
-
-  &:hover:not(:disabled) {
-    filter: brightness(1.06);
-    transform: translateY(-1px);
-    box-shadow:
-      0 1px 0 color-mix(in srgb, #fff 20%, transparent) inset,
-      0 8px 22px color-mix(in srgb, var(--accent) 36%, transparent);
-
-    .connect-btn__shine {
-      transform: translateX(120%);
+    &::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 40%;
+      height: 100%;
+      background: linear-gradient(
+        90deg,
+        transparent 0%,
+        rgba(255, 255, 255, 0.15) 30%,
+        rgba(255, 255, 255, 0.55) 50%,
+        rgba(255, 255, 255, 0.15) 70%,
+        transparent 100%
+      );
+      mix-blend-mode: overlay;
+      animation: header-accent-sweep 1.6s cubic-bezier(0.45, 0, 0.25, 1) infinite;
     }
   }
 
-  &:active:not(:disabled) {
-    transform: translateY(0);
+  .header-body {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    gap: 16px;
   }
 
-  &:disabled {
+  .header-left {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .header-icon {
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 10px;
     background: var(--bg-input);
+    border: 1px solid var(--border-30);
     color: var(--text-dim);
-    box-shadow: none;
-    opacity: 0.55;
-    cursor: not-allowed;
+    font-size: 16px;
+    transition: all 0.25s;
+
+    &.is-active {
+      color: var(--success);
+      border-color: var(--success-30);
+      background: var(--success-10);
+    }
+    &.is-error {
+      color: var(--error);
+      border-color: var(--error-30);
+      background: var(--error-10);
+    }
+    &.is-connecting {
+      color: var(--accent-orange);
+      border-color: var(--accent-orange-30);
+    }
+    &.is-local {
+      color: var(--accent);
+      border-color: var(--accent-30);
+      background: var(--accent-08);
+    }
   }
 
-  &:focus-visible {
-    outline: none;
-    box-shadow: 0 0 0 2px var(--accent-glow);
+  .header-info {
+    min-width: 0;
+  }
+
+  .header-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-main);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+
+    &.is-placeholder { color: var(--text-dim); font-weight: 500; }
+  }
+
+  .header-meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 2px;
+    font-size: 11px;
+    color: var(--text-dim);
+    font-family: var(--font-terminal);
+
+    .meta-sep { opacity: 0.5; }
+  }
+
+  .header-hint {
+    margin: 2px 0 0;
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+
+  .status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--border);
+
+    &.is-active { background: var(--success); box-shadow: 0 0 6px var(--success-60); }
+    &.is-error { background: var(--error); }
+    &.is-connecting { background: var(--accent-orange); animation: header-pulse 1s infinite; }
+  }
+
+  .status-text {
+    &.is-active { color: var(--success); }
+    &.is-error { color: var(--error); }
+    &.is-connecting { color: var(--accent-orange); }
+  }
+
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  .action-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 34px;
+    padding: 0 14px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: all 0.2s;
+
+    &--ghost {
+      background: var(--bg-input);
+      border-color: var(--border-30);
+      color: var(--text-dim);
+
+      &:hover:not(.is-disabled) {
+        color: var(--accent);
+        border-color: var(--accent-30);
+        background: var(--accent-08);
+      }
+
+      &.is-alt {
+        color: var(--accent);
+        border-color: var(--accent-30);
+      }
+    }
+
+    &--primary {
+      background: var(--accent);
+      color: #fff;
+
+      &:hover:not(:disabled) {
+        filter: brightness(1.08);
+      }
+
+      &:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+    }
+
+    &.is-disabled,
+    &:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
   }
 }
 
-@keyframes status-pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.45; transform: scale(0.85); }
+@keyframes header-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 
-@keyframes accent-flow {
-  0%, 100% { opacity: 0.45; }
-  50% { opacity: 1; }
+@keyframes header-accent-gradient {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+
+@keyframes header-accent-sweep {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(420%); }
 }
 </style>

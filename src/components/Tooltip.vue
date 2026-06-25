@@ -19,8 +19,10 @@ const props = withDefaults(defineProps<{
 });
 
 const triggerRef = ref<HTMLElement | null>(null);
+const tooltipRef = ref<HTMLElement | null>(null);
 const visible = ref(false);
 const coords = ref({ top: 0, left: 0 });
+const resolvedPlacement = ref<'top' | 'bottom' | 'left' | 'right'>(props.placement);
 
 let showTimer: ReturnType<typeof setTimeout> | null = null;
 let hideTimer: ReturnType<typeof setTimeout> | null = null;
@@ -32,6 +34,69 @@ const clearTimers = () => {
   hideTimer = null;
 };
 
+const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+
+const applyCoords = (
+  placement: 'top' | 'bottom' | 'left' | 'right',
+  rect: DOMRect,
+  tipRect: DOMRect | null,
+  gap: number,
+) => {
+  resolvedPlacement.value = placement;
+  const tipW = tipRect?.width ?? 0;
+  const tipH = tipRect?.height ?? 0;
+  const pad = 8;
+
+  switch (placement) {
+    case 'top':
+      coords.value = {
+        top: rect.top - gap,
+        left: clamp(rect.left + rect.width / 2, pad + tipW / 2, window.innerWidth - pad - tipW / 2),
+      };
+      break;
+    case 'bottom':
+      coords.value = {
+        top: rect.bottom + gap,
+        left: clamp(rect.left + rect.width / 2, pad + tipW / 2, window.innerWidth - pad - tipW / 2),
+      };
+      break;
+    case 'left':
+      coords.value = {
+        top: clamp(rect.top + rect.height / 2, pad + tipH / 2, window.innerHeight - pad - tipH / 2),
+        left: rect.left - gap,
+      };
+      break;
+    case 'right':
+      coords.value = {
+        top: clamp(rect.top + rect.height / 2, pad + tipH / 2, window.innerHeight - pad - tipH / 2),
+        left: rect.right + gap,
+      };
+      break;
+  }
+};
+
+const pickVerticalPlacement = (
+  preferred: 'top' | 'bottom',
+  rect: DOMRect,
+  tipH: number,
+  gap: number,
+) => {
+  const pad = 8;
+  const spaceAbove = rect.top - gap - pad;
+  const spaceBelow = window.innerHeight - rect.bottom - gap - pad;
+  const needs = tipH || 32;
+
+  if (preferred === 'bottom') {
+    if (spaceBelow >= needs) return 'bottom';
+    if (spaceAbove >= needs) return 'top';
+    return spaceBelow >= spaceAbove ? 'bottom' : 'top';
+  }
+
+  if (spaceAbove >= needs) return 'top';
+  if (spaceBelow >= needs) return 'bottom';
+  return spaceAbove >= spaceBelow ? 'top' : 'bottom';
+};
+
 const updatePosition = async () => {
   await nextTick();
   const el = triggerRef.value;
@@ -39,20 +104,22 @@ const updatePosition = async () => {
 
   const rect = el.getBoundingClientRect();
   const gap = 8;
+  let tipRect = tooltipRef.value?.getBoundingClientRect() ?? null;
 
-  switch (props.placement) {
-    case 'top':
-      coords.value = { top: rect.top - gap, left: rect.left + rect.width / 2 };
-      break;
-    case 'bottom':
-      coords.value = { top: rect.bottom + gap, left: rect.left + rect.width / 2 };
-      break;
-    case 'left':
-      coords.value = { top: rect.top + rect.height / 2, left: rect.left - gap };
-      break;
-    case 'right':
-      coords.value = { top: rect.top + rect.height / 2, left: rect.right + gap };
-      break;
+  let placement = props.placement;
+  if (placement === 'top' || placement === 'bottom') {
+    placement = pickVerticalPlacement(placement, rect, tipRect?.height ?? 32, gap);
+  }
+
+  applyCoords(placement, rect, tipRect, gap);
+
+  if (!tipRect) {
+    await nextTick();
+    tipRect = tooltipRef.value?.getBoundingClientRect() ?? null;
+    if (tipRect && (props.placement === 'top' || props.placement === 'bottom')) {
+      placement = pickVerticalPlacement(props.placement, rect, tipRect.height, gap);
+      applyCoords(placement, rect, tipRect, gap);
+    }
   }
 };
 
@@ -60,8 +127,9 @@ const show = () => {
   if (props.disabled || !props.text?.trim()) return;
   clearTimers();
   showTimer = setTimeout(async () => {
-    await updatePosition();
+    resolvedPlacement.value = props.placement;
     visible.value = true;
+    await updatePosition();
   }, props.delay);
 };
 
@@ -79,7 +147,7 @@ const portalStyle = computed(() => {
     left: `${left}px`,
   };
 
-  switch (props.placement) {
+  switch (resolvedPlacement.value) {
     case 'top':
       return { ...base, transform: 'translate(-50%, -100%)' };
     case 'bottom':
@@ -114,6 +182,7 @@ onUnmounted(clearTimers);
       <Transition name="tooltip-fade">
         <div
             v-if="visible && text"
+            ref="tooltipRef"
             class="app-tooltip"
             :class="{ 'app-tooltip--wrap': wrap }"
             :style="portalStyle"

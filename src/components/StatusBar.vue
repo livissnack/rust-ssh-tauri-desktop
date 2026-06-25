@@ -1,12 +1,19 @@
 <script setup lang="ts">
-import {computed, onMounted, ref, watch} from "vue";
-import {invoke} from "@tauri-apps/api/core";
-import {check} from '@tauri-apps/plugin-updater';
-import {relaunch} from '@tauri-apps/plugin-process';
+import { computed, onMounted, ref, watch } from "vue";
+import { invoke } from "@tauri-apps/api/core";
+import { check } from '@tauri-apps/plugin-updater';
+import { relaunch } from '@tauri-apps/plugin-process';
+import { toast } from '../utils/toast.ts';
+import type { SessionStatus } from "../utils/session.ts";
+import { sessionStatusLabel, useI18n } from "../utils/i18n.ts";
+const { tr, t } = useI18n();
 
 const props = defineProps<{
-  openSessions: Array<{ id: string; serverId: string; name: string }>;
-  currentServer: any; // 包含 host, port, id 等信息
+  openSessions: Array<{ id: string; serverId: string; name: string; kind?: string }>;
+  latencyServer: { id: string; jump_host_id?: string | null } | null;
+  isActiveLocalSession?: boolean;
+  sessionStatus: SessionStatus;
+  servers?: Array<{ id: string; name: string }>;
 }>();
 
 const hasUpdate = ref(false);
@@ -14,12 +21,41 @@ const updateInfo = ref<any>(null);
 const isDownloading = ref(false);
 
 const currentLatency = ref<number | string | null>(null);
-
-const connectionStatus = computed(() => {
-  return props.openSessions.length > 0 ? 'Connected' : 'Idle';
-});
+const latencyCache = new Map<string, number | string>();
 
 const isOnline = computed(() => props.openSessions.length > 0);
+
+const connectionStatus = computed(() => {
+  if (!isOnline.value) return tr.value.statusBar.idle;
+  if (props.isActiveLocalSession) return sessionStatusLabel(props.sessionStatus, true);
+  return sessionStatusLabel(props.sessionStatus, false);
+});
+
+const showOnlineDot = computed(() =>
+  props.sessionStatus === 'connected' || (props.isActiveLocalSession && props.sessionStatus !== 'failed'),
+);
+
+const latencyServerId = computed(() => {
+  if (props.isActiveLocalSession) return null;
+  return props.latencyServer?.id ?? null;
+});
+
+const jumpHostLabel = computed(() => {
+  const jumpId = props.latencyServer?.jump_host_id;
+  if (!jumpId || !props.servers) return null;
+  const jump = props.servers.find((s) => s.id === jumpId);
+  return jump ? t('statusBar.jumpHost', { name: jump.name }) : t('statusBar.jumpEnabled');
+});
+
+const latencyTitle = computed(() => {
+  if (currentLatency.value === 'ERR') {
+    return tr.value.statusBar.latencyErr;
+  }
+  if (typeof currentLatency.value === 'number') {
+    return tr.value.statusBar.latencyOk;
+  }
+  return '';
+});
 
 const checkUpdate = async () => {
   try {
@@ -41,29 +77,43 @@ const startUpdate = async () => {
     await relaunch();
   } catch (e) {
     console.error("下载更新失败:", e);
+    toast.error(t('statusBar.updateFailed'));
     isDownloading.value = false;
   }
 };
 
-watch(() => props.currentServer?.id, async (newId) => {
-  if (!newId || !props.currentServer?.host) {
-    currentLatency.value = null;
-    return;
-  }
+watch(
+  latencyServerId,
+  async (serverId) => {
+    if (!serverId) {
+      currentLatency.value = null;
+      return;
+    }
 
-  currentLatency.value = "...";
+    const cached = latencyCache.get(serverId);
+    if (cached !== undefined) {
+      currentLatency.value = cached;
+      return;
+    }
 
-  try {
-    currentLatency.value = await invoke<number>("get_server_latency", {
-      host: props.currentServer.host,
-      port: props.currentServer.port || 22,
-      jumpHostId: props.currentServer.jump_host_id || null
-    });
-  } catch (err) {
-    console.error("测速失败:", err);
-    currentLatency.value = "ERR";
-  }
-}, { immediate: true });
+    currentLatency.value = "...";
+
+    try {
+      const ms = await invoke<number>("get_server_latency", { serverId });
+      latencyCache.set(serverId, ms);
+      if (latencyServerId.value === serverId) {
+        currentLatency.value = ms;
+      }
+    } catch (err) {
+      console.error("测速失败:", err);
+      latencyCache.set(serverId, "ERR");
+      if (latencyServerId.value === serverId) {
+        currentLatency.value = "ERR";
+      }
+    }
+  },
+  { immediate: true },
+);
 
 onMounted(() => {
   checkUpdate();
@@ -74,24 +124,32 @@ onMounted(() => {
   <footer class="status-bar">
     <div class="status-left">
       <span class="status-item">
-        <i :class="['dot', { online: isOnline }]"></i>
+        <i :class="['dot', { online: showOnlineDot }]"></i>
         {{ connectionStatus }}
       </span>
 
-      <span v-if="isOnline && currentLatency !== null" class="status-item latency">
-        <i class="fas fa-bolt"></i>
-        {{ currentLatency }}{{ typeof currentLatency === 'number' ? 'ms' : '' }}
-      </span>
+      <Tooltip
+          v-if="isOnline && !isActiveLocalSession && sessionStatus === 'connected' && currentLatency !== null"
+          :text="latencyTitle"
+          placement="top"
+          wrap
+          :disabled="!latencyTitle"
+      >
+        <span class="status-item latency">
+          <i class="fas fa-bolt"></i>
+          {{ currentLatency }}{{ typeof currentLatency === 'number' ? 'ms' : '' }}
+        </span>
+      </Tooltip>
     </div>
 
     <div class="status-right">
       <span v-if="hasUpdate" class="status-item update-badge" @click="startUpdate">
         <i :class="['fas', isDownloading ? 'fa-spinner fa-spin' : 'fa-arrow-alt-circle-up']"></i>
-        {{ isDownloading ? 'Updating...' : `Update to v${updateInfo?.version}` }}
+        {{ isDownloading ? tr.statusBar.updating : t('statusBar.updateTo', { version: updateInfo?.version ?? '' }) }}
       </span>
-      <span v-if="currentServer?.jump_host_id" class="status-item">
+      <span v-if="jumpHostLabel" class="status-item" :title="jumpHostLabel">
         <i class="fas fa-project-diagram" style="font-size: 10px; color: #bb9af7;"></i>
-        Jump: Active
+        {{ jumpHostLabel }}
       </span>
       <span class="status-item">UTF-8</span>
     </div>
@@ -99,7 +157,6 @@ onMounted(() => {
 </template>
 
 <style lang="scss" scoped>
-@use "sass:color";
 @use '../assets/css/base.scss';
 
 .status-bar {
@@ -128,6 +185,7 @@ onMounted(() => {
     display: flex;
     align-items: center;
     gap: 4px;
+    cursor: help;
 
     i {
       font-size: 10px;
@@ -149,9 +207,7 @@ onMounted(() => {
       color: var(--text-main) !important;
     }
 
-    i {
-      font-size: 12px;
-    }
+    i { font-size: 12px; }
   }
 
   .status-item {
@@ -160,9 +216,7 @@ onMounted(() => {
     gap: 6px;
     transition: color 0.2s;
 
-    &:hover {
-      color: var(--text-main);
-    }
+    &:hover { color: var(--text-main); }
   }
 
   .dot {

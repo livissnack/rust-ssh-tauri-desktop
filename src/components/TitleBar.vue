@@ -9,8 +9,9 @@ import {
 
 const appWindow = getCurrentWindow();
 
-defineProps<{
+const props = defineProps<{
   activeSessionId?: string | null;
+  isLocalSession?: boolean;
 }>();
 
 const platform = detectAppPlatform();
@@ -76,7 +77,7 @@ const closeApp = () => appWindow.close();
           <i class="fas fa-terminal"></i>
         </div>
         <div class="title-main">Hiphup Terminal</div>
-        <div class="session-badge" v-if="activeSessionId">SSH</div>
+        <div class="session-badge" v-if="props.activeSessionId">{{ props.isLocalSession ? '本地' : 'SSH' }}</div>
       </div>
 
       <!-- macOS：右侧占位，与左侧交通灯等宽，保证标题居中 -->

@@ -14,8 +14,12 @@ import {confirm} from './utils/confirm.ts';
 import {throttle, formatSize} from "./utils/async";
 import {applyTheme, defaultTheme} from "./utils/theme";
 import { getTerminalTheme, applyTerminalTheme } from "./utils/terminalTheme";
-import { LOCAL_SERVER_ID, isLocalSession, type OpenSession } from "./utils/session.ts";
+import { LOCAL_SERVER_ID, isLocalSession, isSessionConnected, type OpenSession, type SessionStatus } from "./utils/session.ts";
 import { beginPointerDrag } from "./utils/pointerDrag.ts";
+import { detectAppPlatform } from "./utils/platform.ts";
+import { useI18n, t } from "./utils/i18n.ts";
+
+const { tr } = useI18n();
 
 import Sidebar from "./components/Sidebar.vue";
 import TerminalTabs from "./components/TerminalTabs.vue";
@@ -80,8 +84,43 @@ const markSessionBackendReady = (sessionId: string) => {
 };
 const onlineUserCount = ref(0);
 
-const isConnecting = ref(false);
-const isConnectError = ref(false);
+const sessionStatuses = ref<Record<string, SessionStatus>>({});
+const sessionErrors = ref<Record<string, string>>({});
+
+const setSessionStatus = (sessionId: string, status: SessionStatus, error?: string) => {
+  sessionStatuses.value = { ...sessionStatuses.value, [sessionId]: status };
+  if (error !== undefined) {
+    sessionErrors.value = { ...sessionErrors.value, [sessionId]: error };
+  } else if (status === 'connected') {
+    const next = { ...sessionErrors.value };
+    delete next[sessionId];
+    sessionErrors.value = next;
+  }
+};
+
+const clearSessionState = (sessionId: string) => {
+  const nextStatus = { ...sessionStatuses.value };
+  const nextErrors = { ...sessionErrors.value };
+  delete nextStatus[sessionId];
+  delete nextErrors[sessionId];
+  sessionStatuses.value = nextStatus;
+  sessionErrors.value = nextErrors;
+};
+
+const activeSessionStatus = computed<SessionStatus>(() =>
+  activeSessionId.value ? (sessionStatuses.value[activeSessionId.value] ?? 'idle') : 'idle',
+);
+
+const activeSessionError = computed(() =>
+  activeSessionId.value ? sessionErrors.value[activeSessionId.value] : undefined,
+);
+
+const isActiveSessionConnected = computed(() =>
+  isActiveLocalSession.value
+    ? activeSessionStatus.value === 'connected'
+    : isSessionConnected(activeSessionStatus.value),
+);
+
 const rightPanelVisible = ref(false);
 const isModalOpen = ref(false);
 const isEditing = ref(false);
@@ -92,6 +131,8 @@ let unlistenClosed: UnlistenFn | null = null;
 let unlistenTransfer: UnlistenFn | null = null;
 let unlistenSync: UnlistenFn | null = null;
 let unlistenDragDrop: UnlistenFn | null = null;
+/** Skip disconnect toast when user closes tab, reconnects, or app unmounts */
+const suppressSshClosedToast = new Set<string>();
 const transferTasks = ref<any[]>([]);
 const isSftpInternalDragging = ref(false);
 const sftpInternalDragKey = ref<string | null>(null);
@@ -129,9 +170,14 @@ const getPanelMinWidth = (type: RightPanelType) =>
   PANEL_MIN_WIDTHS[type] ?? 300;
 
 const localPath = ref("");
-const remotePath = ref("/root");
+const remotePath = ref("");
 const localFiles = ref<any[]>([]);
 const remoteFiles = ref<any[]>([]);
+const localFilesLoading = ref(false);
+const remoteFilesLoading = ref(false);
+const localFilesError = ref<string | null>(null);
+const remoteFilesError = ref<string | null>(null);
+const REMOTE_PATH_STORAGE_KEY = 'sftp-remote-paths';
 const isDraggingOverLocal = ref(false);
 const isDraggingOverRemote = ref(false);
 
@@ -178,6 +224,12 @@ const activeOpenSession = computed(() =>
 const isActiveLocalSession = computed(() => isLocalSession(activeOpenSession.value));
 
 const currentServer = computed(() => servers.value.find(s => s.id === activeId.value));
+
+const activeTabServer = computed(() => {
+  const session = activeOpenSession.value;
+  if (!session || isLocalSession(session)) return null;
+  return servers.value.find((s) => s.id === session.serverId) ?? null;
+});
 
 const hasActiveTasks = computed(() =>
     transferTasks.value.some(t => t.status === 'transferring')
@@ -260,16 +312,16 @@ const buildPathInPane = (source: 'local' | 'remote', name: string) =>
 const copyTextToClipboard = async (text: string) => {
   try {
     await navigator.clipboard.writeText(text);
-    toast.success('路径已复制到剪贴板');
+    toast.success(t('toast.pathCopied'));
   } catch {
-    toast.error('复制到剪贴板失败');
+    toast.error(t('toast.copyFailed'));
   }
 };
 
 const pasteClipboard = async (source: 'local' | 'remote') => {
   const item = sftpClipboard.value;
   if (!item || item.source !== source) {
-    toast.warning('当前面板没有可粘贴的内容');
+    toast.warning(t('toast.nothingToPaste'));
     return;
   }
 
@@ -278,7 +330,7 @@ const pasteClipboard = async (source: 'local' | 'remote') => {
     if (item.mode === 'cut') {
       sftpClipboard.value = null;
     } else {
-      toast.warning('不能复制到相同路径');
+      toast.warning(t('toast.samePath'));
     }
     return;
   }
@@ -297,7 +349,7 @@ const pasteClipboard = async (source: 'local' | 'remote') => {
         await refreshRemoteFiles();
       }
       sftpClipboard.value = null;
-      toast.success('移动成功');
+      toast.success(t('toast.moveSuccess'));
     } else {
       if (source === 'local') {
         await invoke('copy_local_path', {src: item.path, dest: destPath});
@@ -310,10 +362,10 @@ const pasteClipboard = async (source: 'local' | 'remote') => {
         });
         await refreshRemoteFiles();
       }
-      toast.success('粘贴成功');
+      toast.success(t('toast.pasteSuccess'));
     }
   } catch (err) {
-    toast.error(`粘贴失败: ${err}`);
+    toast.error(t('toast.pasteFailed', { err: String(err) }));
   }
 };
 
@@ -363,7 +415,7 @@ const handleSftpDialogConfirm = async (value: string) => {
     const name = value.trim();
     if (!name) return;
     if (/[\\/:*?"<>|]/.test(name)) {
-      toast.error('名称包含非法字符');
+      toast.error(t('toast.invalidName'));
       return;
     }
     const path = buildPathInPane(source, name);
@@ -380,10 +432,10 @@ const handleSftpDialogConfirm = async (value: string) => {
         });
         await refreshRemoteFiles();
       }
-      toast.success(isDir ? '文件夹已创建' : '文件已创建');
+      toast.success(isDir ? t('toast.folderCreated') : t('toast.fileCreated'));
       closeSftpDialog();
     } catch (err) {
-      toast.error(`创建失败: ${err}`);
+      toast.error(t('toast.createFailed', { err: String(err) }));
     }
     return;
   }
@@ -398,7 +450,7 @@ const handleSftpDialogConfirm = async (value: string) => {
       return;
     }
     if (/[\\/:*?"<>|]/.test(newName)) {
-      toast.error('文件名包含非法字符');
+      toast.error(t('toast.invalidFileName'));
       return;
     }
     try {
@@ -416,10 +468,10 @@ const handleSftpDialogConfirm = async (value: string) => {
         });
         await refreshRemoteFiles();
       }
-      toast.success('重命名成功');
+      toast.success(t('toast.renameSuccess'));
       closeSftpDialog();
     } catch (err) {
-      toast.error(`重命名失败: ${err}`);
+      toast.error(t('toast.renameFailed', { err: String(err) }));
     }
     return;
   }
@@ -432,10 +484,10 @@ const handleSftpDialogConfirm = async (value: string) => {
         mode: value.trim(),
       });
       await refreshRemoteFiles();
-      toast.success('权限已更新');
+      toast.success(t('toast.chmodSuccess'));
       closeSftpDialog();
     } catch (err) {
-      toast.error(`修改权限失败: ${err}`);
+      toast.error(t('toast.chmodFailed', { err: String(err) }));
     }
   }
 };
@@ -458,12 +510,12 @@ const handleMenuAction = async (action: SftpMenuAction) => {
   }
 
   if (action === 'newFile') {
-    openSftpDialog('createFile', source, null, '新建文件.txt');
+    openSftpDialog('createFile', source, null, t('sftp.defaultNewFile'));
     return;
   }
 
   if (action === 'newFolder') {
-    openSftpDialog('createFolder', source, null, '新建文件夹');
+    openSftpDialog('createFolder', source, null, t('sftp.defaultNewFolder'));
     return;
   }
 
@@ -478,7 +530,7 @@ const handleMenuAction = async (action: SftpMenuAction) => {
       isDir: file.is_dir,
       mode: 'copy',
     };
-    toast.info('已复制');
+    toast.info(t('toast.copied'));
   } else if (action === 'cut') {
     sftpClipboard.value = {
       source,
@@ -487,7 +539,7 @@ const handleMenuAction = async (action: SftpMenuAction) => {
       isDir: file.is_dir,
       mode: 'cut',
     };
-    toast.info('已剪切');
+    toast.info(t('toast.cut'));
   } else if (action === 'copyPath') {
     await copyTextToClipboard(getContextFilePath(source, file));
   } else if (action === 'transfer') {
@@ -500,7 +552,7 @@ const handleMenuAction = async (action: SftpMenuAction) => {
       sftpDialogDetail.value = await loadFileDetail(source, file);
     } catch (err) {
       closeSftpDialog();
-      toast.error(`获取文件信息失败: ${err}`);
+      toast.error(t('toast.fileInfoFailed', { err: String(err) }));
     } finally {
       sftpDialogLoading.value = false;
     }
@@ -508,7 +560,7 @@ const handleMenuAction = async (action: SftpMenuAction) => {
     try {
       await invoke('reveal_in_file_manager', {path: getContextFilePath('local', file)});
     } catch (err) {
-      toast.error(`打开资源管理器失败: ${err}`);
+      toast.error(t('toast.explorerFailed', { err: String(err) }));
     }
   } else if (action === 'rename') {
     openSftpDialog('rename', source, file, file.name);
@@ -521,14 +573,17 @@ const handleMenuAction = async (action: SftpMenuAction) => {
       sftpDialogInput.value = detail.permissions || '644';
     } catch (err) {
       closeSftpDialog();
-      toast.error(`获取权限失败: ${err}`);
+      toast.error(t('toast.chmodFetchFailed', { err: String(err) }));
     } finally {
       sftpDialogLoading.value = false;
     }
   } else if (action === 'delete') {
     const ok = await confirm.error(
-        `确定要永久删除${source === 'local' ? '本地' : '远程'}文件 "${file.name}" 吗？`,
-        '确认删除'
+        t('toast.deleteConfirm', {
+          side: source === 'local' ? t('common.local') : t('common.remote'),
+          name: file.name,
+        }),
+        t('toast.deleteTitle')
     );
 
     if (ok) {
@@ -537,14 +592,15 @@ const handleMenuAction = async (action: SftpMenuAction) => {
           const path = joinRemotePath(remotePath.value, file.name);
           await invoke("delete_remote_file", {sessionId: activeSessionId.value, path, isDir: file.is_dir});
           await refreshRemoteFiles();
+          toast.success(t('toast.deleteSuccess'));
         } else {
           const path = getContextFilePath('local', file);
           await invoke("delete_local_file", {path, isDir: file.is_dir});
           await refreshLocalFiles();
-          toast.success("删除成功");
+          toast.success(t('toast.deleteSuccess'));
         }
       } catch (err) {
-        toast.error(`删除失败: ${err}`);
+        toast.error(t('toast.deleteFailed', { err: String(err) }));
       }
     }
   }
@@ -617,7 +673,7 @@ const handleOsFileDrop = async (paths: string[], pane: 'local' | 'remote') => {
   if (!activeSessionId.value || currentViewMode.value !== 'sftp') return;
 
   if (pane !== 'remote') {
-    toast.error('请拖放到右侧远程面板以上传文件');
+    toast.error(t('toast.dropToRemote'));
     return;
   }
 
@@ -690,7 +746,7 @@ const handleFileDblClick = async (file: any, type: 'local' | 'remote') => {
       await refreshLocalFiles();
     }
   } catch (err) {
-    toast.error(`切换目录失败: ${err}`);
+    toast.error(t('toast.cdFailed', { err: String(err) }));
   }
 };
 
@@ -721,13 +777,15 @@ const startTransferFromPath = async (
   } catch (err) {
     const task = transferTasks.value.find(t => t.id === taskId);
     if (task) task.status = 'error';
-    toast.error(`传输失败: ${err}`);
+    toast.error(t('toast.transferFailed', { err: String(err) }));
   }
 };
 
 const startTransfer = async (type: 'upload' | 'download', file: any) => {
   if (file.is_dir || file.name === '..') {
-    toast.error(`暂不支持${type === 'upload' ? '上传' : '下载'}文件夹，请先压缩后再操作`);
+    toast.error(t('toast.folderTransferUnsupported', {
+      action: type === 'upload' ? t('toast.upload') : t('toast.download'),
+    }));
     return;
   }
   const localBase = localPath.value.replace(/[/\\]$/, '');
@@ -741,31 +799,128 @@ const startTransfer = async (type: 'upload' | 'download', file: any) => {
   });
 };
 
-const connectToServer = async () => {
-  const server = servers.value.find(s => s.id === activeId.value);
-  if (!server) return;
-  isConnectError.value = false;
-  isConnecting.value = true;
-  const sessionId = server.id;
-  if (!openSessions.value.find(s => s.id === sessionId)) {
-    openSessions.value.push({id: sessionId, serverId: server.id, name: server.name});
-    sessionViewModes.value[sessionId] = 'terminal';
-  }
-  activeSessionId.value = sessionId;
-  await initTerminal(sessionId);
+const getDefaultRemotePath = (server: { id: string; username: string }) => {
+  const username = server.username || 'root';
   try {
-    await invoke("connect_ssh", {serverId: server.id, sessionId});
+    const raw = localStorage.getItem(REMOTE_PATH_STORAGE_KEY);
+    if (raw) {
+      const map = JSON.parse(raw) as Record<string, string>;
+      const stored = map[server.id];
+      if (stored) {
+        if (username === 'root' && stored === '/home/root') return '/root';
+        return stored;
+      }
+    }
+  } catch { /* ignore */ }
+  return username === 'root' ? '/root' : `/home/${username}`;
+};
+
+const persistRemotePath = (serverId: string, path: string) => {
+  try {
+    const raw = localStorage.getItem(REMOTE_PATH_STORAGE_KEY);
+    const map = raw ? (JSON.parse(raw) as Record<string, string>) : {};
+    map[serverId] = path;
+    localStorage.setItem(REMOTE_PATH_STORAGE_KEY, JSON.stringify(map));
+  } catch { /* ignore */ }
+};
+
+const syncRemotePathForSession = (sessionId: string | null) => {
+  if (!sessionId) return;
+  const session = openSessions.value.find((s) => s.id === sessionId);
+  if (!session || isLocalSession(session)) return;
+  const server = servers.value.find((s) => s.id === session.serverId);
+  if (!server) return;
+  remotePath.value = getDefaultRemotePath(server);
+};
+
+const performConnect = async (sessionId: string, server: { id: string; name: string }) => {
+  setSessionStatus(sessionId, 'connecting');
+  await initTerminal(sessionId, false);
+  const instance = terminalMap.get(sessionId);
+  if (instance) instance.backendReady = false;
+  suppressSshClosedToast.add(sessionId);
+  await invoke('disconnect_ssh', { sessionId }).catch(() => {});
+
+  try {
+    await invoke('connect_ssh', { serverId: server.id, sessionId });
     markSessionBackendReady(sessionId);
     await syncTerminalSize(sessionId);
     focusTerminal(sessionId);
-    isConnectError.value = false;
+    setSessionStatus(sessionId, 'connected');
+    syncRemotePathForSession(sessionId);
   } catch (err) {
-    toast.error(`连接失败: ${err}`);
-    isConnectError.value = true
-  } finally {
-    isConnecting.value = false;
+    const msg = String(err);
+    setSessionStatus(sessionId, 'failed', msg);
+    toast.error(t('toast.connectFailed', { msg }));
   }
 };
+
+const connectToServer = async (serverId?: string) => {
+  let targetServerId = serverId;
+  let sessionId: string | undefined;
+
+  if (!targetServerId) {
+    const session = activeOpenSession.value;
+    if (session && !isLocalSession(session)) {
+      targetServerId = session.serverId;
+      sessionId = session.id;
+    } else {
+      targetServerId = activeId.value ?? undefined;
+    }
+  }
+
+  if (!targetServerId) return;
+  const server = servers.value.find((s) => s.id === targetServerId);
+  if (!server) return;
+
+  activeId.value = server.id;
+
+  if (!sessionId) {
+    const existing = openSessions.value.find((s) => s.id === server.id);
+    sessionId = existing?.id ?? server.id;
+  }
+
+  const status = sessionStatuses.value[sessionId];
+  if (status === 'connected') {
+    activeSessionId.value = sessionId;
+    await focusTerminal(sessionId);
+    return;
+  }
+
+  if (!openSessions.value.find((s) => s.id === sessionId)) {
+    openSessions.value.push({ id: sessionId, serverId: server.id, name: server.name });
+    sessionViewModes.value[sessionId] = 'terminal';
+  }
+  activeSessionId.value = sessionId;
+  await performConnect(sessionId, server);
+};
+
+const reconnectSession = async (sessionId?: string) => {
+  const id = sessionId ?? activeSessionId.value;
+  if (!id) return;
+  const session = openSessions.value.find((s) => s.id === id);
+  if (!session || isLocalSession(session)) return;
+  const server = servers.value.find((s) => s.id === session.serverId);
+  if (!server) return;
+  activeSessionId.value = id;
+  activeId.value = server.id;
+  await performConnect(id, server);
+  if (sessionStatuses.value[id] === 'connected') {
+    toast.success(t('toast.reconnected'));
+  }
+};
+
+const showSessionOverlay = (sessionId: string) => {
+  const status = sessionStatuses.value[sessionId];
+  return status === 'failed' || status === 'disconnected';
+};
+
+const getSessionOverlayMessage = (sessionId: string) =>
+  sessionErrors.value[sessionId] ?? (
+    sessionStatuses.value[sessionId] === 'failed'
+      ? t('session.defaultFailed')
+      : t('session.defaultDisconnected')
+  );
 
 const isTerminalContainerVisible = (sessionId: string) => {
   const container = document.getElementById(`terminal-${sessionId}`);
@@ -853,7 +1008,7 @@ const initTerminal = async (sessionId: string, isLocal = false) => {
   if (container) {
     term.open(container);
     applyTerminalTheme(term);
-    if (!isLocal) {
+    if (!isLocal && detectAppPlatform() !== "windows") {
       try {
         const webglAddon = new WebglAddon();
         term.loadAddon(webglAddon);
@@ -880,13 +1035,19 @@ const initTerminal = async (sessionId: string, isLocal = false) => {
       isSending = true;
       flushScheduled = false;
 
-      // drain 成一个 chunk，减少 invoke 次数；但不等定时器，尽量保持低延迟
-      const chunk = sendQueue.join("");
-      sendQueue = [];
+      while (sendQueue.length > 0) {
+        const chunk = sendQueue.join("");
+        sendQueue = [];
 
-      await invoke("write_to_ssh", { sessionId, data: chunk }).catch((e) =>
-        console.error("write_to_ssh failed:", e)
-      );
+        try {
+          await invoke("write_to_ssh", { sessionId, data: chunk });
+        } catch (e) {
+          console.error("write_to_ssh failed:", e);
+          toast.error(t('toast.terminalWriteFailed'));
+          sendQueue.unshift(chunk);
+          break;
+        }
+      }
 
       isSending = false;
       if (sendQueue.length > 0) scheduleFlush();
@@ -900,9 +1061,7 @@ const initTerminal = async (sessionId: string, isLocal = false) => {
     };
 
     term.onData((data) => {
-      // 本地 ConPTY（PowerShell / macOS Terminal）必须原样发送；SSH 远端才需要 \r\n
-      const payload = isLocal ? data : data.replace(/\r/g, "\r\n");
-      sendQueue.push(payload);
+      sendQueue.push(data);
       scheduleFlush();
     });
     terminalMap.set(sessionId, { term, fitAddon, isLocal, backendReady: false, resizeObserver });
@@ -910,6 +1069,7 @@ const initTerminal = async (sessionId: string, isLocal = false) => {
 };
 
 const closeTab = async (id: string) => {
+  suppressSshClosedToast.add(id);
   await invoke("disconnect_ssh", {sessionId: id}).catch(console.error);
   internalUiCleanup(id);
 };
@@ -922,6 +1082,7 @@ const internalUiCleanup = (id: string) => {
     terminalMap.delete(id);
   }
   delete sessionViewModes.value[id];
+  clearSessionState(id);
   openSessions.value = openSessions.value.filter(s => s.id !== id);
   if (activeSessionId.value === id) {
     activeSessionId.value = openSessions.value.length > 0 ? openSessions.value[openSessions.value.length - 1].id : null;
@@ -938,21 +1099,44 @@ const toggleViewMode = async () => {
     if (!isActiveLocalSession.value) {
       await refreshRemoteFiles();
     }
+  } else {
+    await focusTerminal(activeSessionId.value);
   }
 };
 
 const refreshLocalFiles = async () => {
+  localFilesLoading.value = true;
+  localFilesError.value = null;
   try {
     localFiles.value = await invoke("list_local_dir", {path: localPath.value});
   } catch (e) {
-    console.error(e);
+    localFilesError.value = String(e);
+    localFiles.value = [];
+    toast.error(t('toast.readLocalFailed', { err: String(e) }));
+  } finally {
+    localFilesLoading.value = false;
   }
 };
+
 const refreshRemoteFiles = async () => {
+  if (!activeSessionId.value || isActiveLocalSession.value) return;
+  remoteFilesLoading.value = true;
+  remoteFilesError.value = null;
   try {
-    remoteFiles.value = await invoke("list_remote_dir", {sessionId: activeSessionId.value, path: remotePath.value});
+    remoteFiles.value = await invoke("list_remote_dir", {
+      sessionId: activeSessionId.value,
+      path: remotePath.value,
+    });
+    const session = activeOpenSession.value;
+    if (session && !isLocalSession(session)) {
+      persistRemotePath(session.serverId, remotePath.value);
+    }
   } catch (e) {
-    console.error(e);
+    remoteFilesError.value = String(e);
+    remoteFiles.value = [];
+    toast.error(t('toast.readRemoteFailed', { err: String(e) }));
+  } finally {
+    remoteFilesLoading.value = false;
   }
 };
 
@@ -975,9 +1159,7 @@ const getSessionContext = (sourceSessionId?: string | null) => {
 const buildClonedSessionMeta = (server: { id: string; name: string }) => {
   const siblingCount = openSessions.value.filter(s => s.serverId === server.id).length;
   const newSessionId = `${server.id}-${Math.random().toString(36).substring(2, 9)}`;
-  const name = siblingCount >= 1
-    ? `${server.name} (${siblingCount + 1})`
-    : `${server.name} (Copy)`;
+  const name = `${server.name} (${siblingCount + 1})`;
   return { newSessionId, name };
 };
 
@@ -995,21 +1177,11 @@ const cloneSessionToTab = async (sourceSessionId?: string) => {
 
   openSessions.value.push({ id: newSessionId, serverId: server.id, name });
   activeSessionId.value = newSessionId;
+  activeId.value = server.id;
   sessionViewModes.value[newSessionId] = 'terminal';
-  await initTerminal(newSessionId, false);
-
-  isConnecting.value = true;
-  try {
-    await invoke("connect_ssh", { serverId: server.id, sessionId: newSessionId });
-    markSessionBackendReady(newSessionId);
-    await syncTerminalSize(newSessionId);
-    focusTerminal(newSessionId);
-    toast.success('已在新标签打开会话');
-  } catch (err) {
-    toast.error(`克隆失败: ${err}`);
-    internalUiCleanup(newSessionId);
-  } finally {
-    isConnecting.value = false;
+  await performConnect(newSessionId, server);
+  if (sessionStatuses.value[newSessionId] === 'connected') {
+    toast.success(t('toast.newTabOpened'));
   }
 };
 
@@ -1023,9 +1195,9 @@ const cloneSessionToWindow = async (sourceSessionId?: string) => {
       serverId: isLocalSession(session) ? LOCAL_SERVER_ID : server.id,
       baseName: session.name || server.name,
     });
-    toast.success('已在新窗口打开会话');
-  } catch (err) {
-    toast.error(`打开新窗口失败: ${err}`);
+    toast.success(t('toast.newWindowOpened'));
+    } catch (err) {
+    toast.error(t('toast.newWindowFailed', { err: String(err) }));
   }
 };
 
@@ -1056,16 +1228,17 @@ const bootstrapSessionWindow = async () => {
       markSessionBackendReady(bootstrap.session_id);
       await scheduleLocalTerminalSizeSync(bootstrap.session_id);
       focusTerminal(bootstrap.session_id);
+      setSessionStatus(bootstrap.session_id, 'connected');
     } catch (err) {
-      toast.error(`打开本地终端失败: ${err}`);
-      internalUiCleanup(bootstrap.session_id);
+      toast.error(t('toast.localTerminalFailed', { err: String(err) }));
+      setSessionStatus(bootstrap.session_id, 'failed', String(err));
     }
     return;
   }
 
   const server = servers.value.find(s => s.id === bootstrap.server_id);
   if (!server) {
-    toast.error('无法找到主机配置');
+    toast.error(t('toast.hostNotFound'));
     return;
   }
 
@@ -1077,29 +1250,15 @@ const bootstrapSessionWindow = async () => {
   });
   activeSessionId.value = bootstrap.session_id;
   sessionViewModes.value[bootstrap.session_id] = 'terminal';
-  isConnecting.value = true;
-
-  await initTerminal(bootstrap.session_id);
-  try {
-    await invoke('connect_ssh', {
-      serverId: bootstrap.server_id,
-      sessionId: bootstrap.session_id,
-    });
-    markSessionBackendReady(bootstrap.session_id);
-    await syncTerminalSize(bootstrap.session_id);
-    focusTerminal(bootstrap.session_id);
-    isConnectError.value = false;
-  } catch (err) {
-    toast.error(`连接失败: ${err}`);
-    isConnectError.value = true;
-  } finally {
-    isConnecting.value = false;
-  }
+  await performConnect(bootstrap.session_id, server);
 };
 
 const focusTerminal = async (sessionId: string | null) => {
   if (!sessionId) return;
   await nextTick();
+  for (const [id, { term }] of terminalMap) {
+    if (id !== sessionId) term.blur();
+  }
   const instance = terminalMap.get(sessionId);
   if (!instance) return;
   if (isTerminalContainerVisible(sessionId)) {
@@ -1131,14 +1290,17 @@ const openLocalShell = async () => {
     });
     activeSessionId.value = sessionId;
     sessionViewModes.value[sessionId] = 'terminal';
+    setSessionStatus(sessionId, 'connecting');
     await initTerminal(sessionId, true);
     const { rows, cols } = await measureTerminalSize(sessionId);
     await invoke('spawn_local_shell', { sessionId, rows, cols });
     markSessionBackendReady(sessionId);
     await scheduleLocalTerminalSizeSync(sessionId);
     focusTerminal(sessionId);
+    setSessionStatus(sessionId, 'connected');
   } catch (err) {
-    toast.error(`打开本地终端失败: ${err}`);
+    toast.error(t('toast.localTerminalFailed', { err: String(err) }));
+    setSessionStatus(sessionId, 'failed', String(err));
   }
 };
 
@@ -1165,26 +1327,34 @@ const openEditModal = (s: any) => {
   isModalOpen.value = true;
 };
 
+const openEditModalForSession = (session: OpenSession) => {
+  const server = servers.value.find((s) => s.id === session.serverId);
+  if (server) openEditModal(server);
+};
+
 const closeModal = () => {
   isModalOpen.value = false;
   showPassword.value = false;
 };
 
 const saveHost = async (e: any) => {
-  if (e.name && e.host) {
-    const serverToSave = {
-      ...e,
-      port: Number(e.port),
-      jump_host_id: e.jump_host_id || null,
-      group: e.group?.trim() || null,
-    };
-    try {
-      await invoke("save_server", {server: serverToSave});
-      await loadServers();
-      closeModal();
+  if (!e.name?.trim() || !e.host?.trim()) {
+    toast.warning(t('toast.fillRequired'));
+    return;
+  }
+  const serverToSave = {
+    ...e,
+    port: Number(e.port),
+    jump_host_id: e.jump_host_id || null,
+    group: e.group?.trim() || null,
+  };
+  try {
+    await invoke("save_server", {server: serverToSave});
+    await loadServers();
+    closeModal();
+    toast.success(t('toast.hostSaved'));
     } catch (error) {
-      toast.error('保存失败：' + error);
-    }
+    toast.error(t('toast.saveFailed', { err: String(error) }));
   }
 };
 
@@ -1216,10 +1386,20 @@ const cancelTask = async (taskId: string) => {
 watch(activeSessionId, async (newId) => {
   if (newId) {
     const session = openSessions.value.find(s => s.id === newId);
+    if (session && !isLocalSession(session)) {
+      activeId.value = session.serverId;
+      syncRemotePathForSession(newId);
+    }
     if (isLocalSession(session)) {
       sessionViewModes.value[newId] = 'terminal';
     }
     await focusTerminal(newId);
+  }
+});
+
+watch(currentViewMode, async (mode) => {
+  if (mode === 'terminal' && activeSessionId.value) {
+    await focusTerminal(activeSessionId.value);
   }
 });
 
@@ -1324,7 +1504,7 @@ const handleOrderChange = async (newList) => {
     await invoke("update_server_order", { ids });
     console.log("后端排序更新成功");
   } catch (err) {
-    toast.error("保存排序失败: " + err);
+    toast.error(t('toast.saveSortFailed', { err: String(err) }));
   }
 };
 
@@ -1333,11 +1513,23 @@ watch(defaultTheme, async () => {
   terminalMap.forEach(({ term }) => applyTerminalTheme(term));
 }, { immediate: false });
 
+const handleGlobalKeydown = (e: KeyboardEvent) => {
+  const target = e.target as HTMLElement;
+  const tag = target.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable) return;
+
+  if (e.ctrlKey && e.key === 'w') {
+    e.preventDefault();
+    if (activeSessionId.value) void closeTab(activeSessionId.value);
+  }
+};
+
 onMounted(async () => {
   const themeId = localStorage.getItem('app-theme-id') || defaultTheme.value;
   applyTheme(themeId);
   initLocalRootPath()
   window.addEventListener("resize", handleResize);
+  window.addEventListener("keydown", handleGlobalKeydown);
   await setupNativeDragDrop();
   loadPanelWidths();
   loadServers();
@@ -1351,9 +1543,19 @@ onMounted(async () => {
   await bootstrapSessionWindow();
   unlistenClosed = await listen("ssh-closed", (event) => {
     const payload = event.payload as { session_id?: string; server_id?: string };
-    if (payload.session_id) {
-      internalUiCleanup(payload.session_id);
+    if (!payload.session_id) return;
+
+    if (suppressSshClosedToast.has(payload.session_id)) {
+      suppressSshClosedToast.delete(payload.session_id);
+      return;
     }
+
+    if (!openSessions.value.some((s) => s.id === payload.session_id)) return;
+
+    const instance = terminalMap.get(payload.session_id);
+    if (instance) instance.backendReady = false;
+    setSessionStatus(payload.session_id, 'disconnected', t('session.remoteDisconnected'));
+    toast.warning(t('session.sshDisconnectedTitle'));
   });
   unlistenTransfer = await listen("transfer-progress", (event) => {
     const {taskId, progress} = event.payload as { taskId: string, progress: number };
@@ -1365,8 +1567,8 @@ onMounted(async () => {
     const payload = event.payload as { phase?: string; message?: string } | string;
     const message = typeof payload === "string"
       ? payload
-      : payload.message || "同步失败";
-    toast.error(message, typeof payload === "object" ? payload.phase : "同步");
+      : payload.message || t('toast.syncFailed');
+    toast.error(message, typeof payload === "object" ? payload.phase : t('toast.syncPhase'));
   });
 
   unlistenSync = await listen("sync-status", (event) => {
@@ -1380,6 +1582,7 @@ onMounted(async () => {
 
 onUnmounted(async () => {
   for (const session of openSessions.value) {
+    suppressSshClosedToast.add(session.id);
     await invoke("disconnect_ssh", { sessionId: session.id }).catch(console.error);
   }
   terminalMap.forEach(instance => {
@@ -1387,6 +1590,7 @@ onUnmounted(async () => {
   });
   terminalMap.clear();
   window.removeEventListener("resize", handleResize);
+  window.removeEventListener("keydown", handleGlobalKeydown);
   if (unlisten) unlisten();
   if (unlistenClosed) unlistenClosed();
   if (unlistenTransfer) unlistenTransfer();
@@ -1397,7 +1601,7 @@ onUnmounted(async () => {
 
 <template>
   <div class="termius-container">
-    <TitleBar :active-session-id="activeSessionId"/>
+    <TitleBar :active-session-id="activeSessionId" :is-local-session="isActiveLocalSession"/>
     <div class="main-layout">
       <Sidebar
           v-model:active-id="activeId"
@@ -1412,24 +1616,27 @@ onUnmounted(async () => {
       <main class="workspace">
         <TerminalTabs
             :open-sessions="openSessions"
+            :session-statuses="sessionStatuses"
             v-model:active-session-id="activeSessionId"
             @close="closeTab"
             @clone-tab="cloneSessionToTab"
             @clone-window="cloneSessionToWindow"
             @new-local-shell="openLocalShell"
+            @reconnect="reconnectSession"
         />
         <WorkspaceHeader
             :current-server="currentServer"
             :active-id="activeId"
             :active-session-id="activeSessionId"
-            :is-connecting="isConnecting"
-            :is-error="isConnectError"
+            :session-status="activeSessionStatus"
+            :session-error="activeSessionError"
             :current-view-mode="currentViewMode"
             :open-sessions="openSessions"
             :servers="servers"
             :is-local-session="isActiveLocalSession"
             @toggle-view-mode="toggleViewMode"
-            @connect="connectToServer"
+            @connect="connectToServer()"
+            @reconnect="reconnectSession()"
         />
 
         <div class="terminal-shell">
@@ -1438,11 +1645,34 @@ onUnmounted(async () => {
               <div
                   v-for="session in openSessions"
                   :key="session.id"
-                  :id="`terminal-${session.id}`"
                   v-show="activeSessionId === session.id"
-                  class="xterm-container"
-                  @click="focusTerminal(session.id)"
-              ></div>
+                  class="terminal-pane"
+              >
+                <div
+                    :id="`terminal-${session.id}`"
+                    class="xterm-container"
+                    @mousedown="focusTerminal(session.id)"
+                    @click="focusTerminal(session.id)"
+                ></div>
+                <div
+                    v-if="showSessionOverlay(session.id)"
+                    class="terminal-overlay"
+                >
+                  <div class="terminal-overlay__card">
+                    <i class="fas fa-plug-circle-xmark"></i>
+                    <h4>{{ sessionStatuses[session.id] === 'failed' ? tr.session.overlayFailed : tr.session.overlayDisconnected }}</h4>
+                    <p>{{ getSessionOverlayMessage(session.id) }}</p>
+                    <div class="terminal-overlay__actions">
+                      <button type="button" class="btn-overlay" @click="reconnectSession(session.id)">
+                        <i class="fas fa-rotate-right"></i> {{ tr.session.overlayReconnect }}
+                      </button>
+                      <button type="button" class="btn-overlay btn-overlay--ghost" @click="openEditModalForSession(session)">
+                        <i class="fas fa-pen"></i> {{ tr.session.overlayEditHost }}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
             <div v-else class="empty-state">
               <div class="empty-state-content">
@@ -1450,12 +1680,11 @@ onUnmounted(async () => {
                   <i class="fas fa-terminal main-icon"></i>
                   <div class="glow-ring"></div>
                 </div>
-                <h3 class="empty-title">Ready to Connect</h3>
-                <p class="empty-description">Select a server from the sidebar or create a new connection to start your
-                  session.</p>
+                <h3 class="empty-title">{{ tr.empty.title }}</h3>
+                <p class="empty-description">{{ tr.empty.description }}</p>
                 <button class="create-btn" @click="openAddModal">
                   <i class="fas fa-plus"></i>
-                  New Connection
+                  {{ tr.empty.newConnection }}
                 </button>
               </div>
             </div>
@@ -1471,13 +1700,25 @@ onUnmounted(async () => {
                 <div class="file-list"
                      :class="{ 'drag-over': isDraggingOverLocal }"
                      @contextmenu="handlePaneContextMenu($event, 'local')">
+                  <div v-if="localFilesLoading" class="file-pane-state">
+                    <i class="fas fa-spinner fa-spin"></i> {{ tr.common.loading }}
+                  </div>
+                  <div v-else-if="localFilesError" class="file-pane-state file-pane-state--error">
+                    <i class="fas fa-circle-exclamation"></i>
+                    <span>{{ localFilesError }}</span>
+                    <button type="button" @click="refreshLocalFiles">{{ tr.common.retry }}</button>
+                  </div>
+                  <div v-else-if="localFiles.length === 0" class="file-pane-state">
+                    <i class="fas fa-folder-open"></i> {{ tr.common.emptyFolder }}
+                  </div>
+                  <template v-else>
                   <div v-for="file in localFiles" :key="file.name" class="file-item"
                        :class="{ 'is-dir': file.is_dir, 'is-dragging': sftpInternalDragKey === `local:${file.name}` }"
                        @pointerdown="onSftpFilePointerDown($event, file, 'local')"
                        @dblclick.stop="handleFileDblClick(file, 'local')"
                        @contextmenu="handleContextMenu($event, file, 'local')">
                     <span class="file-icon">
-                      <Tooltip text="双击" inline>
+                      <Tooltip :text="tr.common.doubleClick" inline>
                         <i class="fas"
                            :class="file.name === '..' ? 'fa-level-up-alt' : (file.is_dir ? 'fa-folder' : 'fa-file-alt')"></i>
                       </Tooltip>
@@ -1487,6 +1728,7 @@ onUnmounted(async () => {
                       {{ formatSize(file.size) }}
                     </span>
                   </div>
+                  </template>
                 </div>
               </div>
 
@@ -1498,28 +1740,39 @@ onUnmounted(async () => {
                 <div class="file-list"
                      :class="{ 'drag-over': isDraggingOverRemote }"
                      @contextmenu="handlePaneContextMenu($event, 'remote')">
+                  <div v-if="remoteFilesLoading" class="file-pane-state">
+                    <i class="fas fa-spinner fa-spin"></i> {{ tr.common.loading }}
+                  </div>
+                  <div v-else-if="remoteFilesError" class="file-pane-state file-pane-state--error">
+                    <i class="fas fa-circle-exclamation"></i>
+                    <span>{{ remoteFilesError }}</span>
+                    <button type="button" @click="refreshRemoteFiles">{{ tr.common.retry }}</button>
+                  </div>
+                  <div v-else-if="remoteFiles.length === 0" class="file-pane-state">
+                    <i class="fas fa-folder-open"></i> {{ tr.common.emptyFolder }}
+                  </div>
+                  <template v-else>
                   <div v-for="file in remoteFiles" :key="file.name" class="file-item"
                        :class="{ 'is-dir': file.is_dir, 'is-dragging': sftpInternalDragKey === `remote:${file.name}` }"
                        @pointerdown="onSftpFilePointerDown($event, file, 'remote')"
                        @dblclick.stop="handleFileDblClick(file, 'remote')"
                        @contextmenu="handleContextMenu($event, file, 'remote')">
                     <span class="file-icon">
-                      <Tooltip text="双击" inline>
+                      <Tooltip :text="tr.common.doubleClick" inline>
                         <i class="fas"
                            :class="file.name === '..' ? 'fa-level-up-alt' : (file.is_dir ? 'fa-folder' : 'fa-file-alt')"></i>
                       </Tooltip>
                     </span>
                     <span class="file-name">{{ file.name }}</span>
-                    <span class="file-size" v-if="!file.is_dir">{{ (file.size / 1024).toFixed(1) }} KB</span>
+                    <span class="file-size" v-if="!file.is_dir">{{ formatSize(file.size) }}</span>
                   </div>
+                  </template>
                 </div>
               </div>
 
               <div v-if="!isActiveLocalSession && transferTasks.length > 0" class="transfer-status">
                 <div class="status-header">
-                  <div class="header-left"><i class="fas fa-layer-group"></i><span>传输队列 ({{
-                      transferTasks.length
-                    }})</span></div>
+                  <div class="header-left"><i class="fas fa-layer-group"></i><span>{{ t('sftp.transferQueue', { count: transferTasks.length }) }}</span></div>
                   <div class="header-status-dot" :class="{ 'is-syncing': hasActiveTasks }"></div>
                 </div>
                 <div class="task-list-wrapper">
@@ -1549,25 +1802,31 @@ onUnmounted(async () => {
             </div>
           </div>
         </div>
-        <StatusBar :open-sessions="openSessions" :current-server="currentServer"/>
+        <StatusBar
+            :open-sessions="openSessions"
+            :latency-server="activeTabServer"
+            :is-active-local-session="isActiveLocalSession"
+            :session-status="activeSessionStatus"
+            :servers="servers"
+        />
       </main>
 
       <div class="right-dock">
         <div class="icon-bar">
           <div class="top-group">
-            <Tooltip text="快捷命令" placement="left">
+            <Tooltip :text="tr.dock.quickCommands" placement="left">
               <div class="icon-item" :class="{ active: rightPanelVisible && rightPanelType === 'quick' }"
                    @click="toggleRightPanel('quick')">
                 <i class="fas fa-bolt"></i>
               </div>
             </Tooltip>
-            <Tooltip text="AI 助手" placement="left">
+            <Tooltip :text="tr.dock.aiAssistant" placement="left">
               <div class="icon-item" :class="{ active: rightPanelVisible && rightPanelType === 'ai' }"
                    @click="toggleRightPanel('ai')">
                 <i class="fas fa-robot"></i>
               </div>
             </Tooltip>
-            <Tooltip text="Redis 数据库" placement="left">
+            <Tooltip :text="tr.dock.redis" placement="left">
               <div class="icon-item"
                    :class="{ active: rightPanelVisible && rightPanelType === 'redis' }"
                    @click="toggleRightPanel('redis')">
@@ -1576,7 +1835,7 @@ onUnmounted(async () => {
                 </svg>
               </div>
             </Tooltip>
-            <Tooltip text="API 调试" placement="left">
+            <Tooltip :text="tr.dock.apiDebugger" placement="left">
               <div class="icon-item"
                    :class="{ active: rightPanelVisible && rightPanelType === 'api' }"
                    @click="toggleRightPanel('api')">
@@ -1585,7 +1844,7 @@ onUnmounted(async () => {
             </Tooltip>
           </div>
           <div class="bottom-group">
-            <Tooltip text="局域网聊天" placement="left">
+            <Tooltip :text="tr.dock.chat" placement="left">
               <div class="icon-item"
                    :class="{ active: rightPanelVisible && rightPanelType === 'chat' }"
                    @click="toggleRightPanel('chat')">
@@ -1597,7 +1856,7 @@ onUnmounted(async () => {
                 </Transition>
               </div>
             </Tooltip>
-            <Tooltip text="同步设置" placement="left">
+            <Tooltip :text="tr.dock.syncSettings" placement="left">
               <div class="icon-item"
                    :class="{
                      active: rightPanelVisible && rightPanelType === 'sync-settings',
@@ -1607,7 +1866,7 @@ onUnmounted(async () => {
                 <i class="fas fa-sync-alt" :class="{ 'fa-spin': isSyncing }"></i>
               </div>
             </Tooltip>
-            <Tooltip text="主题设置" placement="left">
+            <Tooltip :text="tr.dock.themeSettings" placement="left">
               <div class="icon-item"
                    :class="{ active: rightPanelVisible && rightPanelType === 'theme-settings' }"
                    @click="toggleRightPanel('theme-settings')">
@@ -1628,7 +1887,12 @@ onUnmounted(async () => {
 
             <div class="panel-content-wrapper">
               <KeepAlive :max="5">
-                <component :is="rightPanelComponent" :activeSessionId="activeSessionId" @update-online-count="handleOnlineCountUpdate"/>
+                <component
+                    :is="rightPanelComponent"
+                    :activeSessionId="activeSessionId"
+                    :session-connected="isActiveSessionConnected"
+                    @update-online-count="handleOnlineCountUpdate"
+                />
               </KeepAlive>
             </div>
           </div>
@@ -1656,40 +1920,40 @@ onUnmounted(async () => {
         <template v-if="contextTarget === 'pane'">
           <div class="menu-item" @click="handleMenuAction('newFile')">
             <i class="fas fa-file-medical"></i>
-            <span class="menu-text">新建文件</span>
+            <span class="menu-text">{{ tr.sftp.newFile }}</span>
           </div>
           <div class="menu-item" @click="handleMenuAction('newFolder')">
             <i class="fas fa-folder-plus"></i>
-            <span class="menu-text">新建文件夹</span>
+            <span class="menu-text">{{ tr.sftp.newFolder }}</span>
           </div>
           <div class="menu-divider"></div>
           <div class="menu-item" :class="{ disabled: !canPaste }" @click="handleMenuAction('paste')">
             <i class="fas fa-paste"></i>
-            <span class="menu-text">粘贴</span>
+            <span class="menu-text">{{ tr.sftp.paste }}</span>
           </div>
           <div class="menu-divider"></div>
           <div class="menu-item" @click="handleMenuAction('refresh')">
             <i class="fas fa-rotate-right"></i>
-            <span class="menu-text">刷新</span>
+            <span class="menu-text">{{ tr.sftp.refresh }}</span>
           </div>
         </template>
 
         <template v-else>
           <div class="menu-item" @click="handleMenuAction('copy')">
             <i class="fas fa-copy"></i>
-            <span class="menu-text">复制</span>
+            <span class="menu-text">{{ tr.sftp.copy }}</span>
           </div>
           <div class="menu-item" @click="handleMenuAction('cut')">
             <i class="fas fa-scissors"></i>
-            <span class="menu-text">剪切</span>
+            <span class="menu-text">{{ tr.sftp.cut }}</span>
           </div>
           <div class="menu-item" :class="{ disabled: !canPaste }" @click="handleMenuAction('paste')">
             <i class="fas fa-paste"></i>
-            <span class="menu-text">粘贴</span>
+            <span class="menu-text">{{ tr.sftp.paste }}</span>
           </div>
           <div class="menu-item" @click="handleMenuAction('copyPath')">
             <i class="fas fa-link"></i>
-            <span class="menu-text">复制路径</span>
+            <span class="menu-text">{{ tr.sftp.copyPath }}</span>
           </div>
 
           <div class="menu-divider"></div>
@@ -1697,7 +1961,7 @@ onUnmounted(async () => {
           <div v-if="!isActiveLocalSession" class="menu-item" @click="handleMenuAction('transfer')">
             <i class="fas" :class="contextSource === 'local' ? 'fa-cloud-upload-alt' : 'fa-cloud-download-alt'"></i>
             <span class="menu-text">
-              {{ contextSource === 'local' ? '上传到远程' : '下载到本地' }}
+              {{ contextSource === 'local' ? tr.sftp.uploadRemote : tr.sftp.downloadLocal }}
             </span>
           </div>
 
@@ -1705,36 +1969,36 @@ onUnmounted(async () => {
 
           <div class="menu-item" @click="handleMenuAction('info')">
             <i class="fas fa-circle-info"></i>
-            <span class="menu-text">文件信息</span>
+            <span class="menu-text">{{ tr.sftp.fileInfo }}</span>
           </div>
 
           <div v-if="contextSource === 'local'" class="menu-item" @click="handleMenuAction('openExplorer')">
             <i class="fas fa-folder-open"></i>
-            <span class="menu-text">在资源管理器中打开</span>
+            <span class="menu-text">{{ tr.sftp.openExplorer }}</span>
           </div>
 
           <div class="menu-item" @click="handleMenuAction('rename')">
             <i class="fas fa-pen"></i>
-            <span class="menu-text">重命名</span>
+            <span class="menu-text">{{ tr.sftp.rename }}</span>
           </div>
 
           <div v-if="contextSource === 'remote'" class="menu-item" @click="handleMenuAction('chmod')">
             <i class="fas fa-key"></i>
-            <span class="menu-text">修改权限</span>
+            <span class="menu-text">{{ tr.sftp.chmod }}</span>
           </div>
 
           <div class="menu-divider"></div>
 
           <div class="menu-item" @click="handleMenuAction('refresh')">
             <i class="fas fa-rotate-right"></i>
-            <span class="menu-text">刷新</span>
+            <span class="menu-text">{{ tr.sftp.refresh }}</span>
           </div>
 
           <div class="menu-divider"></div>
 
           <div class="menu-item danger" @click="handleMenuAction('delete')">
             <i class="fas fa-trash-alt"></i>
-            <span class="menu-text">删除</span>
+            <span class="menu-text">{{ tr.common.delete }}</span>
           </div>
         </template>
       </div>

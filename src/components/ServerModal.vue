@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
 import { open } from "@tauri-apps/plugin-dialog";
+import { toast } from "../utils/toast.ts";
 
 const props = defineProps<{
   isOpen: boolean;
@@ -45,7 +46,7 @@ const selectedJumpLabel = computed(() => {
   return jumpHostOptions.value.find(o => o.value === id)?.label ?? '直连（无跳板机）';
 });
 
-const modalTitle = computed(() => props.isEditing ? 'Edit Host' : 'Add New Host');
+const modalTitle = computed(() => props.isEditing ? '编辑主机' : '新建主机');
 const modalSubtitle = computed(() =>
   props.isEditing ? '修改 SSH 连接配置' : '创建新的 SSH 连接'
 );
@@ -133,17 +134,41 @@ const selectKeyFile = async () => {
   if (selected) formData.value.private_key_path = selected as string;
 };
 
-const saveHost = async () => {
-  if (formData.value.name && formData.value.host) {
-    const payload = {
-      ...formData.value,
-      port: Number(formData.value.port),
-      group: formData.value.group?.trim() || null,
-      updated_at: formData.value.updated_at || 0,
-      deleted: formData.value.deleted ?? false
-    };
-    emit('save', payload);
+const wouldCreateJumpCycle = (hostId: string, jumpId: string | null | undefined) => {
+  if (!jumpId) return false;
+  if (jumpId === hostId) return true;
+  const visited = new Set<string>();
+  let current: string | null | undefined = jumpId;
+  while (current) {
+    if (current === hostId) return true;
+    if (visited.has(current)) return true;
+    visited.add(current);
+    const hop = props.servers.find((s) => s.id === current);
+    current = hop?.jump_host_id || null;
+    if (!current) break;
   }
+  return false;
+};
+
+const saveHost = async () => {
+  if (!formData.value.name?.trim() || !formData.value.host?.trim()) {
+    toast.warning('请填写显示名称和主机地址');
+    return;
+  }
+  const hostId = formData.value.id || '__new__';
+  const jumpId = formData.value.jump_host_id || null;
+  if (wouldCreateJumpCycle(hostId, jumpId)) {
+    toast.error('跳板机配置无效：不能指向自身或形成环路');
+    return;
+  }
+  const payload = {
+    ...formData.value,
+    port: Number(formData.value.port),
+    group: formData.value.group?.trim() || null,
+    updated_at: formData.value.updated_at || 0,
+    deleted: formData.value.deleted ?? false
+  };
+  emit('save', payload);
 };
 
 const closeModal = () => {

@@ -5,9 +5,12 @@ import { confirm } from "../utils/confirm";
 import { debounce } from "../utils/async.ts";
 import { toast } from "../utils/toast.ts";
 import { beginPointerDrag, findAttrFromPoint } from "../utils/pointerDrag.ts";
+import HostGroupDialog from "./HostGroupDialog.vue";
+import { useI18n, localeCompareTag } from "../utils/i18n.ts";
+
+const { tr, t } = useI18n();
 
 const UNGROUPED_KEY = "__ungrouped__";
-const UNGROUPED_LABEL = "未分组";
 const COLLAPSED_STORAGE_KEY = "host-group-collapsed";
 
 type HostGroup = {
@@ -24,7 +27,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'update:activeId', id: string): void;
   (e: 'update:servers', newList: any[]): void;
-  (e: 'connect'): void;
+  (e: 'connect', serverId?: string): void;
   (e: 'edit', server: any): void;
   (e: 'delete', id: string): void;
   (e: 'openAddModal'): void;
@@ -40,6 +43,9 @@ const menuVisible = ref(false);
 const menuPos = ref({ x: 0, y: 0 });
 const menuTargetId = ref<string | null>(null);
 const menuElRef = ref<HTMLElement | null>(null);
+
+const groupDialogVisible = ref(false);
+const groupDialogServer = ref<any | null>(null);
 
 const loadCollapsedGroups = (): Set<string> => {
   try {
@@ -100,12 +106,12 @@ const hostGroups = computed((): HostGroup[] => {
 
   const named = [...map.entries()]
     .filter(([key]) => key !== UNGROUPED_KEY)
-    .sort((a, b) => a[0].localeCompare(b[0], "zh"))
+    .sort((a, b) => a[0].localeCompare(b[0], localeCompareTag()))
     .map(([key, servers]) => ({ key, label: key, servers }));
 
   const ungrouped = map.get(UNGROUPED_KEY);
   if (ungrouped?.length) {
-    named.push({ key: UNGROUPED_KEY, label: UNGROUPED_LABEL, servers: ungrouped });
+    named.push({ key: UNGROUPED_KEY, label: tr.value.sidebar.ungrouped, servers: ungrouped });
   }
   return named;
 });
@@ -167,24 +173,33 @@ const handleMenuEdit = () => {
   if (server) emit('edit', server);
 };
 
-const handleMenuSetGroup = async () => {
+const handleMenuSetGroup = () => {
   const server = menuTargetServer.value;
   closeHostMenu();
   if (!server) return;
+  groupDialogServer.value = server;
+  groupDialogVisible.value = true;
+};
 
-  const input = prompt("设置分组名称（留空表示未分组）:", server.group || "");
-  if (input === null) return;
+const closeGroupDialog = () => {
+  groupDialogVisible.value = false;
+  groupDialogServer.value = null;
+};
 
-  const group = input.trim() || null;
+const saveGroup = async (group: string | null) => {
+  const server = groupDialogServer.value;
+  if (!server) return;
+
   try {
     await invoke("save_server", { server: { ...server, group } });
     const updated = props.servers.map((s) =>
       s.id === server.id ? { ...s, group } : s,
     );
     emit("update:servers", updated);
-    toast.success("分组已更新");
+    toast.success(group ? tr.value.sidebar.groupUpdated : tr.value.sidebar.groupCleared);
+    closeGroupDialog();
   } catch {
-    toast.error("保存分组失败");
+    toast.error(tr.value.sidebar.groupSaveFailed);
   }
 };
 
@@ -251,7 +266,7 @@ const commitReorderToServer = async (fromId: string, targetServerId: string) => 
     try {
       await invoke("save_server", { server: updatedItem });
     } catch {
-      toast.error("保存分组失败");
+      toast.error(tr.value.sidebar.groupSaveFailed);
       return;
     }
   }
@@ -285,7 +300,7 @@ const commitReorderToGroup = async (fromId: string, groupKey: string) => {
     try {
       await invoke("save_server", { server: movedItem });
     } catch {
-      toast.error("保存分组失败");
+      toast.error(tr.value.sidebar.groupSaveFailed);
       return;
     }
   }
@@ -316,22 +331,30 @@ const onHostNamePointerDown = (e: PointerEvent, serverId: string) => {
 const deleteServer = async (id: string) => {
   const server = props.servers.find(s => s.id === id);
   const ok = await confirm.error(
-      `确定要删除 "${server?.name}" 吗？此操作无法恢复。`,
-      '危险操作'
+      t('sidebar.deleteConfirm', { name: server?.name ?? '' }),
+      tr.value.sidebar.dangerAction
   );
   if (ok) {
     try {
       await invoke("delete_server", { id });
       emit('delete', id);
-      toast.success("删除成功", "配置已移除");
+      toast.success(tr.value.sidebar.deleteSuccess, tr.value.sidebar.configRemoved);
     } catch (e) {
-      toast.error("删除失败");
+      toast.error(tr.value.sidebar.deleteFailed);
     }
   }
 };
 
+const handleMenuConnect = () => {
+  const server = menuTargetServer.value;
+  closeHostMenu();
+  if (!server) return;
+  emit('update:activeId', server.id);
+  emit('connect', server.id);
+};
+
 const handleDoubleClick = () => {
-  emit('connect');
+  emit('connect', props.activeId ?? undefined);
 };
 
 const clearSearch = () => {
@@ -376,14 +399,14 @@ onUnmounted(() => {
             <input
               v-model="searchQuery"
               type="text"
-              placeholder="搜索名称、地址、分组..."
+              :placeholder="tr.sidebar.searchPlaceholder"
               @keyup.esc="clearSearch"
             />
             <button
               v-if="searchQuery"
               type="button"
               class="hosts-search__clear"
-              aria-label="清除搜索"
+              :aria-label="tr.sidebar.clearSearch"
               @click="clearSearch"
             >
               <i class="fas fa-xmark"></i>
@@ -395,16 +418,16 @@ onUnmounted(() => {
           <div class="host-empty__icon">
             <i class="fas fa-server"></i>
           </div>
-          <p class="host-empty__title">暂无主机</p>
-          <p class="host-empty__hint">添加 SSH 连接以开始使用</p>
+          <p class="host-empty__title">{{ tr.sidebar.noHosts }}</p>
+          <p class="host-empty__hint">{{ tr.sidebar.noHostsHint }}</p>
         </div>
 
         <div v-else-if="filteredServers.length === 0" class="host-empty host-empty--compact">
           <div class="host-empty__icon">
             <i class="fas fa-magnifying-glass"></i>
           </div>
-          <p class="host-empty__title">无匹配主机</p>
-          <p class="host-empty__hint">试试其他关键词</p>
+          <p class="host-empty__title">{{ tr.sidebar.noMatch }}</p>
+          <p class="host-empty__hint">{{ tr.sidebar.noMatchHint }}</p>
         </div>
 
         <TransitionGroup v-else-if="isFlatView" name="list" tag="div" class="host-list">
@@ -517,29 +540,41 @@ onUnmounted(() => {
             <template v-if="menuTargetServer.group">{{ menuTargetServer.group }} · </template>
             {{ menuTargetServer.username }}@{{ menuTargetServer.host }}:{{ menuTargetServer.port }}
           </div>
+          <button type="button" class="host-context-menu__item" @click="handleMenuConnect">
+            <i class="fas fa-plug"></i>
+            <span>{{ tr.sidebar.connect }}</span>
+          </button>
           <button type="button" class="host-context-menu__item" @click="handleMenuEdit">
             <i class="fas fa-pen-to-square"></i>
-            <span>编辑配置</span>
+            <span>{{ tr.sidebar.editConfig }}</span>
           </button>
           <button type="button" class="host-context-menu__item" @click="handleMenuSetGroup">
             <i class="fas fa-folder"></i>
-            <span>设置分组</span>
+            <span>{{ tr.sidebar.setGroup }}</span>
           </button>
           <div class="host-context-menu__divider"></div>
           <button type="button" class="host-context-menu__item host-context-menu__item--danger" @click="handleMenuDelete">
             <i class="fas fa-trash-can"></i>
-            <span>删除主机</span>
+            <span>{{ tr.sidebar.deleteHost }}</span>
           </button>
         </div>
       </Transition>
     </Teleport>
 
+    <HostGroupDialog
+      :visible="groupDialogVisible"
+      :server="groupDialogServer"
+      :servers="servers"
+      @close="closeGroupDialog"
+      @confirm="saveGroup"
+    />
+
     <div class="sidebar-footer">
       <button class="add-host-btn" @click="emit('openAddModal')">
         <i class="fas fa-plus"></i>
-        <span>Add New Host</span>
+        <span>{{ tr.sidebar.addHost }}</span>
       </button>
-      <p class="sidebar-footer__hint">双击连接 · 按住名称拖动排序或改分组</p>
+      <p class="sidebar-footer__hint">{{ tr.sidebar.footerHint }}</p>
     </div>
   </aside>
 </template>

@@ -9,7 +9,8 @@ import hljs from 'highlight.js';
 import 'highlight.js/styles/tokyo-night-dark.css';
 
 const props = defineProps<{
-  activeSessionId: string | null
+  activeSessionId: string | null;
+  sessionConnected?: boolean;
 }>();
 
 const isConfigMode = ref(false);
@@ -142,6 +143,10 @@ const sendMessage = async () => {
 const sendToTerminal = async (fullContent: string) => {
   if (!props.activeSessionId) {
     toast.warning("请先连接到一个 SSH 会话");
+    return;
+  }
+  if (!props.sessionConnected) {
+    toast.warning("当前会话未连接，无法发送指令");
     return;
   }
   let code = fullContent;
@@ -297,8 +302,11 @@ onUnmounted(() => {
 
           <div class="input-actions">
             <div class="input-info">
-              <span v-if="activeSessionId" class="status-tag">
+              <span v-if="activeSessionId && sessionConnected" class="status-tag">
                 <i class="fas fa-link"></i> 已挂载终端
+              </span>
+              <span v-else-if="activeSessionId" class="status-tag warning">
+                <i class="fas fa-unlink"></i> 会话未连接
               </span>
               <span v-else class="status-tag warning">
                 <i class="fas fa-unlink"></i> 未连接会话

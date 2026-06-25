@@ -96,6 +96,36 @@ const transferTasks = ref<any[]>([]);
 
 const rightPanelType = ref<'quick' | 'ai' | 'redis' | 'history' | 'sync-settings' | 'theme-settings' | 'chat' | 'api'>('quick');
 
+type RightPanelType = typeof rightPanelType.value;
+
+const PANEL_WIDTH_STORAGE_KEY = 'right-panel-widths';
+const LEGACY_PANEL_WIDTH_KEY = 'right-panel-width';
+
+const DEFAULT_PANEL_WIDTHS: Record<RightPanelType, number> = {
+  quick: 420,
+  ai: 420,
+  redis: 420,
+  history: 420,
+  'sync-settings': 420,
+  'theme-settings': 400,
+  chat: 420,
+  api: 892,
+};
+
+const PANEL_MIN_WIDTHS: Partial<Record<RightPanelType, number>> = {
+  api: 480,
+  redis: 360,
+};
+
+const panelWidths = ref<Record<RightPanelType, number>>({ ...DEFAULT_PANEL_WIDTHS });
+
+const panelWidth = computed(() =>
+  panelWidths.value[rightPanelType.value] ?? DEFAULT_PANEL_WIDTHS[rightPanelType.value],
+);
+
+const getPanelMinWidth = (type: RightPanelType) =>
+  PANEL_MIN_WIDTHS[type] ?? 300;
+
 const localPath = ref("");
 const remotePath = ref("/root");
 const localFiles = ref<any[]>([]);
@@ -151,15 +181,12 @@ const hasActiveTasks = computed(() =>
     transferTasks.value.some(t => t.status === 'transferring')
 );
 
-const handleToggle = (type: any) => {
+const handleToggle = (type: RightPanelType) => {
   if (rightPanelVisible.value && rightPanelType.value === type) {
     rightPanelVisible.value = false;
   } else {
     rightPanelType.value = type;
     rightPanelVisible.value = true;
-    if (type === 'api' && panelWidth.value < 480) {
-      panelWidth.value = 480;
-    }
   }
 }
 
@@ -1231,13 +1258,48 @@ watch(activeSessionId, async (newId) => {
   }
 });
 
-const panelWidth = ref(420);
 const isResizing = ref(false);
+
+const savePanelWidths = () => {
+  localStorage.setItem(PANEL_WIDTH_STORAGE_KEY, JSON.stringify(panelWidths.value));
+};
+
+const loadPanelWidths = () => {
+  try {
+    const raw = localStorage.getItem(PANEL_WIDTH_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<Record<RightPanelType, number>>;
+      panelWidths.value = { ...DEFAULT_PANEL_WIDTHS, ...parsed };
+      return;
+    }
+    const legacy = localStorage.getItem(LEGACY_PANEL_WIDTH_KEY);
+    if (legacy) {
+      const width = parseInt(legacy, 10);
+      if (!Number.isNaN(width) && width >= 300) {
+        panelWidths.value = {
+          ...DEFAULT_PANEL_WIDTHS,
+          quick: width,
+          ai: width,
+          redis: width,
+          history: width,
+          'sync-settings': width,
+          'theme-settings': width,
+          chat: width,
+        };
+        savePanelWidths();
+        localStorage.removeItem(LEGACY_PANEL_WIDTH_KEY);
+      }
+    }
+  } catch {
+    panelWidths.value = { ...DEFAULT_PANEL_WIDTHS };
+  }
+};
 
 const startResizing = (e: MouseEvent) => {
   isResizing.value = true;
   const startX = e.clientX;
-  const startWidth = panelWidth.value;
+  const panelType = rightPanelType.value;
+  const startWidth = panelWidths.value[panelType];
 
   const doResize = (moveEvent: MouseEvent) => {
     if (!isResizing.value) return;
@@ -1245,10 +1307,10 @@ const startResizing = (e: MouseEvent) => {
     const newWidth = startWidth - delta;
 
     const maxWidth = window.innerWidth - 300;
-    const minWidth = 300;
+    const minWidth = getPanelMinWidth(panelType);
 
     if (newWidth >= minWidth && newWidth <= maxWidth) {
-      panelWidth.value = newWidth;
+      panelWidths.value = { ...panelWidths.value, [panelType]: newWidth };
     }
   };
 
@@ -1257,7 +1319,7 @@ const startResizing = (e: MouseEvent) => {
     document.removeEventListener('mousemove', doResize);
     document.removeEventListener('mouseup', stopResizing);
     document.body.style.cursor = 'default';
-    localStorage.setItem('right-panel-width', String(panelWidth.value));
+    savePanelWidths();
   };
 
   document.addEventListener('mousemove', doResize);
@@ -1313,8 +1375,7 @@ onMounted(async () => {
   window.addEventListener("resize", handleResize);
   window.addEventListener("dragend", finishInternalDrag);
   await setupNativeDragDrop();
-  const saved = localStorage.getItem('right-panel-width');
-  if (saved) panelWidth.value = parseInt(saved);
+  loadPanelWidths();
   loadServers();
   updateOnlineCount();
   unlisten = await listen("ssh-output", (event) => {

@@ -277,9 +277,9 @@ $logo-text-color: #ffffff;
   --warning: #{$warning};
 
   --scrollbar-track: transparent;
-  --scrollbar-thumb: #{$border};
-  // 使用 color.mix 替换全局 mix
-  --scrollbar-thumb-hover: #{color.mix($border, #ffffff, 15%)};
+  --scrollbar-thumb: #{color.change($border, $alpha: 0.55)};
+  --scrollbar-thumb-hover: #{color.change($text-dim, $alpha: 0.85)};
+  --scrollbar-thumb-active: #{color.change($accent, $alpha: 0.5)};
 
   --accent-color: #{$accent};
   // 使用更简洁的 color.change 替换复杂的 rgba 提取
@@ -304,24 +304,85 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-// 滚动条美化
+// 滚动条 mixin — 细窄圆角、悬浮感滑块
+@mixin custom-scrollbar($size: 6px) {
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+
+  &::-webkit-scrollbar {
+    width: $size;
+    height: $size;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: var(--scrollbar-track);
+    border-radius: 999px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background-color: var(--scrollbar-thumb);
+    border: 2px solid transparent;
+    background-clip: padding-box;
+    border-radius: 999px;
+    transition: background-color 0.18s ease;
+
+    &:hover {
+      background-color: var(--scrollbar-thumb-hover);
+    }
+
+    &:active {
+      background-color: var(--scrollbar-thumb-active);
+    }
+  }
+
+  &::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+}
+
+.custom-scrollbar {
+  @include custom-scrollbar();
+}
+
+.custom-scrollbar--slim {
+  @include custom-scrollbar(5px);
+}
+
+// 全局滚动条
 ::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
   background: var(--scrollbar-track);
+  border-radius: 999px;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--scrollbar-thumb);
-  border-radius: 10px;
-  transition: background 0.2s ease;
+  background-color: var(--scrollbar-thumb);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  border-radius: 999px;
+  transition: background-color 0.18s ease;
 
   &:hover {
-    background: var(--scrollbar-thumb-hover);
+    background-color: var(--scrollbar-thumb-hover);
   }
+
+  &:active {
+    background-color: var(--scrollbar-thumb-active);
+  }
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+html {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
 }
 
 input, select, textarea {
@@ -435,8 +496,9 @@ input, select, textarea {
     --warning: #{map.get($map, 'accent-orange')};
 
     // 6. 滚动条适配
-    --scrollbar-thumb: #{map.get($map, 'border')};
-    --scrollbar-thumb-hover: #{color.mix(map.get($map, 'border'), #ffffff, 15%)};
+    --scrollbar-thumb: #{color.change(map.get($map, 'border'), $alpha: 0.6)};
+    --scrollbar-thumb-hover: #{color.change(map.get($map, 'text-dim'), $alpha: 0.9)};
+    --scrollbar-thumb-active: #{color.change(map.get($map, 'accent'), $alpha: 0.55)};
 
     // 7. 特殊图标颜色 (SFTP等使用)
     --icon-folder: #{map.get($map, 'accent-orange')};

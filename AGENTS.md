@@ -46,6 +46,57 @@ Tauri 2 桌面 SSH 终端 + 运维工具箱（AI、Redis、API 调试、P2P 聊�
 - 最小 diff，匹配现有风格
 - 仅用户要求时 git commit
 
+## 拖放规范（必读，勿破坏）
+
+Tauri 桌面端存在**两套互斥**的拖放机制，混用会导致禁止图标、SFTP 上传失效、主机排序失灵。**改一处必须隔离，不得影响另一处。**
+
+### 机制对照
+
+| 场景 | 正确做法 | 禁止 |
+|------|----------|------|
+| 资源管理器 → SFTP 远程面板上传 | Tauri 原生 `onDragDropEvent`（`App.vue` → `setupNativeDragDrop`） | 不要用 HTML5 `@drop` / `dataTransfer.files` 替代 |
+| SFTP 本地列表 → 远程列表 | Pointer 拖拽（`beginPointerDrag`，`onSftpFilePointerDown`） | 不要给文件行加 `draggable="true"` |
+| 主机列表排序 / 改分组 | Pointer 拖拽（`Sidebar.vue` → `onHostNamePointerDown`） | 不要给主机项加 `draggable="true"` |
+
+**原因**：Tauri 默认 `dragDropEnabled: true` 时，WebView2 上 HTML5 Drag and Drop API 与原生文件拖放冲突。业内（VS Code、SortableJS、@dnd-kit）对**应用内**排序/跨区拖也用 Pointer，不用 `draggable`。
+
+### 共享工具
+
+- **`src/utils/pointerDrag.ts`**：`beginPointerDrag`、`findAttrFromPoint`
+- 拖动阈值默认 6px，区分点击与拖动
+- 拖动中源元素设 `pointer-events: none`，便于 `elementFromPoint` 命中目标
+
+### 涉及文件（改动时只动对应文件）
+
+| 功能 | 文件 | 要点 |
+|------|------|------|
+| OS 文件上传到 SFTP | `src/App.vue`（`setupNativeDragDrop`、`handleOsFileDrop`） | 保持 `dragDropEnabled` 默认 true，勿关 |
+| SFTP 面板内互拖 | `src/App.vue`（`onSftpFilePointerDown`） | 仅 `file-item` 的 `@pointerdown`，无 HTML5 drag 事件 |
+| 主机排序/分组 | `src/components/Sidebar.vue` | 仅名称 `@pointerdown` → `onHostNamePointerDown`；`data-host-id` / `data-group-key` 标记落点 |
+| 样式 | `src/assets/css/app.scss`（`.sftp-manager--internal-drag`） | 与 Sidebar 的 `.is-dragging` 独立 |
+
+### 隔离 checklist（修改拖放相关代码前自检）
+
+1. **禁止**在项目中新增 `draggable="true"`（SFTP、Sidebar、其他列表均如此）
+2. **禁止**在 `document` / `window` 上监听 HTML5 的 `dragover` / `drop` / `dragend`
+3. **禁止**在 Sidebar 的 `dragover` 里无条件 `preventDefault`（会拦截 Tauri 原生文件拖放）
+4. **禁止**用 `text/plain` 的 `setData` 传递主机/SFTP 载荷（与系统拖放 MIME 冲突）
+5. 新增「可拖动 UI」→ 只用 `pointerDrag.ts`，不要引入 HTML5 DnD
+6. 改 Sidebar 拖放 → 不要动 `App.vue` 的 SFTP；改 SFTP → 不要动 Sidebar
+7. 勿设置 `dragDropEnabled: false`，除非全量迁移 OS 文件上传方案（当前未采用）
+
+### 主机列表交互
+
+- **按住名称**拖动：排序；拖到其他主机 → 同步分组；拖到分组标题 → 移入该分组
+- **单击**选中；**双击**连接；**右键**编辑/分组
+- 底部提示：`按住名称拖动排序或改分组`
+
+### SFTP 交互
+
+- **按住本地文件行**拖到远程面板：上传
+- **从电脑拖文件**到远程面板：Tauri 原生上传
+- 高亮：`isDraggingOverRemote` / `drag-over`（原生与 Pointer 共用 highlight 逻辑）
+
 ## 常用命令
 
 ```bash

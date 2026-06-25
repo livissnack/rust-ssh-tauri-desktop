@@ -1,9 +1,20 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, computed, watch, onMounted, onUnmounted } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { confirm } from "../utils/confirm";
 import { debounce } from "../utils/async.ts";
 import { toast } from "../utils/toast.ts";
+import { beginPointerDrag, findAttrFromPoint } from "../utils/pointerDrag.ts";
+
+const UNGROUPED_KEY = "__ungrouped__";
+const UNGROUPED_LABEL = "未分组";
+const COLLAPSED_STORAGE_KEY = "host-group-collapsed";
+
+type HostGroup = {
+  key: string;
+  label: string;
+  servers: any[];
+};
 
 const props = defineProps<{
   activeId: string | null;
@@ -19,40 +30,186 @@ const emit = defineEmits<{
   (e: 'openAddModal'): void;
 }>();
 
-const dragIndex = ref<number | null>(null);
-const dragOverIndex = ref<number | null>(null);
+const searchQuery = ref("");
+const dragServerId = ref<string | null>(null);
+const dropTargetServerId = ref<string | null>(null);
+const dropTargetGroupKey = ref<string | null>(null);
+const isReordering = ref(false);
 
-const onDragStart = (e: DragEvent, index: number) => {
-  dragIndex.value = index;
-  if (e.dataTransfer) {
-    e.dataTransfer.effectAllowed = 'move';
+const menuVisible = ref(false);
+const menuPos = ref({ x: 0, y: 0 });
+const menuTargetId = ref<string | null>(null);
+
+const loadCollapsedGroups = (): Set<string> => {
+  try {
+    const raw = localStorage.getItem(COLLAPSED_STORAGE_KEY);
+    if (raw) return new Set(JSON.parse(raw) as string[]);
+  } catch { /* ignore */ }
+  return new Set();
+};
+
+const collapsedGroups = ref<Set<string>>(loadCollapsedGroups());
+
+const persistCollapsedGroups = debounce(() => {
+  localStorage.setItem(
+    COLLAPSED_STORAGE_KEY,
+    JSON.stringify([...collapsedGroups.value]),
+  );
+}, 300);
+
+const menuTargetServer = computed(() =>
+  props.servers.find((s) => s.id === menuTargetId.value) ?? null,
+);
+
+const hostMetaDisplay = (server: { username: string; host: string; port: number }) =>
+  `${server.username} · ${server.host}:${server.port}`;
+
+const matchesSearch = (server: any, query: string) => {
+  const group = (server.group || "").toLowerCase();
+  return (
+    server.name.toLowerCase().includes(query) ||
+    server.host.toLowerCase().includes(query) ||
+    server.username.toLowerCase().includes(query) ||
+    String(server.port).includes(query) ||
+    group.includes(query)
+  );
+};
+
+const filteredServers = computed(() => {
+  const query = searchQuery.value.trim().toLowerCase();
+  if (!query) return props.servers;
+  return props.servers.filter((s) => matchesSearch(s, query));
+});
+
+const hasAnyGroup = computed(() =>
+  props.servers.some((s) => s.group?.trim()),
+);
+
+const isSearching = computed(() => searchQuery.value.trim().length > 0);
+
+const isFlatView = computed(() => isSearching.value || !hasAnyGroup.value);
+
+const hostGroups = computed((): HostGroup[] => {
+  const map = new Map<string, any[]>();
+  for (const s of filteredServers.value) {
+    const key = s.group?.trim() || UNGROUPED_KEY;
+    if (!map.has(key)) map.set(key, []);
+    map.get(key)!.push(s);
   }
+
+  const named = [...map.entries()]
+    .filter(([key]) => key !== UNGROUPED_KEY)
+    .sort((a, b) => a[0].localeCompare(b[0], "zh"))
+    .map(([key, servers]) => ({ key, label: key, servers }));
+
+  const ungrouped = map.get(UNGROUPED_KEY);
+  if (ungrouped?.length) {
+    named.push({ key: UNGROUPED_KEY, label: UNGROUPED_LABEL, servers: ungrouped });
+  }
+  return named;
+});
+
+const isGroupCollapsed = (key: string) =>
+  !isSearching.value && collapsedGroups.value.has(key);
+
+const toggleGroup = (key: string) => {
+  if (collapsedGroups.value.has(key)) {
+    collapsedGroups.value.delete(key);
+  } else {
+    collapsedGroups.value.add(key);
+  }
+  collapsedGroups.value = new Set(collapsedGroups.value);
+  persistCollapsedGroups();
 };
 
-const onDragEnd = () => {
-  dragIndex.value = null;
-  dragOverIndex.value = null;
-};
+watch(isSearching, (searching) => {
+  if (searching) return;
+  for (const group of hostGroups.value) {
+    if (group.servers.some((s) => s.id === props.activeId)) {
+      collapsedGroups.value.delete(group.key);
+      collapsedGroups.value = new Set(collapsedGroups.value);
+    }
+  }
+});
 
-const onDragOver = (e: DragEvent, index: number) => {
+const openHostMenu = (e: MouseEvent, serverId: string) => {
   e.preventDefault();
-  if (e.dataTransfer) {
-    e.dataTransfer.dropEffect = 'move';
-  }
-  if (dragIndex.value !== null && dragIndex.value !== index) {
-    dragOverIndex.value = index;
+  e.stopPropagation();
+  menuTargetId.value = serverId;
+  menuPos.value = { x: e.clientX, y: e.clientY };
+  menuVisible.value = true;
+};
+
+const closeHostMenu = () => {
+  menuVisible.value = false;
+  menuTargetId.value = null;
+};
+
+const handleMenuEdit = () => {
+  const server = menuTargetServer.value;
+  closeHostMenu();
+  if (server) emit('edit', server);
+};
+
+const handleMenuSetGroup = async () => {
+  const server = menuTargetServer.value;
+  closeHostMenu();
+  if (!server) return;
+
+  const input = prompt("设置分组名称（留空表示未分组）:", server.group || "");
+  if (input === null) return;
+
+  const group = input.trim() || null;
+  try {
+    await invoke("save_server", { server: { ...server, group } });
+    const updated = props.servers.map((s) =>
+      s.id === server.id ? { ...s, group } : s,
+    );
+    emit("update:servers", updated);
+    toast.success("分组已更新");
+  } catch {
+    toast.error("保存分组失败");
   }
 };
 
-const onDragLeave = (e: DragEvent) => {
-  const related = e.relatedTarget as Node | null;
-  if (!related || !(e.currentTarget as HTMLElement).contains(related)) {
-    dragOverIndex.value = null;
+const handleMenuDelete = () => {
+  const id = menuTargetId.value;
+  closeHostMenu();
+  if (id) deleteServer(id);
+};
+
+const handlePointerDownOutside = (e: PointerEvent) => {
+  if (!menuVisible.value) return;
+  const target = e.target as HTMLElement;
+  if (target.closest('.host-context-menu')) return;
+  closeHostMenu();
+};
+
+const normalizeGroup = (group?: string | null) => group?.trim() || null;
+
+const resetReorderVisuals = () => {
+  dragServerId.value = null;
+  dropTargetServerId.value = null;
+  dropTargetGroupKey.value = null;
+  isReordering.value = false;
+};
+
+const updateDropTargetFromPoint = (x: number, y: number, sourceId: string) => {
+  const hostId = findAttrFromPoint(x, y, "data-host-id", sourceId);
+  if (hostId) {
+    dropTargetServerId.value = hostId;
+    dropTargetGroupKey.value = null;
+    return;
+  }
+  const groupKey = findAttrFromPoint(x, y, "data-group-key");
+  if (groupKey) {
+    dropTargetGroupKey.value = groupKey;
+    dropTargetServerId.value = null;
   }
 };
 
 const debouncedSaveOrder = debounce(async (newList: any[]) => {
-  const ids = newList.map(s => s.id);
+  const ids = newList.map((s) => s.id);
   try {
     await invoke("update_server_order", { ids });
   } catch (err) {
@@ -60,18 +217,84 @@ const debouncedSaveOrder = debounce(async (newList: any[]) => {
   }
 }, 800);
 
-const onDrop = async (e: DragEvent, targetIndex: number) => {
-  e.preventDefault();
-  if (dragIndex.value === null || dragIndex.value === targetIndex) return;
+const commitReorderToServer = async (fromId: string, targetServerId: string) => {
+  if (fromId === targetServerId) return;
 
   const newList = [...props.servers];
-  const [movedItem] = newList.splice(dragIndex.value, 1);
-  newList.splice(targetIndex, 0, movedItem);
+  const fromIdx = newList.findIndex((s) => s.id === fromId);
+  const toIdx = newList.findIndex((s) => s.id === targetServerId);
+  if (fromIdx < 0 || toIdx < 0) return;
 
-  emit('update:servers', newList);
+  const targetGroup = normalizeGroup(newList[toIdx].group);
+  const [movedItem] = newList.splice(fromIdx, 1);
+  const insertIdx = newList.findIndex((s) => s.id === targetServerId);
+  const updatedItem = { ...movedItem, group: targetGroup };
+  newList.splice(insertIdx, 0, updatedItem);
 
-  dragOverIndex.value = null;
+  if (normalizeGroup(movedItem.group) !== targetGroup) {
+    try {
+      await invoke("save_server", { server: updatedItem });
+    } catch {
+      toast.error("保存分组失败");
+      return;
+    }
+  }
+
+  emit("update:servers", newList);
   debouncedSaveOrder(newList);
+};
+
+const commitReorderToGroup = async (fromId: string, groupKey: string) => {
+  const targetGroup = groupKey === UNGROUPED_KEY ? null : groupKey;
+  const newList = [...props.servers];
+  const fromIdx = newList.findIndex((s) => s.id === fromId);
+  if (fromIdx < 0) return;
+
+  const movedItem = { ...newList[fromIdx], group: targetGroup };
+  const groupChanged = normalizeGroup(newList[fromIdx].group) !== targetGroup;
+
+  newList.splice(fromIdx, 1);
+
+  let insertIdx = newList.length;
+  if (groupKey === UNGROUPED_KEY) {
+    const idx = newList.findIndex((s) => !normalizeGroup(s.group));
+    insertIdx = idx >= 0 ? idx : newList.length;
+  } else {
+    const idx = newList.findIndex((s) => normalizeGroup(s.group) === groupKey);
+    insertIdx = idx >= 0 ? idx : newList.length;
+  }
+  newList.splice(insertIdx, 0, movedItem);
+
+  if (groupChanged) {
+    try {
+      await invoke("save_server", { server: movedItem });
+    } catch {
+      toast.error("保存分组失败");
+      return;
+    }
+  }
+
+  emit("update:servers", newList);
+  debouncedSaveOrder(newList);
+};
+
+const onHostNamePointerDown = (e: PointerEvent, serverId: string) => {
+  beginPointerDrag(e, {
+    onActivate: () => {
+      isReordering.value = true;
+      dragServerId.value = serverId;
+    },
+    onMove: (x, y) => updateDropTargetFromPoint(x, y, serverId),
+    onFinish: async (_x, _y, activated) => {
+      const targetId = dropTargetServerId.value;
+      const targetGroup = dropTargetGroupKey.value;
+      resetReorderVisuals();
+      if (!activated) return;
+      if (targetId) await commitReorderToServer(serverId, targetId);
+      else if (targetGroup) await commitReorderToGroup(serverId, targetGroup);
+    },
+    onCancel: resetReorderVisuals,
+  });
 };
 
 const deleteServer = async (id: string) => {
@@ -94,10 +317,24 @@ const deleteServer = async (id: string) => {
 const handleDoubleClick = () => {
   emit('connect');
 };
+
+const clearSearch = () => {
+  searchQuery.value = "";
+};
+
+onMounted(() => {
+  document.addEventListener('pointerdown', handlePointerDownOutside);
+  window.addEventListener('blur', closeHostMenu);
+});
+
+onUnmounted(() => {
+  document.removeEventListener('pointerdown', handlePointerDownOutside);
+  window.removeEventListener('blur', closeHostMenu);
+});
 </script>
 
 <template>
-  <aside class="sidebar">
+  <aside class="sidebar" :class="{ 'is-reordering': isReordering }">
     <div class="brand">
       <div class="brand__logo">
         <i class="fas fa-terminal"></i>
@@ -112,8 +349,31 @@ const handleDoubleClick = () => {
       <nav class="nav-groups">
         <header class="hosts-header">
           <span class="hosts-header__label">Hosts</span>
-          <span v-if="props.servers.length" class="hosts-header__count">{{ props.servers.length }}</span>
+          <span v-if="props.servers.length" class="hosts-header__count">
+            {{ filteredServers.length }}<template v-if="isSearching">/{{ props.servers.length }}</template>
+          </span>
         </header>
+
+        <div v-if="props.servers.length" class="hosts-search">
+          <div class="hosts-search__wrapper">
+            <i class="fas fa-search"></i>
+            <input
+              v-model="searchQuery"
+              type="text"
+              placeholder="搜索名称、地址、分组..."
+              @keyup.esc="clearSearch"
+            />
+            <button
+              v-if="searchQuery"
+              type="button"
+              class="hosts-search__clear"
+              aria-label="清除搜索"
+              @click="clearSearch"
+            >
+              <i class="fas fa-xmark"></i>
+            </button>
+          </div>
+        </div>
 
         <div v-if="props.servers.length === 0" class="host-empty">
           <div class="host-empty__icon">
@@ -123,23 +383,27 @@ const handleDoubleClick = () => {
           <p class="host-empty__hint">添加 SSH 连接以开始使用</p>
         </div>
 
-        <TransitionGroup v-else name="list" tag="div" class="host-list">
+        <div v-else-if="filteredServers.length === 0" class="host-empty host-empty--compact">
+          <div class="host-empty__icon">
+            <i class="fas fa-magnifying-glass"></i>
+          </div>
+          <p class="host-empty__title">无匹配主机</p>
+          <p class="host-empty__hint">试试其他关键词</p>
+        </div>
+
+        <TransitionGroup v-else-if="isFlatView" name="list" tag="div" class="host-list">
           <div
-              v-for="(s, index) in props.servers"
+              v-for="s in filteredServers"
               :key="s.id"
+              :data-host-id="s.id"
               :class="['host-item', {
                 'is-active': props.activeId === s.id,
-                'is-dragging': dragIndex === index,
-                'is-drop-target': dragOverIndex === index
+                'is-dragging': dragServerId === s.id,
+                'is-drop-target': dropTargetServerId === s.id
               }]"
-              draggable="true"
-              @dragstart="onDragStart($event, index)"
-              @dragover="onDragOver($event, index)"
-              @dragleave="onDragLeave"
-              @drop="onDrop($event, index)"
-              @dragend="onDragEnd"
               @click="emit('update:activeId', s.id)"
               @dblclick="handleDoubleClick"
+              @contextmenu="openHostMenu($event, s.id)"
           >
             <div class="host-item__accent" aria-hidden="true"></div>
 
@@ -148,55 +412,124 @@ const handleDoubleClick = () => {
             </div>
 
             <div class="host-item__body">
-              <span class="host-item__name">{{ s.name }}</span>
+              <span
+                class="host-item__name"
+                @pointerdown="onHostNamePointerDown($event, s.id)"
+              >{{ s.name }}</span>
               <span class="host-item__meta">
-                <span class="host-item__user">{{ s.username }}</span>
-                <span class="host-item__sep">·</span>
-                <span class="host-item__address">{{ s.host }}:{{ s.port }}</span>
-                <Tooltip v-if="s.jump_host_id" text="跳板机连接">
-                  <span class="host-item__badge">
-                    <i class="fas fa-diagram-project"></i>
-                  </span>
-                </Tooltip>
+                <span class="host-item__meta-text">{{ hostMetaDisplay(s) }}</span>
+                <span v-if="s.jump_host_id" class="host-item__badge">
+                  <i class="fas fa-diagram-project"></i>
+                </span>
               </span>
-            </div>
-
-            <div class="host-item__actions">
-              <Tooltip text="编辑配置">
-                <button
-                    type="button"
-                    class="host-item__action"
-                    @click.stop="emit('edit', s)"
-                >
-                  <i class="fas fa-pen-to-square"></i>
-                </button>
-              </Tooltip>
-              <Tooltip text="删除服务器">
-                <button
-                    type="button"
-                    class="host-item__action host-item__action--danger"
-                    @click.stop="deleteServer(s.id)"
-                >
-                  <i class="fas fa-trash-can"></i>
-                </button>
-              </Tooltip>
             </div>
           </div>
         </TransitionGroup>
+
+        <div v-else class="host-groups">
+          <section v-for="group in hostGroups" :key="group.key" class="host-group">
+            <button
+              type="button"
+              class="host-group__header"
+              :data-group-key="group.key"
+              :class="{
+                'is-collapsed': isGroupCollapsed(group.key),
+                'is-drop-target': dropTargetGroupKey === group.key,
+              }"
+              @click="toggleGroup(group.key)"
+            >
+              <i class="fas fa-chevron-right host-group__chevron"></i>
+              <i class="fas fa-folder host-group__folder"></i>
+              <span class="host-group__name">{{ group.label }}</span>
+              <span class="host-group__count">{{ group.servers.length }}</span>
+            </button>
+
+            <div
+              v-show="!isGroupCollapsed(group.key)"
+              class="host-list host-list--nested"
+            >
+              <div
+                  v-for="s in group.servers"
+                  :key="s.id"
+                  :data-host-id="s.id"
+                  :class="['host-item', {
+                    'is-active': props.activeId === s.id,
+                    'is-dragging': dragServerId === s.id,
+                    'is-drop-target': dropTargetServerId === s.id
+                  }]"
+                  @click="emit('update:activeId', s.id)"
+                  @dblclick="handleDoubleClick"
+                  @contextmenu="openHostMenu($event, s.id)"
+              >
+                <div class="host-item__accent" aria-hidden="true"></div>
+
+                <div class="host-item__icon">
+                  <i class="fas fa-server"></i>
+                </div>
+
+                <div class="host-item__body">
+                  <span
+                    class="host-item__name"
+                    @pointerdown="onHostNamePointerDown($event, s.id)"
+                  >{{ s.name }}</span>
+                  <span class="host-item__meta">
+                    <span class="host-item__meta-text">{{ hostMetaDisplay(s) }}</span>
+                    <span v-if="s.jump_host_id" class="host-item__badge">
+                      <i class="fas fa-diagram-project"></i>
+                    </span>
+                  </span>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
       </nav>
     </div>
+
+    <Teleport to="body">
+      <Transition name="host-menu">
+        <div
+          v-if="menuVisible && menuTargetServer"
+          class="host-context-menu"
+          :style="{ top: `${menuPos.y}px`, left: `${menuPos.x}px` }"
+          @contextmenu.prevent
+          @click.stop
+        >
+          <div class="host-context-menu__title">{{ menuTargetServer.name }}</div>
+          <div class="host-context-menu__subtitle">
+            <template v-if="menuTargetServer.group">{{ menuTargetServer.group }} · </template>
+            {{ menuTargetServer.username }}@{{ menuTargetServer.host }}:{{ menuTargetServer.port }}
+          </div>
+          <button type="button" class="host-context-menu__item" @click="handleMenuEdit">
+            <i class="fas fa-pen-to-square"></i>
+            <span>编辑配置</span>
+          </button>
+          <button type="button" class="host-context-menu__item" @click="handleMenuSetGroup">
+            <i class="fas fa-folder"></i>
+            <span>设置分组</span>
+          </button>
+          <div class="host-context-menu__divider"></div>
+          <button type="button" class="host-context-menu__item host-context-menu__item--danger" @click="handleMenuDelete">
+            <i class="fas fa-trash-can"></i>
+            <span>删除主机</span>
+          </button>
+        </div>
+      </Transition>
+    </Teleport>
 
     <div class="sidebar-footer">
       <button class="add-host-btn" @click="emit('openAddModal')">
         <i class="fas fa-plus"></i>
         <span>Add New Host</span>
       </button>
-      <p class="sidebar-footer__hint">双击主机可快速连接</p>
+      <p class="sidebar-footer__hint">双击连接 · 按住名称拖动排序或改分组</p>
     </div>
   </aside>
 </template>
 
 <style lang="scss" scoped>
+@use '../assets/css/base.scss' as *;
+
 .sidebar {
   width: 260px;
   flex-shrink: 0;
@@ -206,6 +539,10 @@ const handleDoubleClick = () => {
   flex-direction: column;
   height: 100%;
   user-select: none;
+
+  &.is-reordering {
+    cursor: grabbing;
+  }
 
   .brand {
     display: flex;
@@ -255,17 +592,11 @@ const handleDoubleClick = () => {
 
   .sidebar-scroll-area {
     flex: 1;
+    min-height: 0;
     overflow-y: auto;
     overflow-x: hidden;
     padding: 8px 12px 16px;
-
-    &::-webkit-scrollbar { width: 4px; }
-    &::-webkit-scrollbar-thumb {
-      background: var(--border);
-      border-radius: 4px;
-
-      &:hover { background: var(--scrollbar-thumb-hover); }
-    }
+    @include custom-scrollbar(5px);
   }
 
   .nav-groups {
@@ -277,19 +608,177 @@ const handleDoubleClick = () => {
   display: flex;
   flex-direction: column;
   gap: 6px;
+
+  &--nested {
+    margin-top: 4px;
+    padding-left: 4px;
+  }
+}
+
+.host-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.host-group {
+  &__header {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-dim);
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+
+    &:hover {
+      background: var(--bg-primary-30);
+      color: var(--text-main);
+    }
+
+    &.is-collapsed .host-group__chevron {
+      transform: rotate(0deg);
+    }
+
+    &:not(.is-collapsed) .host-group__chevron {
+      transform: rotate(90deg);
+    }
+
+    &.is-drop-target {
+      background: var(--accent-08);
+      color: var(--accent);
+      box-shadow: inset 0 0 0 1px var(--accent-20);
+
+      .host-group__folder,
+      .host-group__chevron {
+        color: var(--accent);
+      }
+    }
+  }
+
+  &__chevron {
+    width: 10px;
+    font-size: 9px;
+    flex-shrink: 0;
+    transition: transform 0.2s ease;
+    opacity: 0.7;
+  }
+
+  &__folder {
+    font-size: 10px;
+    color: var(--accent-orange);
+    opacity: 0.85;
+    flex-shrink: 0;
+  }
+
+  &__name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: left;
+  }
+
+  &__count {
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9px;
+    background: var(--bg-input);
+    border: 1px solid var(--border-30);
+    font-size: 10px;
+    font-family: var(--font-terminal);
+    font-variant-numeric: tabular-nums;
+    color: var(--text-dim);
+    flex-shrink: 0;
+  }
+}
+
+.hosts-search {
+  margin-bottom: 8px;
+
+  &__wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+
+    i.fa-search {
+      position: absolute;
+      left: 10px;
+      font-size: 11px;
+      color: var(--text-dim);
+      opacity: 0.65;
+      pointer-events: none;
+    }
+
+    input {
+      width: 100%;
+      height: 32px;
+      padding: 0 28px 0 30px;
+      box-sizing: border-box;
+      background: var(--bg-input);
+      border: 1px solid var(--border-30);
+      border-radius: 8px;
+      color: var(--text-main);
+      font-size: 12px;
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+
+      &::placeholder {
+        color: var(--text-dim);
+        opacity: 0.55;
+      }
+
+      &:focus {
+        border-color: var(--accent-30);
+        box-shadow: 0 0 0 2px var(--accent-10);
+      }
+    }
+  }
+
+  &__clear {
+    position: absolute;
+    right: 4px;
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 5px;
+    background: transparent;
+    color: var(--text-dim);
+    font-size: 10px;
+    cursor: pointer;
+
+    &:hover {
+      background: var(--accent-10);
+      color: var(--accent);
+    }
+  }
 }
 
 .host-item {
   position: relative;
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto 1fr;
   align-items: center;
   gap: 10px;
-  padding: 10px 10px 10px 12px;
+  padding: 9px 10px 9px 12px;
   border-radius: 10px;
   border: 1px solid transparent;
   background: transparent;
-  cursor: grab;
+  cursor: default;
   overflow: hidden;
   transition:
     background 0.2s ease,
@@ -297,17 +786,9 @@ const handleDoubleClick = () => {
     box-shadow 0.2s ease,
     opacity 0.2s ease;
 
-  &:active { cursor: grabbing; }
-
   &:hover {
     background: var(--bg-primary-30);
     border-color: var(--border-30);
-
-    .host-item__actions {
-      opacity: 1;
-      transform: translateX(0);
-      pointer-events: auto;
-    }
 
     .host-item__icon {
       border-color: var(--accent-20);
@@ -335,12 +816,6 @@ const handleDoubleClick = () => {
       color: var(--accent);
       font-weight: 600;
     }
-
-    .host-item__actions {
-      opacity: 1;
-      transform: translateX(0);
-      pointer-events: auto;
-    }
   }
 
   &.is-dragging {
@@ -348,6 +823,7 @@ const handleDoubleClick = () => {
     border-style: dashed;
     border-color: var(--accent-30);
     background: var(--accent-05);
+    pointer-events: none;
   }
 
   &.is-drop-target {
@@ -376,11 +852,12 @@ const handleDoubleClick = () => {
     opacity: 0;
     transform: scaleY(0.4);
     transition: opacity 0.2s ease, transform 0.2s ease;
+    pointer-events: none;
   }
 
   &__icon {
-    width: 34px;
-    height: 34px;
+    width: 32px;
+    height: 32px;
     flex-shrink: 0;
     display: flex;
     align-items: center;
@@ -395,19 +872,26 @@ const handleDoubleClick = () => {
 
   &__body {
     min-width: 0;
+    width: 100%;
     display: flex;
     flex-direction: column;
-    gap: 3px;
+    gap: 2px;
   }
 
   &__name {
     font-size: 13px;
     font-weight: 500;
     color: var(--text-main);
-    line-height: 1.3;
+    line-height: 1.35;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    cursor: grab;
+    touch-action: none;
+
+    &:active {
+      cursor: grabbing;
+    }
   }
 
   &__meta {
@@ -415,31 +899,17 @@ const handleDoubleClick = () => {
     align-items: center;
     gap: 4px;
     min-width: 0;
-    font-size: 11px;
-    line-height: 1.2;
+    font-size: 10px;
+    line-height: 1.25;
     color: var(--text-dim);
   }
 
-  &__user {
-    flex-shrink: 0;
-    max-width: 72px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  &__sep {
-    flex-shrink: 0;
-    opacity: 0.5;
-  }
-
-  &__address {
+  &__meta-text {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     font-family: var(--font-terminal);
-    font-size: 10px;
     letter-spacing: 0.02em;
   }
 
@@ -448,55 +918,104 @@ const handleDoubleClick = () => {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 16px;
-    height: 16px;
-    margin-left: 2px;
+    width: 15px;
+    height: 15px;
     border-radius: 4px;
     background: var(--accent-orange-10);
     color: var(--accent-orange);
     font-size: 8px;
   }
+}
 
-  &__actions {
-    display: flex;
-    align-items: center;
-    gap: 2px;
-    opacity: 0;
-    transform: translateX(4px);
-    pointer-events: none;
-    transition: opacity 0.2s ease, transform 0.2s ease;
+.host-context-menu {
+  position: fixed;
+  z-index: 10050;
+  min-width: 196px;
+  padding: 6px;
+  border-radius: 10px;
+  background: var(--bg-card-95);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--border-30);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+
+  &__title {
+    padding: 8px 12px 2px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-main);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
-  &__action {
-    width: 26px;
-    height: 26px;
-    padding: 0;
+  &__subtitle {
+    padding: 0 12px 8px;
+    font-size: 10px;
+    color: var(--text-dim);
+    font-family: var(--font-terminal);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &__divider {
+    height: 1px;
+    margin: 4px 6px;
+    background: var(--border-30);
+  }
+
+  &__item {
+    width: 100%;
     display: flex;
     align-items: center;
-    justify-content: center;
+    gap: 10px;
+    padding: 9px 12px;
     border: none;
     border-radius: 6px;
     background: transparent;
-    color: var(--text-dim);
-    font-size: 11px;
+    color: var(--text-main);
+    font-size: 12px;
     cursor: pointer;
     transition: background 0.15s ease, color 0.15s ease;
+
+    i {
+      width: 14px;
+      font-size: 12px;
+      color: var(--text-dim);
+      text-align: center;
+    }
 
     &:hover {
       background: var(--accent-10);
       color: var(--accent);
+
+      i { color: var(--accent); }
     }
 
-    &--danger:hover {
-      background: var(--error-15);
+    &--danger {
       color: var(--error);
-    }
 
-    &:focus-visible {
-      outline: none;
-      box-shadow: 0 0 0 2px var(--accent-glow);
+      i { color: var(--error); }
+
+      &:hover {
+        background: var(--error-10);
+        color: var(--error);
+
+        i { color: var(--error); }
+      }
     }
   }
+}
+
+.host-menu-enter-active,
+.host-menu-leave-active {
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.host-menu-enter-from,
+.host-menu-leave-to {
+  opacity: 0;
+  transform: scale(0.96);
 }
 
 .list-move {
@@ -600,6 +1119,17 @@ const handleDoubleClick = () => {
     line-height: 1.5;
     color: var(--text-dim);
     opacity: 0.75;
+  }
+
+  &--compact {
+    padding: 20px 16px 12px;
+
+    .host-empty__icon {
+      width: 36px;
+      height: 36px;
+      margin-bottom: 10px;
+      font-size: 14px;
+    }
   }
 }
 

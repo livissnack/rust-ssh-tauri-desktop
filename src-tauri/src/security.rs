@@ -85,7 +85,15 @@ pub fn decrypt_with_key(encrypted_data: &[u8], master_key: &str) -> Result<Strin
     let nonce = Nonce::from_slice(SYNC_NONCE);
 
     let decrypted = cipher.decrypt(nonce, encrypted_data)
-        .map_err(|_| "Sync decryption failed: Incorrect Master Key".to_string())?;
+        .map_err(|_| "SYNC_MASTER_KEY_MISMATCH".to_string())?;
 
     String::from_utf8(decrypted).map_err(|e| format!("UTF8 error: {}", e))
+}
+
+pub fn is_sync_master_key_mismatch(err: &str) -> bool {
+    err.contains("SYNC_MASTER_KEY_MISMATCH")
+}
+
+pub fn sync_decrypt_error_message() -> &'static str {
+    "云端解密失败：主密钥不正确，请确认与加密上传时使用的密钥一致"
 }

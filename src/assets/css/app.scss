@@ -183,6 +183,15 @@
     }
   }
 
+  &.sftp-manager--internal-drag {
+    cursor: grabbing;
+
+    .file-item.is-dragging {
+      opacity: 0.5;
+      pointer-events: none;
+    }
+  }
+
   .file-pane {
     flex: 1;
     display: flex;

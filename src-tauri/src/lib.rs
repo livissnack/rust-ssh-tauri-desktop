@@ -63,6 +63,8 @@ pub struct ServerConfig {
     pub password: Option<String>,
     pub private_key_path: Option<String>,
     pub jump_host_id: Option<String>,
+    #[serde(default)]
+    pub group: Option<String>,
     pub updated_at: u64,
     #[serde(default)]
     pub deleted: bool,
@@ -460,6 +462,14 @@ async fn save_server(app_handle: tauri::AppHandle, state: State<'_, AppState>, m
         if jump_id.is_empty() {
             server.jump_host_id = None;
             println!("jump_host_id 转换为: None");
+        }
+    }
+
+    if let Some(ref group) = server.group {
+        if group.trim().is_empty() {
+            server.group = None;
+        } else {
+            server.group = Some(group.trim().to_string());
         }
     }
 

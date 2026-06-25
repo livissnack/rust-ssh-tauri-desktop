@@ -15,6 +15,7 @@ import {throttle, formatSize} from "./utils/async";
 import {applyTheme, defaultTheme} from "./utils/theme";
 import { getTerminalTheme, applyTerminalTheme } from "./utils/terminalTheme";
 import { LOCAL_SERVER_ID, isLocalSession, type OpenSession } from "./utils/session.ts";
+import { beginPointerDrag } from "./utils/pointerDrag.ts";
 
 import Sidebar from "./components/Sidebar.vue";
 import TerminalTabs from "./components/TerminalTabs.vue";
@@ -91,8 +92,9 @@ let unlistenClosed: UnlistenFn | null = null;
 let unlistenTransfer: UnlistenFn | null = null;
 let unlistenSync: UnlistenFn | null = null;
 let unlistenDragDrop: UnlistenFn | null = null;
-let internalDragPayload: { source: 'local' | 'remote'; file: any } | null = null;
 const transferTasks = ref<any[]>([]);
+const isSftpInternalDragging = ref(false);
+const sftpInternalDragKey = ref<string | null>(null);
 
 const rightPanelType = ref<'quick' | 'ai' | 'redis' | 'history' | 'sync-settings' | 'theme-settings' | 'chat' | 'api'>('quick');
 
@@ -578,80 +580,37 @@ const updateDragOverHighlightFromPhysicalPoint = (physicalX: number, physicalY: 
   isDraggingOverRemote.value = pane === 'remote';
 };
 
-const onDragStart = (e: DragEvent, file: any, source: 'local' | 'remote') => {
-  if (file.name === '..') {
-    e.preventDefault();
-    return;
-  }
-  internalDragPayload = {source, file};
-  if (e.dataTransfer) {
-    e.dataTransfer.effectAllowed = "copy";
-    const payload = JSON.stringify({source, file});
-    e.dataTransfer.setData("text/plain", payload);
-  }
-};
+const onSftpFilePointerDown = (e: PointerEvent, file: any, source: 'local' | 'remote') => {
+  if (file.name === '..') return;
 
-const handleDragOver = (e: DragEvent) => {
-  e.preventDefault();
-  if (e.dataTransfer) {
-    e.dataTransfer.dropEffect = "copy";
-  }
-};
-
-const handleDragEnter = (e: DragEvent, type: 'local' | 'remote') => {
-  e.preventDefault();
-  if (type === 'local') isDraggingOverLocal.value = true;
-  else isDraggingOverRemote.value = true;
-};
-
-const handleDragLeave = (e: DragEvent, type: 'local' | 'remote') => {
-  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-  if (
-      e.clientX <= rect.left || e.clientX >= rect.right ||
-      e.clientY <= rect.top || e.clientY >= rect.bottom
-  ) {
-    if (type === 'local') isDraggingOverLocal.value = false;
-    else isDraggingOverRemote.value = false;
-  }
-};
-
-const handleDrop = async (e: DragEvent, targetType: 'local' | 'remote') => {
-  e.preventDefault();
-  clearDragOverHighlight();
-
-  const rawData = e.dataTransfer?.getData("text/plain");
-  if (!rawData) return;
-
-  try {
-    const data = JSON.parse(rawData);
-    if (data.source === 'local' && targetType === 'remote') {
-      await startTransfer('upload', data.file);
-    } else if (data.source === 'remote' && targetType === 'local') {
-      await startTransfer('download', data.file);
-    }
-  } catch (err) {
-    console.error("Drop Error:", err);
-  }
-};
-
-const finishInternalDrag = async (e: DragEvent) => {
-  const payload = internalDragPayload;
-  internalDragPayload = null;
-  if (!payload || currentViewMode.value !== 'sftp' || !activeSessionId.value) {
-    clearDragOverHighlight();
-    return;
-  }
-
-  const targetPane = getSftpDropPaneAtLogicalPoint(e.clientX, e.clientY);
-  try {
-    if (payload.source === 'local' && targetPane === 'remote') {
-      await startTransfer('upload', payload.file);
-    } else if (payload.source === 'remote' && targetPane === 'local') {
-      await startTransfer('download', payload.file);
-    }
-  } finally {
-    clearDragOverHighlight();
-  }
+  beginPointerDrag(e, {
+    onActivate: () => {
+      isSftpInternalDragging.value = true;
+      sftpInternalDragKey.value = `${source}:${file.name}`;
+    },
+    onMove: (x, y) => {
+      const pane = getSftpDropPaneAtLogicalPoint(x, y);
+      isDraggingOverLocal.value = pane === 'local';
+      isDraggingOverRemote.value = pane === 'remote';
+    },
+    onFinish: async (x, y, activated) => {
+      isSftpInternalDragging.value = false;
+      sftpInternalDragKey.value = null;
+      const pane = getSftpDropPaneAtLogicalPoint(x, y);
+      clearDragOverHighlight();
+      if (!activated) return;
+      if (source === 'local' && pane === 'remote') {
+        await startTransfer('upload', file);
+      } else if (source === 'remote' && pane === 'local') {
+        await startTransfer('download', file);
+      }
+    },
+    onCancel: () => {
+      isSftpInternalDragging.value = false;
+      sftpInternalDragKey.value = null;
+      clearDragOverHighlight();
+    },
+  });
 };
 
 const handleOsFileDrop = async (paths: string[], pane: 'local' | 'remote') => {
@@ -1194,14 +1153,15 @@ const openAddModal = () => {
     auth_type: "password",
     password: "",
     private_key_path: "",
-    jump_host_id: ""
+    jump_host_id: "",
+    group: ""
   };
   isModalOpen.value = true;
 };
 
 const openEditModal = (s: any) => {
   isEditing.value = true;
-  newHost.value = {...s, jump_host_id: s.jump_host_id || ""};
+  newHost.value = {...s, jump_host_id: s.jump_host_id || "", group: s.group || ""};
   isModalOpen.value = true;
 };
 
@@ -1212,7 +1172,12 @@ const closeModal = () => {
 
 const saveHost = async (e: any) => {
   if (e.name && e.host) {
-    const serverToSave = {...e, port: Number(e.port), jump_host_id: e.jump_host_id || null};
+    const serverToSave = {
+      ...e,
+      port: Number(e.port),
+      jump_host_id: e.jump_host_id || null,
+      group: e.group?.trim() || null,
+    };
     try {
       await invoke("save_server", {server: serverToSave});
       await loadServers();
@@ -1373,7 +1338,6 @@ onMounted(async () => {
   applyTheme(themeId);
   initLocalRootPath()
   window.addEventListener("resize", handleResize);
-  window.addEventListener("dragend", finishInternalDrag);
   await setupNativeDragDrop();
   loadPanelWidths();
   loadServers();
@@ -1423,7 +1387,6 @@ onUnmounted(async () => {
   });
   terminalMap.clear();
   window.removeEventListener("resize", handleResize);
-  window.removeEventListener("dragend", finishInternalDrag);
   if (unlisten) unlisten();
   if (unlistenClosed) unlistenClosed();
   if (unlistenTransfer) unlistenTransfer();
@@ -1499,7 +1462,7 @@ onUnmounted(async () => {
           </div>
 
           <div v-show="currentViewMode === 'sftp'" class="sftp-wrapper">
-            <div v-if="activeSessionId" class="sftp-manager" :class="{ 'sftp-manager--local-only': isActiveLocalSession }">
+            <div v-if="activeSessionId" class="sftp-manager" :class="{ 'sftp-manager--local-only': isActiveLocalSession, 'sftp-manager--internal-drag': isSftpInternalDragging }">
               <div class="file-pane local-pane">
                 <div class="pane-header">
                   <i class="fas" :class="isActiveLocalSession ? 'fa-folder-open' : 'fa-laptop'" style="margin-right: 8px; color: #565f89;"></i>
@@ -1507,15 +1470,10 @@ onUnmounted(async () => {
                 </div>
                 <div class="file-list"
                      :class="{ 'drag-over': isDraggingOverLocal }"
-                     @contextmenu="handlePaneContextMenu($event, 'local')"
-                     @dragover="handleDragOver"
-                     @dragenter="handleDragEnter($event, 'local')"
-                     @dragleave="handleDragLeave($event, 'local')"
-                     @drop="handleDrop($event, 'local')">
+                     @contextmenu="handlePaneContextMenu($event, 'local')">
                   <div v-for="file in localFiles" :key="file.name" class="file-item"
-                       :class="{ 'is-dir': file.is_dir }"
-                       :draggable="file.name !== '..'"
-                       @dragstart="onDragStart($event, file, 'local')"
+                       :class="{ 'is-dir': file.is_dir, 'is-dragging': sftpInternalDragKey === `local:${file.name}` }"
+                       @pointerdown="onSftpFilePointerDown($event, file, 'local')"
                        @dblclick.stop="handleFileDblClick(file, 'local')"
                        @contextmenu="handleContextMenu($event, file, 'local')">
                     <span class="file-icon">
@@ -1539,15 +1497,10 @@ onUnmounted(async () => {
                 </div>
                 <div class="file-list"
                      :class="{ 'drag-over': isDraggingOverRemote }"
-                     @contextmenu="handlePaneContextMenu($event, 'remote')"
-                     @dragover="handleDragOver"
-                     @dragenter="handleDragEnter($event, 'remote')"
-                     @dragleave="handleDragLeave($event, 'remote')"
-                     @drop="handleDrop($event, 'remote')">
+                     @contextmenu="handlePaneContextMenu($event, 'remote')">
                   <div v-for="file in remoteFiles" :key="file.name" class="file-item"
-                       :class="{ 'is-dir': file.is_dir }"
-                       :draggable="file.name !== '..'"
-                       @dragstart="onDragStart($event, file, 'remote')"
+                       :class="{ 'is-dir': file.is_dir, 'is-dragging': sftpInternalDragKey === `remote:${file.name}` }"
+                       @pointerdown="onSftpFilePointerDown($event, file, 'remote')"
                        @dblclick.stop="handleFileDblClick(file, 'remote')"
                        @contextmenu="handleContextMenu($event, file, 'remote')">
                     <span class="file-icon">

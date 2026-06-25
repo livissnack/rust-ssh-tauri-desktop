@@ -119,6 +119,9 @@ onMounted(loadSettings);
               />
               <i class="fas" :class="showMasterKey ? 'fa-eye-slash' : 'fa-eye'" @click="showMasterKey = !showMasterKey"></i>
             </div>
+            <p class="master-key-hint">
+              更换主密钥后上传将覆盖云端旧备份；下载须使用与上传时相同的密钥。
+            </p>
           </div>
 
           <div class="form-actions">
@@ -257,6 +260,13 @@ onMounted(loadSettings);
       display: flex;
       align-items: center;
       gap: 6px;
+    }
+
+    .master-key-hint {
+      margin: 6px 0 0;
+      font-size: 10px;
+      line-height: 1.45;
+      color: var(--text-dim);
     }
   }
 

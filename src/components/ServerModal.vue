@@ -26,6 +26,15 @@ const filteredServers = computed(() => {
   return props.servers.filter(x => x.id !== formData.value.id);
 });
 
+const existingGroups = computed(() => {
+  const set = new Set<string>();
+  for (const s of props.servers) {
+    const g = s.group?.trim();
+    if (g) set.add(g);
+  }
+  return [...set].sort((a, b) => a.localeCompare(b, 'zh'));
+});
+
 const jumpHostOptions = computed(() => [
   { value: '', label: '直连（无跳板机）' },
   ...filteredServers.value.map(s => ({ value: s.id, label: s.name }))
@@ -129,6 +138,7 @@ const saveHost = async () => {
     const payload = {
       ...formData.value,
       port: Number(formData.value.port),
+      group: formData.value.group?.trim() || null,
       updated_at: formData.value.updated_at || 0,
       deleted: formData.value.deleted ?? false
     };
@@ -179,6 +189,23 @@ const closeModal = () => {
                     type="text"
                     placeholder="例如：Production Server"
                 />
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label>分组 <span class="label-hint">可选</span></label>
+              <div class="input-with-icon">
+                <i class="fas fa-folder input-icon"></i>
+                <input
+                    v-model="formData.group"
+                    class="field-control"
+                    type="text"
+                    list="host-group-suggestions"
+                    placeholder="例如：生产环境、测试环境"
+                />
+                <datalist id="host-group-suggestions">
+                  <option v-for="g in existingGroups" :key="g" :value="g" />
+                </datalist>
               </div>
             </div>
 

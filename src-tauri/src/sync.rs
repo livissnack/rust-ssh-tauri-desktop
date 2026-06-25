@@ -1,5 +1,5 @@
 use crate::redis_manager::RedisConfig;
-use crate::security::{decrypt_secret, encrypt_secret, encrypt_with_key, decrypt_with_key};
+use crate::security::{decrypt_secret, encrypt_secret, encrypt_with_key, decrypt_with_key, is_sync_master_key_mismatch, sync_decrypt_error_message};
 use crate::{
     AiConfig, AppState, QuickCommand, ServerConfig, AI_CONFIG_TABLE, COMMANDS_TABLE,
     REDIS_CONN_TABLE, SERVERS_TABLE, SYNC_CONFIG_TABLE,
@@ -463,10 +463,19 @@ async fn sync_to_cloud_internal(state: &AppState, config: SyncConfig) -> Result<
     let device_id = ensure_device_id(&mut local_meta);
     let _ = write_local_sync_meta(&state.db, &local_meta);
 
+    let mut skipped_merge_due_to_key = false;
+
     if let Some(remote_meta) = fetch_remote_meta(&config).await? {
         if remote_meta.revision > local_meta.local_revision {
-            let _ = sync_from_cloud_internal(state, &config).await?;
-            local_meta = read_local_sync_meta(&state.db).unwrap_or_default();
+            match sync_from_cloud_internal(state, &config).await {
+                Ok(_) => {
+                    local_meta = read_local_sync_meta(&state.db).unwrap_or_default();
+                }
+                Err(e) if is_sync_master_key_mismatch(&e) => {
+                    skipped_merge_due_to_key = true;
+                }
+                Err(e) => return Err(e),
+            }
         }
     }
 
@@ -498,7 +507,14 @@ async fn sync_to_cloud_internal(state: &AppState, config: SyncConfig) -> Result<
     local_meta.device_id = device_id;
     write_local_sync_meta(&state.db, &local_meta)?;
 
-    Ok(format!("已同步到云端 (revision {})", next_revision))
+    if skipped_merge_due_to_key {
+        Ok(format!(
+            "云端备份与当前主密钥不匹配，已跳过合并并覆盖上传 (revision {})",
+            next_revision
+        ))
+    } else {
+        Ok(format!("已同步到云端 (revision {})", next_revision))
+    }
 }
 
 fn emit_sync_error(app: &tauri::AppHandle, phase: &str, message: impl Into<String>) {
@@ -552,8 +568,13 @@ async fn execute_pull_sync(state: &AppState, app: &tauri::AppHandle) -> Result<b
             Ok(changed)
         }
         Err(e) => {
-            emit_sync_error(app, "download", e.clone());
-            Err(e)
+            let msg = if is_sync_master_key_mismatch(&e) {
+                sync_decrypt_error_message().to_string()
+            } else {
+                e
+            };
+            emit_sync_error(app, "download", msg.clone());
+            Err(msg)
         }
     }
 }
@@ -675,7 +696,15 @@ pub async fn sync_from_cloud(
     if config.master_key.is_empty() {
         return Err("Master Key 缺失".into());
     }
-    let changed = sync_from_cloud_internal(state.inner(), &config).await?;
+    let changed = sync_from_cloud_internal(state.inner(), &config)
+        .await
+        .map_err(|e| {
+            if is_sync_master_key_mismatch(&e) {
+                sync_decrypt_error_message().to_string()
+            } else {
+                e
+            }
+        })?;
     if changed {
         let _ = app_handle.emit("database-changed", "manual-sync");
     }

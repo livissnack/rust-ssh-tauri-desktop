@@ -7,6 +7,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import "@xterm/xterm/css/xterm.css";
 import {invoke} from "@tauri-apps/api/core";
 import { homeDir } from '@tauri-apps/api/path';
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import {listen, UnlistenFn} from "@tauri-apps/api/event";
 import {toast} from './utils/toast.ts';
 import {confirm} from './utils/confirm.ts';
@@ -21,6 +22,7 @@ import WorkspaceHeader from "./components/WorkspaceHeader.vue";
 import StatusBar from "./components/StatusBar.vue";
 import TitleBar from "./components/TitleBar.vue";
 import ServerModal from "./components/ServerModal.vue";
+import SftpFileDialog, { type SftpFileDetail } from "./components/SftpFileDialog.vue";
 
 const QuickCommandPanel = defineAsyncComponent(() => import("./components/QuickCommandPanel.vue"));
 const AiAssistantPanel = defineAsyncComponent(() => import("./components/AiAssistantPanel.vue"));
@@ -74,12 +76,14 @@ let unlisten: UnlistenFn | null = null;
 let unlistenClosed: UnlistenFn | null = null;
 let unlistenTransfer: UnlistenFn | null = null;
 let unlistenSync: UnlistenFn | null = null;
+let unlistenDragDrop: UnlistenFn | null = null;
+let internalDragPayload: { source: 'local' | 'remote'; file: any } | null = null;
 const transferTasks = ref<any[]>([]);
 
 const rightPanelType = ref<'quick' | 'ai' | 'redis' | 'history' | 'sync-settings'>('quick');
 
 const localPath = ref("");
-const remotePath = ref("/");
+const remotePath = ref("/root");
 const localFiles = ref<any[]>([]);
 const remoteFiles = ref<any[]>([]);
 const isDraggingOverLocal = ref(false);
@@ -89,6 +93,27 @@ const menuVisible = ref(false);
 const menuPos = ref({x: 0, y: 0});
 const contextFile = ref<any>(null);
 const contextSource = ref<'local' | 'remote' | null>(null);
+const contextTarget = ref<'file' | 'pane'>('file');
+
+interface SftpClipboardItem {
+  source: 'local' | 'remote';
+  path: string;
+  name: string;
+  isDir: boolean;
+  mode: 'copy' | 'cut';
+}
+
+const sftpClipboard = ref<SftpClipboardItem | null>(null);
+
+type SftpMenuAction =
+  | 'copy' | 'cut' | 'paste' | 'copyPath' | 'refresh' | 'newFile' | 'newFolder'
+  | 'transfer' | 'info' | 'openExplorer' | 'rename' | 'chmod' | 'delete';
+
+const sftpDialogVisible = ref(false);
+const sftpDialogMode = ref<'info' | 'rename' | 'chmod' | 'createFile' | 'createFolder'>('info');
+const sftpDialogLoading = ref(false);
+const sftpDialogDetail = ref<SftpFileDetail | null>(null);
+const sftpDialogInput = ref('');
 
 const newHost = ref({
   id: "", name: "", host: "", username: "root", port: 22,
@@ -123,21 +148,22 @@ const handleToggle = (type: any) => {
 
 const toggleRightPanel = throttle(handleToggle, 300);
 
-const handleContextMenu = (e: MouseEvent, file: any, source: 'local' | 'remote') => {
-  e.preventDefault();
-  if (file.name === '..') return;
-  contextFile.value = file;
+const canPaste = computed(() => {
+  if (!contextSource.value || !sftpClipboard.value) return false;
+  return sftpClipboard.value.source === contextSource.value;
+});
+
+const openContextMenu = (e: MouseEvent, source: 'local' | 'remote', target: 'file' | 'pane') => {
+  contextTarget.value = target;
   contextSource.value = source;
   menuVisible.value = true;
-  const menuWidth = 160;
-  const menuHeight = 100;
+  const menuWidth = 210;
+  const menuHeight = target === 'pane' ? 180 : 420;
   let x = e.clientX;
   let y = e.clientY;
-
   if (x + menuWidth > window.innerWidth) x -= menuWidth;
   if (y + menuHeight > window.innerHeight) y -= menuHeight;
-
-  menuPos.value = { x, y };
+  menuPos.value = {x, y};
 
   const closeMenu = () => {
     menuVisible.value = false;
@@ -148,15 +174,311 @@ const handleContextMenu = (e: MouseEvent, file: any, source: 'local' | 'remote')
   }, 10);
 };
 
-const handleMenuAction = async (action: 'transfer' | 'delete') => {
-  if (!contextFile.value || !contextSource.value) return;
-  const file = contextFile.value;
+const handleContextMenu = (e: MouseEvent, file: any, source: 'local' | 'remote') => {
+  e.preventDefault();
+  e.stopPropagation();
+  if (file.name === '..') return;
+  contextFile.value = file;
+  openContextMenu(e, source, 'file');
+};
+
+const handlePaneContextMenu = (e: MouseEvent, source: 'local' | 'remote') => {
+  e.preventDefault();
+  contextFile.value = null;
+  openContextMenu(e, source, 'pane');
+};
+
+const joinLocalPath = (base: string, name: string) => {
+  const normalized = base.replace(/[/\\]$/, '');
+  const sep = normalized.includes('\\') || /^[A-Za-z]:/.test(normalized) ? '\\' : '/';
+  if (normalized.endsWith(':')) return `${normalized}\\${name}`;
+  return `${normalized}${sep}${name}`;
+};
+
+const joinRemotePath = (base: string, name: string) => {
+  const normalized = base.replace(/\/$/, '');
+  return normalized ? `${normalized}/${name}` : `/${name}`;
+};
+
+const getContextFilePath = (source: 'local' | 'remote', file: any) => {
+  if (source === 'local') return joinLocalPath(localPath.value, file.name);
+  return joinRemotePath(remotePath.value, file.name);
+};
+
+const getPaneBasePath = (source: 'local' | 'remote') =>
+  source === 'local' ? localPath.value : remotePath.value.replace(/\/$/, '') || '/';
+
+const buildPathInPane = (source: 'local' | 'remote', name: string) =>
+  source === 'local' ? joinLocalPath(localPath.value, name) : joinRemotePath(remotePath.value, name);
+
+const copyTextToClipboard = async (text: string) => {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast.success('路径已复制到剪贴板');
+  } catch {
+    toast.error('复制到剪贴板失败');
+  }
+};
+
+const pasteClipboard = async (source: 'local' | 'remote') => {
+  const item = sftpClipboard.value;
+  if (!item || item.source !== source) {
+    toast.warning('当前面板没有可粘贴的内容');
+    return;
+  }
+
+  const destPath = buildPathInPane(source, item.name);
+  if (destPath === item.path) {
+    if (item.mode === 'cut') {
+      sftpClipboard.value = null;
+    } else {
+      toast.warning('不能复制到相同路径');
+    }
+    return;
+  }
+
+  try {
+    if (item.mode === 'cut') {
+      if (source === 'local') {
+        await invoke('move_local_path', {src: item.path, dest: destPath, isDir: item.isDir});
+        await refreshLocalFiles();
+      } else {
+        await invoke('move_remote_path', {
+          sessionId: activeSessionId.value,
+          src: item.path,
+          dest: destPath,
+        });
+        await refreshRemoteFiles();
+      }
+      sftpClipboard.value = null;
+      toast.success('移动成功');
+    } else {
+      if (source === 'local') {
+        await invoke('copy_local_path', {src: item.path, dest: destPath});
+        await refreshLocalFiles();
+      } else {
+        await invoke('copy_remote_path', {
+          sessionId: activeSessionId.value,
+          src: item.path,
+          dest: destPath,
+        });
+        await refreshRemoteFiles();
+      }
+      toast.success('粘贴成功');
+    }
+  } catch (err) {
+    toast.error(`粘贴失败: ${err}`);
+  }
+};
+
+const loadFileDetail = async (source: 'local' | 'remote', file: any): Promise<SftpFileDetail> => {
+  const path = getContextFilePath(source, file);
+  if (source === 'local') {
+    return await invoke('get_local_file_info', {path});
+  }
+  return await invoke('get_remote_file_info', {sessionId: activeSessionId.value, path});
+};
+
+const openSftpDialog = (
+  mode: 'info' | 'rename' | 'chmod' | 'createFile' | 'createFolder',
+  source: 'local' | 'remote',
+  file: any | null,
+  inputValue = ''
+) => {
+  sftpDialogMode.value = mode;
+  sftpDialogInput.value = inputValue;
+  sftpDialogDetail.value = file
+    ? {
+        path: getContextFilePath(source, file),
+        name: file.name,
+        isDir: file.is_dir,
+        size: file.size ?? 0,
+      }
+    : {
+        path: getPaneBasePath(source),
+        name: '',
+        isDir: mode === 'createFolder',
+        size: 0,
+      };
+  sftpDialogVisible.value = true;
+};
+
+const closeSftpDialog = () => {
+  sftpDialogVisible.value = false;
+  sftpDialogLoading.value = false;
+};
+
+const handleSftpDialogConfirm = async (value: string) => {
+  if (!contextSource.value) return;
   const source = contextSource.value;
+  const file = contextFile.value;
+
+  if (sftpDialogMode.value === 'createFile' || sftpDialogMode.value === 'createFolder') {
+    const name = value.trim();
+    if (!name) return;
+    if (/[\\/:*?"<>|]/.test(name)) {
+      toast.error('名称包含非法字符');
+      return;
+    }
+    const path = buildPathInPane(source, name);
+    const isDir = sftpDialogMode.value === 'createFolder';
+    try {
+      if (source === 'local') {
+        await invoke('create_local_path', {path, isDir});
+        await refreshLocalFiles();
+      } else {
+        await invoke('create_remote_path', {
+          sessionId: activeSessionId.value,
+          path,
+          isDir,
+        });
+        await refreshRemoteFiles();
+      }
+      toast.success(isDir ? '文件夹已创建' : '文件已创建');
+      closeSftpDialog();
+    } catch (err) {
+      toast.error(`创建失败: ${err}`);
+    }
+    return;
+  }
+
+  if (!file) return;
+  const oldPath = getContextFilePath(source, file);
+
+  if (sftpDialogMode.value === 'rename') {
+    const newName = value.trim();
+    if (!newName || newName === file.name) {
+      closeSftpDialog();
+      return;
+    }
+    if (/[\\/:*?"<>|]/.test(newName)) {
+      toast.error('文件名包含非法字符');
+      return;
+    }
+    try {
+      if (source === 'local') {
+        await invoke('rename_local_file', {
+          oldPath,
+          newPath: joinLocalPath(localPath.value, newName),
+        });
+        await refreshLocalFiles();
+      } else {
+        await invoke('rename_remote_file', {
+          sessionId: activeSessionId.value,
+          oldPath,
+          newPath: joinRemotePath(remotePath.value, newName),
+        });
+        await refreshRemoteFiles();
+      }
+      toast.success('重命名成功');
+      closeSftpDialog();
+    } catch (err) {
+      toast.error(`重命名失败: ${err}`);
+    }
+    return;
+  }
+
+  if (sftpDialogMode.value === 'chmod' && source === 'remote') {
+    try {
+      await invoke('set_remote_file_permissions', {
+        sessionId: activeSessionId.value,
+        path: oldPath,
+        mode: value.trim(),
+      });
+      await refreshRemoteFiles();
+      toast.success('权限已更新');
+      closeSftpDialog();
+    } catch (err) {
+      toast.error(`修改权限失败: ${err}`);
+    }
+  }
+};
+
+const handleMenuAction = async (action: SftpMenuAction) => {
+  if (!contextSource.value) return;
+  const source = contextSource.value;
+  const file = contextFile.value;
   menuVisible.value = false;
 
-  if (action === 'transfer') {
+  if (action === 'refresh') {
+    if (source === 'local') await refreshLocalFiles();
+    else await refreshRemoteFiles();
+    return;
+  }
+
+  if (action === 'paste') {
+    await pasteClipboard(source);
+    return;
+  }
+
+  if (action === 'newFile') {
+    openSftpDialog('createFile', source, null, '新建文件.txt');
+    return;
+  }
+
+  if (action === 'newFolder') {
+    openSftpDialog('createFolder', source, null, '新建文件夹');
+    return;
+  }
+
+  if (contextTarget.value === 'pane') return;
+  if (!file) return;
+
+  if (action === 'copy') {
+    sftpClipboard.value = {
+      source,
+      path: getContextFilePath(source, file),
+      name: file.name,
+      isDir: file.is_dir,
+      mode: 'copy',
+    };
+    toast.info('已复制');
+  } else if (action === 'cut') {
+    sftpClipboard.value = {
+      source,
+      path: getContextFilePath(source, file),
+      name: file.name,
+      isDir: file.is_dir,
+      mode: 'cut',
+    };
+    toast.info('已剪切');
+  } else if (action === 'copyPath') {
+    await copyTextToClipboard(getContextFilePath(source, file));
+  } else if (action === 'transfer') {
     const type = source === 'local' ? 'upload' : 'download';
     await startTransfer(type, file);
+  } else if (action === 'info') {
+    openSftpDialog('info', source, file);
+    sftpDialogLoading.value = true;
+    try {
+      sftpDialogDetail.value = await loadFileDetail(source, file);
+    } catch (err) {
+      closeSftpDialog();
+      toast.error(`获取文件信息失败: ${err}`);
+    } finally {
+      sftpDialogLoading.value = false;
+    }
+  } else if (action === 'openExplorer') {
+    try {
+      await invoke('reveal_in_file_manager', {path: getContextFilePath('local', file)});
+    } catch (err) {
+      toast.error(`打开资源管理器失败: ${err}`);
+    }
+  } else if (action === 'rename') {
+    openSftpDialog('rename', source, file, file.name);
+  } else if (action === 'chmod') {
+    openSftpDialog('chmod', source, file);
+    sftpDialogLoading.value = true;
+    try {
+      const detail = await loadFileDetail('remote', file);
+      sftpDialogDetail.value = detail;
+      sftpDialogInput.value = detail.permissions || '644';
+    } catch (err) {
+      closeSftpDialog();
+      toast.error(`获取权限失败: ${err}`);
+    } finally {
+      sftpDialogLoading.value = false;
+    }
   } else if (action === 'delete') {
     const ok = await confirm.error(
         `确定要永久删除${source === 'local' ? '本地' : '远程'}文件 "${file.name}" 吗？`,
@@ -166,11 +488,14 @@ const handleMenuAction = async (action: 'transfer' | 'delete') => {
     if (ok) {
       try {
         if (source === 'remote') {
-          const path = `${remotePath.value.replace(/\/$/, '')}/${file.name}`;
+          const path = joinRemotePath(remotePath.value, file.name);
           await invoke("delete_remote_file", {sessionId: activeSessionId.value, path, isDir: file.is_dir});
           await refreshRemoteFiles();
         } else {
-          toast.info("本地删除功能待对接");
+          const path = getContextFilePath('local', file);
+          await invoke("delete_local_file", {path, isDir: file.is_dir});
+          await refreshLocalFiles();
+          toast.success("删除成功");
         }
       } catch (err) {
         toast.error(`删除失败: ${err}`);
@@ -179,11 +504,42 @@ const handleMenuAction = async (action: 'transfer' | 'delete') => {
   }
 };
 
+const getSftpDropPaneAtLogicalPoint = (x: number, y: number): 'local' | 'remote' | null => {
+  const remoteEl = document.querySelector('.sftp-manager .remote-pane .file-list');
+  const localEl = document.querySelector('.sftp-manager .local-pane .file-list');
+  if (remoteEl) {
+    const r = remoteEl.getBoundingClientRect();
+    if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return 'remote';
+  }
+  if (localEl) {
+    const r = localEl.getBoundingClientRect();
+    if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return 'local';
+  }
+  return null;
+};
+
+const getSftpDropPaneAtPhysicalPoint = (physicalX: number, physicalY: number): 'local' | 'remote' | null => {
+  const scale = window.devicePixelRatio || 1;
+  return getSftpDropPaneAtLogicalPoint(physicalX / scale, physicalY / scale);
+};
+
+const clearDragOverHighlight = () => {
+  isDraggingOverLocal.value = false;
+  isDraggingOverRemote.value = false;
+};
+
+const updateDragOverHighlightFromPhysicalPoint = (physicalX: number, physicalY: number) => {
+  const pane = getSftpDropPaneAtPhysicalPoint(physicalX, physicalY);
+  isDraggingOverLocal.value = pane === 'local';
+  isDraggingOverRemote.value = pane === 'remote';
+};
+
 const onDragStart = (e: DragEvent, file: any, source: 'local' | 'remote') => {
   if (file.name === '..') {
     e.preventDefault();
     return;
   }
+  internalDragPayload = {source, file};
   if (e.dataTransfer) {
     e.dataTransfer.effectAllowed = "copy";
     const payload = JSON.stringify({source, file});
@@ -217,8 +573,7 @@ const handleDragLeave = (e: DragEvent, type: 'local' | 'remote') => {
 
 const handleDrop = async (e: DragEvent, targetType: 'local' | 'remote') => {
   e.preventDefault();
-  isDraggingOverLocal.value = false;
-  isDraggingOverRemote.value = false;
+  clearDragOverHighlight();
 
   const rawData = e.dataTransfer?.getData("text/plain");
   if (!rawData) return;
@@ -233,6 +588,66 @@ const handleDrop = async (e: DragEvent, targetType: 'local' | 'remote') => {
   } catch (err) {
     console.error("Drop Error:", err);
   }
+};
+
+const finishInternalDrag = async (e: DragEvent) => {
+  const payload = internalDragPayload;
+  internalDragPayload = null;
+  if (!payload || currentViewMode.value !== 'sftp' || !activeSessionId.value) {
+    clearDragOverHighlight();
+    return;
+  }
+
+  const targetPane = getSftpDropPaneAtLogicalPoint(e.clientX, e.clientY);
+  try {
+    if (payload.source === 'local' && targetPane === 'remote') {
+      await startTransfer('upload', payload.file);
+    } else if (payload.source === 'remote' && targetPane === 'local') {
+      await startTransfer('download', payload.file);
+    }
+  } finally {
+    clearDragOverHighlight();
+  }
+};
+
+const handleOsFileDrop = async (paths: string[], pane: 'local' | 'remote') => {
+  if (!activeSessionId.value || currentViewMode.value !== 'sftp') return;
+
+  if (pane !== 'remote') {
+    toast.error('请拖放到右侧远程面板以上传文件');
+    return;
+  }
+
+  const remoteBase = remotePath.value.replace(/\/$/, '');
+  for (const filePath of paths) {
+    const name = filePath.split(/[/\\]/).pop();
+    if (!name) continue;
+    await startTransferFromPath('upload', {
+      localPath: filePath,
+      remotePath: `${remoteBase}/${name}`,
+      name,
+    });
+  }
+};
+
+const setupNativeDragDrop = async () => {
+  unlistenDragDrop = await getCurrentWebview().onDragDropEvent((event) => {
+    const payload = event.payload;
+    if (currentViewMode.value !== 'sftp') return;
+
+    if (payload.type === 'enter' || payload.type === 'over') {
+      updateDragOverHighlightFromPhysicalPoint(payload.position.x, payload.position.y);
+    } else if (payload.type === 'leave') {
+      clearDragOverHighlight();
+    } else if (payload.type === 'drop') {
+      clearDragOverHighlight();
+      if (!activeSessionId.value || !payload.paths?.length) return;
+      const pane = getSftpDropPaneAtPhysicalPoint(payload.position.x, payload.position.y);
+      if (pane) {
+        void handleOsFileDrop(payload.paths, pane);
+      }
+    }
+  });
 };
 
 const handleFileDblClick = async (file: any, type: 'local' | 'remote') => {
@@ -276,21 +691,18 @@ const handleFileDblClick = async (file: any, type: 'local' | 'remote') => {
   }
 };
 
-const startTransfer = async (type: 'upload' | 'download', file: any) => {
-  if (file.is_dir || file.name === '..') {
-    toast.error(`暂不支持${type === 'upload' ? '上传' : '下载'}文件夹，请先压缩后再操作`);
-    return;
-  }
+const startTransferFromPath = async (
+  type: 'upload' | 'download',
+  opts: { localPath: string; remotePath: string; name: string }
+) => {
+  const {localPath: localFilePath, remotePath: remoteFilePath, name} = opts;
   const taskId = Math.random().toString(36).substring(7);
-  const sourcePath = type === 'upload' ? `${localPath.value.replace(/[/\\]$/, '')}/${file.name}` : `${remotePath.value.replace(/\/$/, '')}/${file.name}`;
-  const targetPath = type === 'upload' ? `${remotePath.value.replace(/\/$/, '')}/${file.name}` : `${localPath.value.replace(/[/\\]$/, '')}/${file.name}`;
-
-  transferTasks.value.push({id: taskId, name: file.name, progress: 0, type, status: 'transferring'});
+  transferTasks.value.push({id: taskId, name, progress: 0, type, status: 'transferring'});
   try {
     await invoke(type === 'upload' ? "sftp_upload" : "sftp_download", {
       sessionId: activeSessionId.value,
-      localPath: type === 'upload' ? sourcePath : targetPath,
-      remotePath: type === 'upload' ? targetPath : sourcePath,
+      localPath: localFilePath,
+      remotePath: remoteFilePath,
       taskId
     });
     const task = transferTasks.value.find(t => t.id === taskId);
@@ -308,6 +720,22 @@ const startTransfer = async (type: 'upload' | 'download', file: any) => {
     if (task) task.status = 'error';
     toast.error(`传输失败: ${err}`);
   }
+};
+
+const startTransfer = async (type: 'upload' | 'download', file: any) => {
+  if (file.is_dir || file.name === '..') {
+    toast.error(`暂不支持${type === 'upload' ? '上传' : '下载'}文件夹，请先压缩后再操作`);
+    return;
+  }
+  const localBase = localPath.value.replace(/[/\\]$/, '');
+  const remoteBase = remotePath.value.replace(/\/$/, '');
+  const localFilePath = `${localBase}/${file.name}`;
+  const remoteFilePath = `${remoteBase}/${file.name}`;
+  await startTransferFromPath(type, {
+    localPath: localFilePath,
+    remotePath: remoteFilePath,
+    name: file.name,
+  });
 };
 
 const connectToServer = async () => {
@@ -864,6 +1292,8 @@ onMounted(async () => {
   applyTheme(themeId);
   initLocalRootPath()
   window.addEventListener("resize", handleResize);
+  window.addEventListener("dragend", finishInternalDrag);
+  await setupNativeDragDrop();
   const saved = localStorage.getItem('right-panel-width');
   if (saved) panelWidth.value = parseInt(saved);
   loadServers();
@@ -888,9 +1318,11 @@ onMounted(async () => {
   });
 
   await listen("sync-error", (event) => {
-    const msg = event.payload as string;
-    console.log(msg, 'lll----')
-    toast.error('自动同步失败');
+    const payload = event.payload as { phase?: string; message?: string } | string;
+    const message = typeof payload === "string"
+      ? payload
+      : payload.message || "同步失败";
+    toast.error(message, typeof payload === "object" ? payload.phase : "同步");
   });
 
   unlistenSync = await listen("sync-status", (event) => {
@@ -911,10 +1343,12 @@ onUnmounted(async () => {
   });
   terminalMap.clear();
   window.removeEventListener("resize", handleResize);
+  window.removeEventListener("dragend", finishInternalDrag);
   if (unlisten) unlisten();
   if (unlistenClosed) unlistenClosed();
   if (unlistenTransfer) unlistenTransfer();
   if (unlistenSync) unlistenSync();
+  if (unlistenDragDrop) unlistenDragDrop();
 });
 </script>
 
@@ -993,6 +1427,7 @@ onUnmounted(async () => {
                 </div>
                 <div class="file-list"
                      :class="{ 'drag-over': isDraggingOverLocal }"
+                     @contextmenu="handlePaneContextMenu($event, 'local')"
                      @dragover="handleDragOver"
                      @dragenter="handleDragEnter($event, 'local')"
                      @dragleave="handleDragLeave($event, 'local')"
@@ -1024,6 +1459,7 @@ onUnmounted(async () => {
                 </div>
                 <div class="file-list"
                      :class="{ 'drag-over': isDraggingOverRemote }"
+                     @contextmenu="handlePaneContextMenu($event, 'remote')"
                      @dragover="handleDragOver"
                      @dragenter="handleDragEnter($event, 'remote')"
                      @dragleave="handleDragLeave($event, 'remote')"
@@ -1163,22 +1599,104 @@ onUnmounted(async () => {
     <ServerModal :is-open="isModalOpen" :is-editing="isEditing" :server="newHost" :servers="servers" @close="closeModal"
                  @save="saveHost"/>
 
+    <SftpFileDialog
+      :visible="sftpDialogVisible"
+      :mode="sftpDialogMode"
+      :source="contextSource || 'local'"
+      :loading="sftpDialogLoading"
+      :detail="sftpDialogDetail"
+      :input-value="sftpDialogInput"
+      @close="closeSftpDialog"
+      @confirm="handleSftpDialogConfirm"
+    />
+
     <Transition name="menu-scale">
       <div v-if="menuVisible" class="context-menu" :style="{ top: menuPos.y + 'px', left: menuPos.x + 'px' }"
            @click.stop>
-        <div class="menu-item" @click="handleMenuAction('transfer')">
-          <i class="fas" :class="contextSource === 'local' ? 'fa-cloud-upload-alt' : 'fa-cloud-download-alt'"></i>
-          <span class="menu-text">
-        {{ contextSource === 'local' ? '上传到远程' : '下载到本地' }}
-      </span>
-        </div>
+        <template v-if="contextTarget === 'pane'">
+          <div class="menu-item" @click="handleMenuAction('newFile')">
+            <i class="fas fa-file-medical"></i>
+            <span class="menu-text">新建文件</span>
+          </div>
+          <div class="menu-item" @click="handleMenuAction('newFolder')">
+            <i class="fas fa-folder-plus"></i>
+            <span class="menu-text">新建文件夹</span>
+          </div>
+          <div class="menu-divider"></div>
+          <div class="menu-item" :class="{ disabled: !canPaste }" @click="handleMenuAction('paste')">
+            <i class="fas fa-paste"></i>
+            <span class="menu-text">粘贴</span>
+          </div>
+          <div class="menu-divider"></div>
+          <div class="menu-item" @click="handleMenuAction('refresh')">
+            <i class="fas fa-rotate-right"></i>
+            <span class="menu-text">刷新</span>
+          </div>
+        </template>
 
-        <div class="menu-divider"></div>
+        <template v-else>
+          <div class="menu-item" @click="handleMenuAction('copy')">
+            <i class="fas fa-copy"></i>
+            <span class="menu-text">复制</span>
+          </div>
+          <div class="menu-item" @click="handleMenuAction('cut')">
+            <i class="fas fa-scissors"></i>
+            <span class="menu-text">剪切</span>
+          </div>
+          <div class="menu-item" :class="{ disabled: !canPaste }" @click="handleMenuAction('paste')">
+            <i class="fas fa-paste"></i>
+            <span class="menu-text">粘贴</span>
+          </div>
+          <div class="menu-item" @click="handleMenuAction('copyPath')">
+            <i class="fas fa-link"></i>
+            <span class="menu-text">复制路径</span>
+          </div>
 
-        <div class="menu-item danger" @click="handleMenuAction('delete')">
-          <i class="fas fa-trash-alt"></i>
-          <span class="menu-text">删除文件</span>
-        </div>
+          <div class="menu-divider"></div>
+
+          <div class="menu-item" @click="handleMenuAction('transfer')">
+            <i class="fas" :class="contextSource === 'local' ? 'fa-cloud-upload-alt' : 'fa-cloud-download-alt'"></i>
+            <span class="menu-text">
+              {{ contextSource === 'local' ? '上传到远程' : '下载到本地' }}
+            </span>
+          </div>
+
+          <div class="menu-divider"></div>
+
+          <div class="menu-item" @click="handleMenuAction('info')">
+            <i class="fas fa-circle-info"></i>
+            <span class="menu-text">文件信息</span>
+          </div>
+
+          <div v-if="contextSource === 'local'" class="menu-item" @click="handleMenuAction('openExplorer')">
+            <i class="fas fa-folder-open"></i>
+            <span class="menu-text">在资源管理器中打开</span>
+          </div>
+
+          <div class="menu-item" @click="handleMenuAction('rename')">
+            <i class="fas fa-pen"></i>
+            <span class="menu-text">重命名</span>
+          </div>
+
+          <div v-if="contextSource === 'remote'" class="menu-item" @click="handleMenuAction('chmod')">
+            <i class="fas fa-key"></i>
+            <span class="menu-text">修改权限</span>
+          </div>
+
+          <div class="menu-divider"></div>
+
+          <div class="menu-item" @click="handleMenuAction('refresh')">
+            <i class="fas fa-rotate-right"></i>
+            <span class="menu-text">刷新</span>
+          </div>
+
+          <div class="menu-divider"></div>
+
+          <div class="menu-item danger" @click="handleMenuAction('delete')">
+            <i class="fas fa-trash-alt"></i>
+            <span class="menu-text">删除</span>
+          </div>
+        </template>
       </div>
     </Transition>
 

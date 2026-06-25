@@ -1,4 +1,4 @@
-use crate::sync::{trigger_auto_sync};
+use crate::sync::schedule_push_sync;
 use crate::security::{encrypt_secret, decrypt_secret};
 use redis::{AsyncCommands, Client};
 use serde::{Deserialize, Serialize};
@@ -209,6 +209,12 @@ pub async fn save_redis_config(
     }
     let id = config.id.as_ref().unwrap().clone();
 
+    config.updated_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    config.deleted = false;
+
     if !config.host.is_empty() {
         config.host = encrypt_secret(&config.host)?;
     }
@@ -226,7 +232,7 @@ pub async fn save_redis_config(
         table.insert(id.as_str(), json.as_str()).map_err(|e| e.to_string())?;
     }
     write_txn.commit().map_err(|e| e.to_string())?;
-    trigger_auto_sync(state.inner(), app_handle.clone()).await;
+    schedule_push_sync(state.inner(), app_handle.clone()).await;
     Ok(config)
 }
 
@@ -242,6 +248,9 @@ pub async fn get_redis_configs(state: State<'_, AppState>) -> Result<Vec<RedisCo
         if let Ok((_key, value)) = result {
             match serde_json::from_str::<RedisConfig>(value.value()) {
                 Ok(mut config) => {
+                    if config.deleted {
+                        continue;
+                    }
                     if !config.host.is_empty() {
                         config.host = decrypt_secret(&config.host)
                             .unwrap_or_else(|_| "DECRYPT_ERROR".into());
@@ -266,10 +275,24 @@ pub async fn delete_redis_config(app_handle: tauri::AppHandle, state: State<'_, 
     let write_txn = state.db.begin_write().map_err(|e| e.to_string())?;
     {
         let mut table = write_txn.open_table(REDIS_CONN_TABLE).map_err(|e| e.to_string())?;
-        table.remove(id.as_str()).map_err(|e| e.to_string())?;
+        let existing = table
+            .get(id.as_str())
+            .map_err(|e| e.to_string())?
+            .map(|v| v.value().to_string());
+
+        if let Some(json_str) = existing {
+            let mut config: RedisConfig = serde_json::from_str(&json_str).map_err(|e| e.to_string())?;
+            config.deleted = true;
+            config.updated_at = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
+            let json = serde_json::to_string(&config).map_err(|e| e.to_string())?;
+            table.insert(id.as_str(), json.as_str()).map_err(|e| e.to_string())?;
+        }
     }
     write_txn.commit().map_err(|e| e.to_string())?;
-    trigger_auto_sync(state.inner(), app_handle).await;
+    schedule_push_sync(state.inner(), app_handle).await;
     Ok(())
 }
 

@@ -596,8 +596,10 @@
   border-radius: 10px; // 圆角
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
   padding: 6px;
-  min-width: 170px;
-  overflow: hidden;
+  min-width: 196px;
+  max-height: 70vh;
+  overflow-y: auto;
+  overflow-x: hidden;
   will-change: transform, opacity;
 
   .menu-item {
@@ -611,6 +613,12 @@
     cursor: pointer;
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     position: relative;
+
+    &.disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
 
     i {
       font-size: 14px;

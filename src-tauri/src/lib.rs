@@ -8,7 +8,8 @@ use crate::sync::{
     save_sync_settings,
     sync_to_cloud,
     sync_from_cloud,
-    trigger_auto_sync
+    schedule_push_sync,
+    run_startup_pull,
 };
 use security::{encrypt_secret, decrypt_secret};
 use p2p::{set_p2p_remark, start_p2p_node, get_p2p_remarks, search_p2p_messages, get_online_peers};
@@ -27,6 +28,8 @@ use uuid::Uuid;
 use std::future::Future;
 use tokio::time::{timeout};
 use std::fs;
+use std::path::{Path, PathBuf};
+use std::time::UNIX_EPOCH;
 use russh_sftp::client::SftpSession;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use std::time::{Duration, Instant};
@@ -100,6 +103,23 @@ struct FileInfo {
     size: u64,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FileDetail {
+    path: String,
+    name: String,
+    is_dir: bool,
+    size: u64,
+    permissions: Option<String>,
+    permissions_text: Option<String>,
+    modified_at: Option<u64>,
+    accessed_at: Option<u64>,
+    uid: Option<u32>,
+    gid: Option<u32>,
+    user: Option<String>,
+    group: Option<String>,
+}
+
 #[derive(Serialize, Clone)]
 struct ProgressPayload {
     #[serde(rename = "taskId")]
@@ -162,12 +182,29 @@ pub struct ActiveSession {
     pub sftp: Arc<Mutex<Option<SftpSession>>>,
 }
 
+pub struct SyncRuntime {
+    pub debounce_active: bool,
+    pub sync_in_progress: bool,
+    pub pending_push: bool,
+}
+
+impl Default for SyncRuntime {
+    fn default() -> Self {
+        Self {
+            debounce_active: false,
+            sync_in_progress: false,
+            pending_push: false,
+        }
+    }
+}
+
 pub struct AppState {
     pub sessions: Arc<Mutex<HashMap<String, ActiveSession>>>,
     pub local_sessions: LocalSessionMap,
     pub db: Arc<redb::Database>,
     pub cancelled_tasks: Arc<Mutex<HashSet<String>>>,
     pub p2p_sender: mpsc::UnboundedSender<p2p::P2PCommand>,
+    pub sync_runtime: Arc<tokio::sync::Mutex<SyncRuntime>>,
 }
 
 impl Clone for AppState {
@@ -178,6 +215,7 @@ impl Clone for AppState {
             db: self.db.clone(),
             cancelled_tasks: self.cancelled_tasks.clone(),
             p2p_sender: self.p2p_sender.clone(),
+            sync_runtime: self.sync_runtime.clone(),
         }
     }
 }
@@ -355,7 +393,7 @@ async fn update_server_order(
     }
 
     write_txn.commit().map_err(|e| e.to_string())?;
-    trigger_auto_sync(state.inner(), app_handle).await;
+    schedule_push_sync(state.inner(), app_handle).await;
 
     Ok(())
 }
@@ -431,7 +469,7 @@ async fn save_server(app_handle: tauri::AppHandle, state: State<'_, AppState>, m
         Ok(_) => {
             println!("✓ 事务提交成功");
             println!("========== [SAVE_SERVER] 保存完成 ========== {}\n", server.id);
-            trigger_auto_sync(state.inner(), app_handle).await;
+            schedule_push_sync(state.inner(), app_handle).await;
             Ok(server)
         }
         Err(e) => {
@@ -470,7 +508,7 @@ async fn delete_server(app_handle: tauri::AppHandle, state: State<'_, AppState>,
 
     write_txn.commit().map_err(|e| e.to_string())?;
 
-    trigger_auto_sync(state.inner(), app_handle).await;
+    schedule_push_sync(state.inner(), app_handle).await;
 
     Ok(())
 }
@@ -759,6 +797,437 @@ async fn list_local_dir(path: String) -> Result<Vec<FileInfo>, String> {
     Ok(files)
 }
 
+fn format_rwx(mode: u32) -> String {
+    let mode = mode & 0o777;
+    let chars = ["---", "--x", "-w-", "-wx", "r--", "r-x", "rw-", "rwx"];
+    format!(
+        "{}{}{}",
+        chars[((mode >> 6) & 7) as usize],
+        chars[((mode >> 3) & 7) as usize],
+        chars[(mode & 7) as usize]
+    )
+}
+
+fn parse_octal_mode(mode: &str) -> Result<u32, String> {
+    let trimmed = mode.trim();
+    let digits = trimmed.strip_prefix('0').unwrap_or(trimmed);
+    if digits.is_empty() || digits.len() > 4 || !digits.chars().all(|c| c.is_ascii_digit() && c < '8') {
+        return Err("无效的权限格式，请使用八进制数如 755 或 0644".into());
+    }
+    u32::from_str_radix(digits, 8).map_err(|_| "无效的权限格式，请使用八进制数如 755 或 0644".into())
+}
+
+fn file_name_from_path(path: &str) -> String {
+    Path::new(path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(path)
+        .to_string()
+}
+
+fn build_file_detail(
+    path: String,
+    is_dir: bool,
+    size: u64,
+    permissions: Option<u32>,
+    modified_at: Option<u64>,
+    accessed_at: Option<u64>,
+    uid: Option<u32>,
+    gid: Option<u32>,
+    user: Option<String>,
+    group: Option<String>,
+) -> FileDetail {
+    let permissions_text = permissions.map(format_rwx);
+    let permissions = permissions.map(|mode| format!("{:o}", mode & 0o777));
+    FileDetail {
+        name: file_name_from_path(&path),
+        path,
+        is_dir,
+        size,
+        permissions,
+        permissions_text,
+        modified_at,
+        accessed_at,
+        uid,
+        gid,
+        user,
+        group,
+    }
+}
+
+async fn open_sftp_session(state: &AppState, session_id: &str) -> Result<SftpSession, String> {
+    let handle_mutex = {
+        let sessions = state.sessions.lock().await;
+        let sess = sessions.get(session_id).ok_or("Session not found")?;
+        sess.handle.clone()
+    };
+
+    let channel = {
+        let handle = handle_mutex.lock().await;
+        handle
+            .channel_open_session()
+            .await
+            .map_err(|e| e.to_string())?
+    };
+    channel
+        .request_subsystem(true, "sftp")
+        .await
+        .map_err(|e| e.to_string())?;
+
+    SftpSession::new(channel.into_stream())
+        .await
+        .map_err(|e| format!("SFTP 初始化失败: {}", e))
+}
+
+#[tauri::command]
+async fn get_local_file_info(path: String) -> Result<FileDetail, String> {
+    let meta = tokio::fs::metadata(&path).await.map_err(|e| e.to_string())?;
+    let modified_at = meta
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+        .map(|duration| duration.as_secs());
+    let accessed_at = meta
+        .accessed()
+        .ok()
+        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+        .map(|duration| duration.as_secs());
+
+    #[cfg(unix)]
+    let permissions = {
+        use std::os::unix::fs::PermissionsExt;
+        Some(meta.permissions().mode())
+    };
+    #[cfg(not(unix))]
+    let permissions: Option<u32> = None;
+
+    Ok(build_file_detail(
+        path,
+        meta.is_dir(),
+        meta.len(),
+        permissions,
+        modified_at,
+        accessed_at,
+        None,
+        None,
+        None,
+        None,
+    ))
+}
+
+#[tauri::command]
+async fn rename_local_file(old_path: String, new_path: String) -> Result<(), String> {
+    tokio::fs::rename(&old_path, &new_path)
+        .await
+        .map_err(|e| format!("重命名失败: {}", e))
+}
+
+#[tauri::command]
+async fn reveal_in_file_manager(path: String) -> Result<(), String> {
+    let path = PathBuf::from(path);
+    if !path.exists() {
+        return Err("路径不存在".into());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::process::Command;
+        if path.is_dir() {
+            Command::new("explorer")
+                .arg(path.as_os_str())
+                .spawn()
+                .map_err(|e| format!("打开资源管理器失败: {}", e))?;
+        } else {
+            let selected = path
+                .to_str()
+                .ok_or_else(|| "路径包含无效字符".to_string())?;
+            Command::new("explorer")
+                .args(["/select,", selected])
+                .spawn()
+                .map_err(|e| format!("打开资源管理器失败: {}", e))?;
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        use std::process::Command;
+        let path_str = path
+            .to_str()
+            .ok_or_else(|| "路径包含无效字符".to_string())?;
+        if path.is_file() {
+            Command::new("open")
+                .args(["-R", path_str])
+                .spawn()
+                .map_err(|e| format!("打开 Finder 失败: {}", e))?;
+        } else {
+            Command::new("open")
+                .arg(path_str)
+                .spawn()
+                .map_err(|e| format!("打开 Finder 失败: {}", e))?;
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        use std::process::Command;
+        let target = if path.is_file() {
+            path.parent().unwrap_or(path.as_path())
+        } else {
+            path.as_path()
+        };
+        Command::new("xdg-open")
+            .arg(target)
+            .spawn()
+            .map_err(|e| format!("打开文件管理器失败: {}", e))?;
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+async fn get_remote_file_info(
+    state: State<'_, AppState>,
+    session_id: String,
+    path: String,
+) -> Result<FileDetail, String> {
+    let sftp = open_sftp_session(state.inner(), &session_id).await?;
+    let meta = sftp.metadata(&path).await.map_err(|e| e.to_string())?;
+    Ok(build_file_detail(
+        path,
+        meta.is_dir(),
+        meta.len(),
+        meta.permissions,
+        meta.mtime.map(u64::from),
+        meta.atime.map(u64::from),
+        meta.uid,
+        meta.gid,
+        meta.user,
+        meta.group,
+    ))
+}
+
+#[tauri::command]
+async fn rename_remote_file(
+    state: State<'_, AppState>,
+    session_id: String,
+    old_path: String,
+    new_path: String,
+) -> Result<(), String> {
+    let sftp = open_sftp_session(state.inner(), &session_id).await?;
+    sftp.rename(old_path, new_path)
+        .await
+        .map_err(|e| format!("重命名失败: {}", e))
+}
+
+#[tauri::command]
+async fn set_remote_file_permissions(
+    state: State<'_, AppState>,
+    session_id: String,
+    path: String,
+    mode: String,
+) -> Result<(), String> {
+    let parsed_mode = parse_octal_mode(&mode)?;
+    let sftp = open_sftp_session(state.inner(), &session_id).await?;
+    let mut meta = sftp.metadata(&path).await.map_err(|e| e.to_string())?;
+    let current = meta.permissions.unwrap_or(if meta.is_dir() { 0o040755 } else { 0o100644 });
+    let type_bits = current & !0o777;
+    meta.permissions = Some(type_bits | (parsed_mode & 0o777));
+    sftp.set_metadata(&path, meta)
+        .await
+        .map_err(|e| format!("修改权限失败: {}", e))
+}
+
+#[tauri::command]
+async fn delete_local_file(path: String, is_dir: bool) -> Result<(), String> {
+    if is_dir {
+        tokio::fs::remove_dir(&path)
+            .await
+            .map_err(|e| format!("删除目录失败: {}", e))
+    } else {
+        tokio::fs::remove_file(&path)
+            .await
+            .map_err(|e| format!("删除文件失败: {}", e))
+    }
+}
+
+async fn copy_dir_all(src: &Path, dest: &Path) -> Result<(), String> {
+    tokio::fs::create_dir_all(dest)
+        .await
+        .map_err(|e| format!("创建目录失败: {}", e))?;
+    let mut entries = tokio::fs::read_dir(src)
+        .await
+        .map_err(|e| format!("读取目录失败: {}", e))?;
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let entry_path = entry.path();
+        let dest_path = dest.join(entry.file_name());
+        let file_type = entry
+            .file_type()
+            .await
+            .map_err(|e| format!("读取文件类型失败: {}", e))?;
+        if file_type.is_dir() {
+            Box::pin(copy_dir_all(&entry_path, &dest_path)).await?;
+        } else {
+            tokio::fs::copy(&entry_path, &dest_path)
+                .await
+                .map_err(|e| format!("复制文件失败: {}", e))?;
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn create_local_path(path: String, is_dir: bool) -> Result<(), String> {
+    if Path::new(&path).exists() {
+        return Err("路径已存在".into());
+    }
+    if is_dir {
+        tokio::fs::create_dir(&path)
+            .await
+            .map_err(|e| format!("创建文件夹失败: {}", e))
+    } else {
+        if let Some(parent) = Path::new(&path).parent() {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|e| format!("创建父目录失败: {}", e))?;
+        }
+        tokio::fs::File::create(&path)
+            .await
+            .map_err(|e| format!("创建文件失败: {}", e))?;
+        Ok(())
+    }
+}
+
+#[tauri::command]
+async fn copy_local_path(src: String, dest: String) -> Result<(), String> {
+    let src_path = Path::new(&src);
+    if !src_path.exists() {
+        return Err("源路径不存在".into());
+    }
+    if Path::new(&dest).exists() {
+        return Err("目标已存在".into());
+    }
+    if src_path.is_dir() {
+        copy_dir_all(src_path, Path::new(&dest)).await
+    } else {
+        if let Some(parent) = Path::new(&dest).parent() {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|e| format!("创建父目录失败: {}", e))?;
+        }
+        tokio::fs::copy(&src, &dest)
+            .await
+            .map_err(|e| format!("复制失败: {}", e))?;
+        Ok(())
+    }
+}
+
+#[tauri::command]
+async fn move_local_path(src: String, dest: String, is_dir: bool) -> Result<(), String> {
+    if Path::new(&dest).exists() {
+        return Err("目标已存在".into());
+    }
+    if let Some(parent) = Path::new(&dest).parent() {
+        tokio::fs::create_dir_all(parent)
+            .await
+            .map_err(|e| format!("创建父目录失败: {}", e))?;
+    }
+    match tokio::fs::rename(&src, &dest).await {
+        Ok(_) => Ok(()),
+        Err(_) => {
+            copy_local_path(src.clone(), dest.clone()).await?;
+            if is_dir {
+                tokio::fs::remove_dir_all(&src)
+                    .await
+                    .map_err(|e| format!("移动失败: {}", e))
+            } else {
+                tokio::fs::remove_file(&src)
+                    .await
+                    .map_err(|e| format!("移动失败: {}", e))
+            }
+        }
+    }
+}
+
+async fn copy_remote_file_stream(sftp: &SftpSession, src: &str, dest: &str) -> Result<(), String> {
+    let mut src_file = sftp.open(src).await.map_err(|e| e.to_string())?;
+    let mut dest_file = sftp.create(dest).await.map_err(|e| e.to_string())?;
+    let mut buffer = vec![0u8; 65536];
+    loop {
+        let n = src_file.read(&mut buffer).await.map_err(|e| e.to_string())?;
+        if n == 0 {
+            break;
+        }
+        dest_file
+            .write_all(&buffer[..n])
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+async fn copy_remote_recursive(sftp: &SftpSession, src: &str, dest: &str) -> Result<(), String> {
+    let meta = sftp.metadata(src).await.map_err(|e| e.to_string())?;
+    if meta.is_dir() {
+        sftp.create_dir(dest).await.map_err(|e| e.to_string())?;
+        for entry in sftp.read_dir(src).await.map_err(|e| e.to_string())? {
+            let name = entry.file_name();
+            if name == "." || name == ".." {
+                continue;
+            }
+            let sub_src = format!("{}/{}", src.trim_end_matches('/'), name);
+            let sub_dest = format!("{}/{}", dest.trim_end_matches('/'), name);
+            Box::pin(copy_remote_recursive(sftp, &sub_src, &sub_dest)).await?;
+        }
+    } else {
+        copy_remote_file_stream(sftp, src, dest).await?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn create_remote_path(
+    state: State<'_, AppState>,
+    session_id: String,
+    path: String,
+    is_dir: bool,
+) -> Result<(), String> {
+    let sftp = open_sftp_session(state.inner(), &session_id).await?;
+    if is_dir {
+        sftp.create_dir(&path)
+            .await
+            .map_err(|e| format!("创建文件夹失败: {}", e))
+    } else {
+        sftp.create(&path)
+            .await
+            .map_err(|e| format!("创建文件失败: {}", e))?;
+        Ok(())
+    }
+}
+
+#[tauri::command]
+async fn copy_remote_path(
+    state: State<'_, AppState>,
+    session_id: String,
+    src: String,
+    dest: String,
+) -> Result<(), String> {
+    let sftp = open_sftp_session(state.inner(), &session_id).await?;
+    copy_remote_recursive(&sftp, &src, &dest).await
+}
+
+#[tauri::command]
+async fn move_remote_path(
+    state: State<'_, AppState>,
+    session_id: String,
+    src: String,
+    dest: String,
+) -> Result<(), String> {
+    let sftp = open_sftp_session(state.inner(), &session_id).await?;
+    sftp.rename(src, dest)
+        .await
+        .map_err(|e| format!("移动失败: {}", e))
+}
+
 #[tauri::command]
 async fn list_remote_dir(state: State<'_, AppState>, session_id: String, path: String) -> Result<Vec<FileInfo>, String> {
     let handle_mutex = {
@@ -1001,7 +1470,7 @@ async fn save_quick_command(app_handle: tauri::AppHandle, state: State<'_, AppSt
 
     write_txn.commit().map_err(|e| e.to_string())?;
 
-    trigger_auto_sync(state.inner(), app_handle).await;
+    schedule_push_sync(state.inner(), app_handle).await;
 
     Ok(cmd)
 }
@@ -1035,7 +1504,7 @@ async fn delete_quick_command(app_handle: tauri::AppHandle, state: State<'_, App
     write_txn.commit().map_err(|e| e.to_string())?;
 
     // 异步触发同步逻辑
-    trigger_auto_sync(state.inner(), app_handle).await;
+    schedule_push_sync(state.inner(), app_handle).await;
     Ok(())
 }
 
@@ -1052,7 +1521,7 @@ async fn save_ai_config(app_handle: tauri::AppHandle, state: State<'_, AppState>
     }
     write_txn.commit().map_err(|e| e.to_string())?;
     // 触发同步
-    trigger_auto_sync(state.inner(), app_handle).await;
+    schedule_push_sync(state.inner(), app_handle).await;
     Ok(())
 }
 
@@ -1267,9 +1736,18 @@ pub fn run() {
                 db: db_arc.clone(),
                 cancelled_tasks: Arc::new(Mutex::new(HashSet::new())),
                 p2p_sender: tx,
+                sync_runtime: Arc::new(tokio::sync::Mutex::new(SyncRuntime::default())),
             });
 
            app.manage(shared_p2p_status.clone());
+
+           let handle_for_startup = app.handle().clone();
+           tauri::async_runtime::spawn(async move {
+               tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
+               if let Some(state) = handle_for_startup.try_state::<AppState>() {
+                   run_startup_pull(state.inner(), handle_for_startup.clone()).await;
+               }
+           });
 
            // 💡 4. 启动 P2P 节点，传入 handle 和同一个 status 实例
            let handle_for_p2p = app.handle().clone();
@@ -1351,7 +1829,20 @@ pub fn run() {
             disconnect_ssh,
             write_to_ssh,
             list_local_dir,
+            get_local_file_info,
+            rename_local_file,
+            reveal_in_file_manager,
+            create_local_path,
+            copy_local_path,
+            move_local_path,
+            delete_local_file,
             list_remote_dir,
+            get_remote_file_info,
+            rename_remote_file,
+            set_remote_file_permissions,
+            create_remote_path,
+            copy_remote_path,
+            move_remote_path,
             sftp_upload,
             sftp_download,
             abort_transfer,

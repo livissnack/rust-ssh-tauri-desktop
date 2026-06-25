@@ -34,4 +34,5 @@ export const toast = {
     success: (msg: string, title?: string) => toast.show(msg, 'success', title),
     error: (msg: string, title?: string) => toast.show(msg, 'error', title),
     warning: (msg: string, title?: string) => toast.show(msg, 'warning', title),
+    info: (msg: string, title?: string) => toast.show(msg, 'info', title),
 };

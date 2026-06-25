@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted } from "vue";
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { confirm } from "../utils/confirm";
 import { debounce } from "../utils/async.ts";
@@ -39,6 +39,7 @@ const isReordering = ref(false);
 const menuVisible = ref(false);
 const menuPos = ref({ x: 0, y: 0 });
 const menuTargetId = ref<string | null>(null);
+const menuElRef = ref<HTMLElement | null>(null);
 
 const loadCollapsedGroups = (): Set<string> => {
   try {
@@ -132,12 +133,27 @@ watch(isSearching, (searching) => {
   }
 });
 
+const clampMenuPosition = (anchorX: number, anchorY: number) => {
+  const el = menuElRef.value;
+  if (!el) return;
+  const pad = 8;
+  const { width, height } = el.getBoundingClientRect();
+  let x = anchorX;
+  let y = anchorY;
+  if (x + width > window.innerWidth - pad) x = anchorX - width;
+  if (y + height > window.innerHeight - pad) y = anchorY - height;
+  x = Math.min(Math.max(x, pad), window.innerWidth - width - pad);
+  y = Math.min(Math.max(y, pad), window.innerHeight - height - pad);
+  menuPos.value = { x, y };
+};
+
 const openHostMenu = (e: MouseEvent, serverId: string) => {
   e.preventDefault();
   e.stopPropagation();
   menuTargetId.value = serverId;
   menuPos.value = { x: e.clientX, y: e.clientY };
   menuVisible.value = true;
+  nextTick(() => clampMenuPosition(e.clientX, e.clientY));
 };
 
 const closeHostMenu = () => {
@@ -490,6 +506,7 @@ onUnmounted(() => {
       <Transition name="host-menu">
         <div
           v-if="menuVisible && menuTargetServer"
+          ref="menuElRef"
           class="host-context-menu"
           :style="{ top: `${menuPos.y}px`, left: `${menuPos.x}px` }"
           @contextmenu.prevent

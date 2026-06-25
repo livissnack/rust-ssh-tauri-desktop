@@ -30,6 +30,19 @@ const SyncSettings = defineAsyncComponent(() => import("./components/SyncSetting
 const ThemeSettings = defineAsyncComponent(() => import("./components/ThemeSettings.vue"));
 const RedisManager = defineAsyncComponent(() => import("./components/RedisManager.vue"));
 const ChatPanel = defineAsyncComponent(() => import("./components/ChatPanel.vue"));
+const ApiDebuggerPanel = defineAsyncComponent({
+  loader: () => import("./components/ApiDebuggerPanel.vue"),
+  delay: 0,
+  timeout: 30000,
+  onError(error, retry, fail, attempts) {
+    if (attempts <= 2) {
+      retry();
+      return;
+    }
+    console.error("Failed to load ApiDebuggerPanel:", error);
+    fail();
+  },
+});
 
 const panelMap: Record<string, any> = {
   'quick': QuickCommandPanel,
@@ -38,6 +51,7 @@ const panelMap: Record<string, any> = {
   'sync-settings': SyncSettings,
   'theme-settings': ThemeSettings,
   'chat': ChatPanel,
+  'api': ApiDebuggerPanel,
 };
 
 const rightPanelComponent = computed(() => {
@@ -80,7 +94,7 @@ let unlistenDragDrop: UnlistenFn | null = null;
 let internalDragPayload: { source: 'local' | 'remote'; file: any } | null = null;
 const transferTasks = ref<any[]>([]);
 
-const rightPanelType = ref<'quick' | 'ai' | 'redis' | 'history' | 'sync-settings'>('quick');
+const rightPanelType = ref<'quick' | 'ai' | 'redis' | 'history' | 'sync-settings' | 'theme-settings' | 'chat' | 'api'>('quick');
 
 const localPath = ref("");
 const remotePath = ref("/root");
@@ -143,6 +157,9 @@ const handleToggle = (type: any) => {
   } else {
     rightPanelType.value = type;
     rightPanelVisible.value = true;
+    if (type === 'api' && panelWidth.value < 480) {
+      panelWidth.value = 480;
+    }
   }
 }
 
@@ -1545,6 +1562,13 @@ onUnmounted(async () => {
                 </svg>
               </div>
             </Tooltip>
+            <Tooltip text="API 调试" placement="left">
+              <div class="icon-item"
+                   :class="{ active: rightPanelVisible && rightPanelType === 'api' }"
+                   @click="toggleRightPanel('api')">
+                <i class="fas fa-paper-plane"></i>
+              </div>
+            </Tooltip>
           </div>
           <div class="bottom-group">
             <Tooltip text="局域网聊天" placement="left">
@@ -1583,7 +1607,7 @@ onUnmounted(async () => {
           <div
               v-if="rightPanelVisible"
               class="floating-panel"
-              :class="{ 'is-redis': rightPanelType === 'redis' }"
+              :class="{ 'is-redis': rightPanelType === 'redis', 'is-api': rightPanelType === 'api' }"
               :style="{ width: panelWidth + 'px' }"
           >
             <div class="panel-resizer" @mousedown="startResizing"></div>

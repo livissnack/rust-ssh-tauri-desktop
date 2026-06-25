@@ -3,6 +3,7 @@ mod p2p;
 mod security;
 mod redis_manager;
 mod local_shell;
+mod api_debugger;
 use crate::sync::{
     get_sync_settings,
     save_sync_settings,
@@ -14,6 +15,9 @@ use crate::sync::{
 use security::{encrypt_secret, decrypt_secret};
 use p2p::{set_p2p_remark, start_p2p_node, get_p2p_remarks, search_p2p_messages, get_online_peers};
 use local_shell::{LocalSessionMap, LOCAL_SERVER_ID};
+use api_debugger::{
+    export_api_debugger_file, get_api_debugger_data, import_api_debugger_file, save_api_debugger_data,
+};
 use redis_manager::{redis_connect, redis_get_keys, redis_get_value, redis_set_value, redis_del_key, redis_rename_key, redis_get_ttl, redis_get_type, save_redis_config, get_redis_configs, delete_redis_config, clear_all_redis_configs};
 use tokio::sync::mpsc;
 use russh::*;
@@ -46,6 +50,7 @@ pub const SYNC_CONFIG_TABLE: TableDefinition<&str, &str> = TableDefinition::new(
 pub const REDIS_CONN_TABLE: TableDefinition<&str, &str> = TableDefinition::new("redis_connections");
 pub const P2P_MESSAGES_TABLE: TableDefinition<&str, &str> = TableDefinition::new("p2p_messages");
 pub const P2P_REMARKS_TABLE: TableDefinition<&str, &str> = TableDefinition::new("p2p_remarks");
+pub const API_DEBUGGER_TABLE: TableDefinition<&str, &str> = TableDefinition::new("api_debugger");
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ServerConfig {
@@ -1646,6 +1651,78 @@ async fn ask_ai(
     Ok(())
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HttpRequestPayload {
+    method: String,
+    url: String,
+    headers: HashMap<String, String>,
+    body: Option<String>,
+    timeout_ms: Option<u64>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HttpResponsePayload {
+    status: u16,
+    status_text: String,
+    headers: HashMap<String, String>,
+    body: String,
+    elapsed_ms: u64,
+}
+
+#[tauri::command]
+async fn send_http_request(payload: HttpRequestPayload) -> Result<HttpResponsePayload, String> {
+    let method = reqwest::Method::from_bytes(payload.method.as_bytes())
+        .map_err(|e| format!("无效的 HTTP 方法: {}", e))?;
+
+    let timeout = Duration::from_millis(payload.timeout_ms.unwrap_or(30_000));
+    let client = reqwest::Client::builder()
+        .timeout(timeout)
+        .redirect(reqwest::redirect::Policy::limited(10))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let mut request = client.request(method, &payload.url);
+    for (key, value) in payload.headers {
+        if !key.is_empty() {
+            request = request.header(key, value);
+        }
+    }
+    if let Some(body) = payload.body.filter(|b| !b.is_empty()) {
+        request = request.body(body);
+    }
+
+    let started = Instant::now();
+    let response = request.send().await.map_err(|e| format!("请求失败: {}", e))?;
+    let status = response.status();
+    let headers = response
+        .headers()
+        .iter()
+        .map(|(name, value)| {
+            (
+                name.to_string(),
+                value.to_str().unwrap_or("").to_string(),
+            )
+        })
+        .collect();
+    let body = response
+        .text()
+        .await
+        .map_err(|e| format!("读取响应失败: {}", e))?;
+
+    Ok(HttpResponsePayload {
+        status: status.as_u16(),
+        status_text: status
+            .canonical_reason()
+            .unwrap_or("Unknown")
+            .to_string(),
+        headers,
+        body,
+        elapsed_ms: started.elapsed().as_millis() as u64,
+    })
+}
+
 #[tauri::command]
 async fn send_p2p_message(
     state: tauri::State<'_, AppState>,
@@ -1806,6 +1883,7 @@ pub fn run() {
                         let _ = write_txn.open_table(REDIS_CONN_TABLE).map_err(|e| e.to_string())?;
                         let _ = write_txn.open_table(P2P_MESSAGES_TABLE).map_err(|e| e.to_string())?;
                         let _ = write_txn.open_table(P2P_REMARKS_TABLE).map_err(|e| e.to_string())?;
+                        let _ = write_txn.open_table(API_DEBUGGER_TABLE).map_err(|e| e.to_string())?;
                     }
                     write_txn.commit().map_err(|e| e.to_string())?;
                     Ok(())
@@ -1890,7 +1968,12 @@ pub fn run() {
             set_p2p_remark,
             get_p2p_remarks,
             search_p2p_messages,
-            get_online_peers
+            get_online_peers,
+            send_http_request,
+            get_api_debugger_data,
+            save_api_debugger_data,
+            export_api_debugger_file,
+            import_api_debugger_file
         ])
         .run(tauri::generate_context!())
         .expect("Tauri 运行出错");

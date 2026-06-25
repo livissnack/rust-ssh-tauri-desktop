@@ -31,6 +31,8 @@ const activeServer = computed(() => {
   return props.currentServer ?? null;
 });
 
+const hasActiveHost = computed(() => !!activeServer.value?.name && activeServer.value.name !== 'Select a host');
+
 const displayServerName = computed(() => {
   if (props.isLocalSession && props.activeSessionId) {
     const session = props.openSessions?.find(s => s.id === props.activeSessionId);
@@ -45,6 +47,14 @@ const displayHostMeta = computed(() => {
   const server = activeServer.value;
   if (!server?.host) return null;
   return `${server.username}@${server.host}:${server.port}`;
+});
+
+const headerIconClass = computed(() => {
+  if (props.isLocalSession) return 'fa-laptop-code';
+  if (props.currentViewMode === 'sftp' && props.activeSessionId) {
+    return props.isLocalSession ? 'fa-folder-open' : 'fa-folder-tree';
+  }
+  return 'fa-server';
 });
 
 const statusClass = computed(() => {
@@ -66,11 +76,6 @@ const connectButtonText = computed(() => {
   return 'Connect';
 });
 
-const connectButtonIcon = computed(() => {
-  if (props.isConnecting) return 'fa-circle-notch fa-spin';
-  return 'fa-plug';
-});
-
 const viewModeLabel = computed(() => {
   if (props.currentViewMode === 'sftp') return 'Terminal';
   return props.isLocalSession ? 'Files' : 'SFTP';
@@ -90,111 +95,153 @@ const viewModeTooltip = computed(() => {
 </script>
 
 <template>
-  <header class="workspace-header">
-    <div class="header-left">
-      <div class="header-icon" :class="statusClass">
-        <i class="fas fa-server"></i>
-      </div>
+  <header class="workspace-header" :class="statusClass">
+    <div class="header-accent" aria-hidden="true"></div>
 
-      <div class="header-info">
-        <nav class="breadcrumb" aria-label="Breadcrumb">
-          <span class="breadcrumb__root">Hosts</span>
-          <i class="fas fa-chevron-right breadcrumb__sep" aria-hidden="true"></i>
-          <span class="breadcrumb__current" :class="{ 'is-placeholder': !activeServer }">
-            {{ displayServerName }}
-          </span>
-        </nav>
-
-        <div v-if="displayHostMeta" class="header-meta">
-          <span class="status-badge" :class="statusClass">
-            <span class="status-badge__dot"></span>
-            {{ statusLabel }}
-          </span>
-          <span class="header-meta__address">{{ displayHostMeta }}</span>
+    <div class="header-body">
+      <div class="header-left">
+        <div class="header-icon" :class="[statusClass, { 'is-local': isLocalSession }]">
+          <i class="fas" :class="headerIconClass"></i>
         </div>
-        <p v-else class="header-hint">从侧栏选择主机以建立连接</p>
-      </div>
-    </div>
 
-    <div class="toolbar">
-      <Tooltip :text="viewModeTooltip">
-        <button
+        <div class="header-info">
+          <div class="header-title-row">
+            <span class="header-title" :class="{ 'is-placeholder': !hasActiveHost }">
+              {{ displayServerName }}
+            </span>
+          </div>
+
+          <div v-if="displayHostMeta" class="header-meta">
+            <span class="status-dot" :class="statusClass" aria-hidden="true"></span>
+            <span class="status-text" :class="statusClass">{{ statusLabel }}</span>
+            <span class="meta-sep">·</span>
+            <span class="header-meta__address">{{ displayHostMeta }}</span>
+          </div>
+          <p v-else class="header-hint">Select a host from the sidebar</p>
+        </div>
+      </div>
+
+      <div class="toolbar">
+        <Tooltip :text="viewModeTooltip">
+          <button
             type="button"
-            class="tool-btn tool-btn--mode"
-            :class="{ 'is-sftp': currentViewMode === 'sftp' }"
+            class="mode-toggle"
+            :class="{ 'is-alt': currentViewMode === 'sftp', 'is-disabled': !activeSessionId }"
             :disabled="!activeSessionId"
             @click="emit('toggleViewMode')"
-        >
-          <i class="fas" :class="viewModeIcon"></i>
-          <span>{{ viewModeLabel }}</span>
-        </button>
-      </Tooltip>
+          >
+            <i class="fas" :class="viewModeIcon"></i>
+            <span>{{ viewModeLabel }}</span>
+          </button>
+        </Tooltip>
 
-      <button
+        <span class="toolbar-split" aria-hidden="true"></span>
+
+        <button
           type="button"
           class="connect-btn"
           :class="{ 'is-loading': isConnecting }"
           :disabled="!activeId || isConnecting"
           @click="emit('connect')"
-      >
-        <i class="fas" :class="connectButtonIcon"></i>
-        <span>{{ connectButtonText }}</span>
-      </button>
+        >
+          <span class="connect-btn__shine" aria-hidden="true"></span>
+          <i class="fas" :class="isConnecting ? 'fa-circle-notch fa-spin' : 'fa-plug'"></i>
+          <span>{{ connectButtonText }}</span>
+        </button>
+      </div>
     </div>
   </header>
 </template>
 
 <style lang="scss" scoped>
+@use 'sass:color';
+
 .workspace-header {
-  height: 60px;
+  position: relative;
+  flex-shrink: 0;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--bg-secondary) 88%, var(--accent) 12%) 0%,
+    var(--bg-primary) 100%
+  );
+  border-bottom: 1px solid var(--border-30);
+  overflow: hidden;
+
+  &.is-active .header-accent {
+    background: linear-gradient(90deg, transparent, var(--success), transparent);
+    opacity: 0.85;
+  }
+
+  &.is-connecting .header-accent {
+    background: linear-gradient(90deg, transparent, var(--accent-orange), transparent);
+    animation: accent-flow 1.8s ease-in-out infinite;
+  }
+
+  &.is-error .header-accent {
+    background: linear-gradient(90deg, transparent, var(--error), transparent);
+    opacity: 0.9;
+  }
+}
+
+.header-accent {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent-30), transparent);
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.header-body {
+  height: 56px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 0 20px;
-  flex-shrink: 0;
-  background: var(--bg-primary);
-  border-bottom: 1px solid var(--border-30);
+  padding: 0 16px 0 18px;
 }
 
 .header-left {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   min-width: 0;
   flex: 1;
 }
 
 .header-icon {
-  width: 38px;
-  height: 38px;
+  width: 30px;
+  height: 30px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 10px;
-  background: var(--bg-input);
+  border-radius: 8px;
+  background: var(--bg-card);
   border: 1px solid var(--border-30);
   color: var(--text-dim);
-  font-size: 14px;
-  transition: all 0.25s ease;
+  font-size: 12px;
+  transition: border-color 0.2s ease, color 0.2s ease;
+
+  &.is-local {
+    color: var(--accent-alt);
+  }
 
   &.is-active {
-    background: var(--bg-input);
-    border-color: var(--success);
     color: var(--success);
+    border-color: color-mix(in srgb, var(--success) 30%, var(--border-30));
   }
 
   &.is-connecting {
-    background: var(--accent-orange-10);
-    border-color: var(--accent-orange-20);
     color: var(--accent-orange);
+    border-color: color-mix(in srgb, var(--accent-orange) 30%, var(--border-30));
   }
 
   &.is-error {
-    background: var(--error-15);
-    border-color: var(--error-30);
     color: var(--error);
+    border-color: color-mix(in srgb, var(--error) 30%, var(--border-30));
   }
 }
 
@@ -202,126 +249,96 @@ const viewModeTooltip = computed(() => {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  justify-content: center;
+  gap: 2px;
 }
 
-.breadcrumb {
+.header-title-row {
   display: flex;
   align-items: center;
-  gap: 8px;
   min-width: 0;
+}
 
-  &__root {
-    flex-shrink: 0;
-    font-size: 11px;
-    font-weight: 600;
+.header-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+  line-height: 1.2;
+
+  &.is-placeholder {
+    font-weight: 500;
     color: var(--text-dim);
-    letter-spacing: 0.02em;
-  }
-
-  &__sep {
-    flex-shrink: 0;
-    font-size: 8px;
-    color: var(--text-dim);
-    opacity: 0.45;
-  }
-
-  &__current {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 15px;
-    font-weight: 700;
-    color: var(--text-main);
-    letter-spacing: -0.01em;
-    line-height: 1.2;
-
-    &.is-placeholder {
-      font-weight: 500;
-      color: var(--text-dim);
-      font-size: 14px;
-    }
   }
 }
 
 .header-meta {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 5px;
   min-width: 0;
+  font-size: 11px;
+  line-height: 1.2;
+}
 
-  &__address {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-family: var(--font-terminal);
-    font-size: 11px;
-    color: var(--text-dim);
-    letter-spacing: 0.02em;
+.status-dot {
+  width: 5px;
+  height: 5px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--text-dim);
+
+  &.is-active {
+    background: var(--success);
+    box-shadow: 0 0 6px var(--success-60);
   }
+
+  &.is-connecting {
+    background: var(--accent-orange);
+    animation: status-pulse 1.5s infinite;
+  }
+
+  &.is-error {
+    background: var(--error);
+  }
+}
+
+.status-text {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-dim);
+
+  &.is-active { color: var(--success); }
+  &.is-connecting { color: var(--accent-orange); }
+  &.is-error { color: var(--error); }
+}
+
+.meta-sep {
+  flex-shrink: 0;
+  color: var(--text-dim);
+  opacity: 0.45;
+  user-select: none;
+}
+
+.header-meta__address {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-terminal);
+  font-size: 10px;
+  color: var(--text-dim);
 }
 
 .header-hint {
   margin: 0;
-  font-size: 11px;
-  color: var(--text-dim);
-  opacity: 0.75;
-}
-
-.status-badge {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: 18px;
-  padding: 0 8px;
-  border-radius: 9px;
   font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-  background: var(--bg-input);
-  border: 1px solid var(--border-30);
   color: var(--text-dim);
-
-  &__dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: currentColor;
-  }
-
-  &.is-active {
-    background: var(--bg-input);
-    border-color: var(--success);
-    color: var(--success);
-
-    .status-badge__dot {
-      box-shadow: 0 0 6px var(--success-60);
-    }
-  }
-
-  &.is-connecting {
-    background: var(--accent-orange-10);
-    border-color: var(--accent-orange-20);
-    color: var(--accent-orange);
-
-    .status-badge__dot {
-      animation: status-pulse 1.5s infinite;
-    }
-  }
-
-  &.is-error {
-    background: var(--error-15);
-    border-color: var(--error-30);
-    color: var(--error);
-
-    .status-badge__dot {
-      animation: error-shake 0.4s ease-in-out;
-    }
-  }
+  opacity: 0.8;
 }
 
 .toolbar {
@@ -329,49 +346,59 @@ const viewModeTooltip = computed(() => {
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
-  padding: 4px;
-  border-radius: 11px;
-  background: var(--bg-secondary);
+  padding: 4px 6px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-secondary) 70%, transparent);
   border: 1px solid var(--border-30);
+  backdrop-filter: blur(8px);
 }
 
-.tool-btn {
+.toolbar-split {
+  width: 1px;
+  height: 22px;
+  background: var(--border-30);
+  flex-shrink: 0;
+}
+
+.mode-toggle {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 32px;
-  padding: 0 12px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text-dim);
-  font-size: 12px;
-  font-weight: 500;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border-30);
+  border-radius: 7px;
+  background: var(--bg-card);
+  color: var(--text-main);
+  font-size: 11px;
+  font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.22s ease;
 
-  i { font-size: 12px; }
-
-  &:hover:not(:disabled) {
-    background: var(--accent-08);
-    border-color: var(--accent-15);
+  i {
+    font-size: 10px;
     color: var(--accent);
   }
 
-  &:disabled {
-    opacity: 0.35;
-    cursor: not-allowed;
+  &:hover:not(:disabled) {
+    border-color: var(--accent-30);
+    box-shadow: 0 2px 10px color-mix(in srgb, var(--accent) 10%, transparent);
   }
 
-  &--mode.is-sftp {
-    background: var(--accent-orange-10);
-    border-color: var(--accent-orange-20);
-    color: var(--accent-orange);
+  &.is-alt {
+    border-color: color-mix(in srgb, var(--accent-orange) 30%, var(--border-30));
+    background: color-mix(in srgb, var(--accent-orange) 6%, var(--bg-card));
 
-    &:hover {
-      background: var(--accent-orange-20);
-      border-color: var(--accent-orange-50);
+    i {
+      color: var(--accent-orange);
     }
+  }
+
+  &.is-disabled,
+  &:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    box-shadow: none;
   }
 
   &:focus-visible {
@@ -381,27 +408,57 @@ const viewModeTooltip = computed(() => {
 }
 
 .connect-btn {
+  position: relative;
+  overflow: hidden;
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  height: 32px;
-  padding: 0 16px;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
   border: none;
-  border-radius: 8px;
-  background: var(--accent);
+  border-radius: 7px;
+  background: linear-gradient(
+    135deg,
+    var(--accent) 0%,
+    color-mix(in srgb, var(--accent) 78%, var(--accent-alt) 22%) 100%
+  );
   color: #fff;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
+  letter-spacing: 0.02em;
   cursor: pointer;
-  transition: all 0.2s ease;
-  box-shadow: 0 3px 12px var(--accent-20);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
+  box-shadow:
+    0 1px 0 color-mix(in srgb, #fff 18%, transparent) inset,
+    0 4px 12px color-mix(in srgb, var(--accent) 24%, transparent);
 
-  i { font-size: 11px; }
+  &__shine {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      105deg,
+      transparent 40%,
+      color-mix(in srgb, #fff 16%, transparent) 50%,
+      transparent 60%
+    );
+    transform: translateX(-120%);
+    transition: transform 0.5s ease;
+  }
+
+  i {
+    font-size: 10px;
+  }
 
   &:hover:not(:disabled) {
-    filter: brightness(1.08);
+    filter: brightness(1.06);
     transform: translateY(-1px);
-    box-shadow: 0 5px 16px var(--accent-30);
+    box-shadow:
+      0 1px 0 color-mix(in srgb, #fff 20%, transparent) inset,
+      0 8px 22px color-mix(in srgb, var(--accent) 36%, transparent);
+
+    .connect-btn__shine {
+      transform: translateX(120%);
+    }
   }
 
   &:active:not(:disabled) {
@@ -416,10 +473,6 @@ const viewModeTooltip = computed(() => {
     cursor: not-allowed;
   }
 
-  &.is-loading i {
-    animation: spin 1s linear infinite;
-  }
-
   &:focus-visible {
     outline: none;
     box-shadow: 0 0 0 2px var(--accent-glow);
@@ -431,14 +484,8 @@ const viewModeTooltip = computed(() => {
   50% { opacity: 0.45; transform: scale(0.85); }
 }
 
-@keyframes error-shake {
-  0%, 100% { transform: translateX(0); }
-  25% { transform: translateX(-2px); }
-  75% { transform: translateX(2px); }
-}
-
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+@keyframes accent-flow {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 1; }
 }
 </style>

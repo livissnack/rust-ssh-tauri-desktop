@@ -6,6 +6,7 @@ mod local_shell;
 mod api_debugger;
 mod ai_chat;
 mod port_forward;
+mod known_hosts;
 use crate::sync::{
     get_sync_settings,
     save_sync_settings,
@@ -24,17 +25,21 @@ use ai_chat::{
     clear_ai_chat_sessions, delete_ai_chat_session, get_ai_chat_session, list_ai_chat_sessions,
     prune_ai_chat_sessions, save_ai_chat_session,
 };
+use known_hosts::{
+    list_known_hosts, remove_known_host, respond_host_key_prompt, HostKeyPromptHub, HostKeyRole,
+    HostKeyVerifier, KNOWN_HOSTS_TABLE, HOST_KEY_PROMPT_TIMEOUT_SECS,
+};
 use port_forward::{
     list_port_forwards, start_port_forward, stop_port_forward, stop_all_for_session,
     PortForwardMap, new_port_forward_map,
 };
 use redis_manager::{redis_connect, redis_get_keys, redis_get_value, redis_set_value, redis_del_key, redis_rename_key, redis_get_ttl, redis_get_type, save_redis_config, get_redis_configs, delete_redis_config, clear_all_redis_configs};
-use tokio::sync::mpsc;
 use russh::*;
 use russh::client::DisconnectReason;
 use std::sync::Arc;
 use tauri::{Emitter, Window, Runtime, State, Manager, WebviewUrl, WebviewWindowBuilder};
 use tokio::sync::Mutex;
+use tokio::sync::mpsc;
 use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 use redb::{Database, TableDefinition, ReadableTable};
@@ -150,6 +155,7 @@ pub struct ClientHandler<R: Runtime> {
     server_id: String,
     session_id: String,
     shell_channel_id: Arc<Mutex<Option<ChannelId>>>,
+    host_key_verifier: Arc<HostKeyVerifier>,
 }
 
 impl<R: Runtime> client::Handler for ClientHandler<R> {
@@ -157,10 +163,15 @@ impl<R: Runtime> client::Handler for ClientHandler<R> {
 
     fn check_server_key(
         &mut self,
-        _server_public_key: &russh::keys::PublicKey,
+        server_public_key: &russh::keys::PublicKey,
     ) -> impl Future<Output = Result<bool, Self::Error>> + Send {
+        let verifier = self.host_key_verifier.clone();
+        let key = server_public_key.clone();
         async move {
-            Ok(true)
+            match verifier.verify(&key).await {
+                Ok(trusted) => Ok(trusted),
+                Err(e) => Err(russh::Error::InvalidConfig(e)),
+            }
         }
     }
 
@@ -225,6 +236,8 @@ pub struct AppState {
     pub p2p_sender: mpsc::UnboundedSender<p2p::P2PCommand>,
     pub sync_runtime: Arc<tokio::sync::Mutex<SyncRuntime>>,
     pub port_forwards: PortForwardMap,
+    pub app_handle: tauri::AppHandle,
+    pub host_key_hub: Arc<HostKeyPromptHub>,
 }
 
 impl Clone for AppState {
@@ -238,6 +251,8 @@ impl Clone for AppState {
             p2p_sender: self.p2p_sender.clone(),
             sync_runtime: self.sync_runtime.clone(),
             port_forwards: self.port_forwards.clone(),
+            app_handle: self.app_handle.clone(),
+            host_key_hub: self.host_key_hub.clone(),
         }
     }
 }
@@ -281,20 +296,73 @@ async fn authenticate<H: client::Handler>(
     Ok(())
 }
 
-struct LatencyProbeHandler;
+struct LatencyProbeHandler {
+    host_key_verifier: Arc<HostKeyVerifier>,
+}
 
 impl client::Handler for LatencyProbeHandler {
     type Error = russh::Error;
 
     fn check_server_key(
         &mut self,
-        _server_public_key: &russh::keys::PublicKey,
+        server_public_key: &russh::keys::PublicKey,
     ) -> impl Future<Output = Result<bool, Self::Error>> + Send {
-        async move { Ok(true) }
+        let verifier = self.host_key_verifier.clone();
+        let key = server_public_key.clone();
+        async move {
+            match verifier.verify(&key).await {
+                Ok(trusted) => Ok(trusted),
+                Err(e) => Err(russh::Error::InvalidConfig(e)),
+            }
+        }
+    }
+}
+
+fn make_host_key_verifier(
+    state: &AppState,
+    config: &ServerConfig,
+    allow_prompt: bool,
+    window_label: Option<String>,
+    host_role: HostKeyRole,
+) -> Arc<HostKeyVerifier> {
+    Arc::new(HostKeyVerifier::new(
+        state.db.clone(),
+        state.app_handle.clone(),
+        state.host_key_hub.clone(),
+        config.host.clone(),
+        config.port,
+        config.name.clone(),
+        allow_prompt,
+        window_label,
+        host_role,
+    ))
+}
+
+fn make_client_handler<R: Runtime>(
+    window: &tauri::Window<R>,
+    target_config: &ServerConfig,
+    state: &AppState,
+    session_id: &str,
+    shell_channel_id: &Arc<Mutex<Option<ChannelId>>>,
+    host_role: HostKeyRole,
+) -> ClientHandler<R> {
+    ClientHandler {
+        window: window.clone(),
+        server_id: target_config.id.clone(),
+        session_id: session_id.to_string(),
+        shell_channel_id: shell_channel_id.clone(),
+        host_key_verifier: make_host_key_verifier(
+            state,
+            target_config,
+            true,
+            Some(window.label().to_string()),
+            host_role,
+        ),
     }
 }
 
 async fn open_probe_session(
+    state: &AppState,
     target_config: &ServerConfig,
     all_configs: &[ServerConfig],
 ) -> Result<client::Handle<LatencyProbeHandler>, String> {
@@ -303,7 +371,15 @@ async fn open_probe_session(
     config.nodelay = true;
     let client_config = Arc::new(config);
     let connect_timeout = Duration::from_secs(8);
-    let handler = LatencyProbeHandler;
+    let handler = LatencyProbeHandler {
+        host_key_verifier: make_host_key_verifier(
+            state,
+            target_config,
+            false,
+            None,
+            HostKeyRole::Direct,
+        ),
+    };
 
     match target_config.jump_host_id.as_deref() {
         None | Some("") => {
@@ -321,7 +397,7 @@ async fn open_probe_session(
                 .find(|s| s.id == jump_id)
                 .ok_or(format!("找不到跳板机: {}", jump_id))?;
 
-            let jump_handle = Box::pin(open_probe_session(jump_config, all_configs)).await?;
+            let jump_handle = Box::pin(open_probe_session(state, jump_config, all_configs)).await?;
 
             let channel = timeout(
                 Duration::from_secs(8),
@@ -338,7 +414,19 @@ async fn open_probe_session(
 
             let mut handle = timeout(
                 connect_timeout,
-                client::connect_stream(client_config, channel.into_stream(), handler),
+                client::connect_stream(
+                    client_config,
+                    channel.into_stream(),
+                    LatencyProbeHandler {
+                        host_key_verifier: make_host_key_verifier(
+                            state,
+                            target_config,
+                            false,
+                            None,
+                            HostKeyRole::Target,
+                        ),
+                    },
+                ),
             )
             .await
             .map_err(|_| format!("隧道内与目标 {} 握手超时", target_config.host))?
@@ -351,20 +439,23 @@ async fn open_probe_session(
 }
 
 async fn measure_server_latency(
+    state: &AppState,
     target_config: &ServerConfig,
     all_configs: &[ServerConfig],
 ) -> Result<u32, String> {
     let start = Instant::now();
-    let _handle = open_probe_session(target_config, all_configs).await?;
+    let _handle = open_probe_session(state, target_config, all_configs).await?;
     Ok(start.elapsed().as_millis() as u32)
 }
 
 async fn create_recursive_session<R: Runtime>(
     window: tauri::Window<R>,
+    state: &AppState,
     target_config: &ServerConfig,
     all_configs: &Vec<ServerConfig>,
     session_id: String,
     shell_channel_id: Arc<Mutex<Option<ChannelId>>>,
+    is_final_target: bool,
 ) -> Result<client::Handle<ClientHandler<R>>, String> {
     // Increase channel_buffer_size to reduce backpressure-induced stalls
     // under bursty interactive input (e.g. vim scrolling).
@@ -372,20 +463,33 @@ async fn create_recursive_session<R: Runtime>(
     config.channel_buffer_size = 4096;
     config.nodelay = true; // reduce latency for small packets
     let client_config = Arc::new(config);
-    let connect_timeout = Duration::from_secs(10);
+    // Host key verification can block the handshake until the user responds.
+    let connect_timeout =
+        Duration::from_secs(HOST_KEY_PROMPT_TIMEOUT_SECS + 15);
 
-    let handler = ClientHandler {
-        window: window.clone(),
-        server_id: target_config.id.clone(),
-        session_id: session_id.clone(),
-        shell_channel_id: shell_channel_id.clone(),
+    let direct_host_role = if is_final_target {
+        HostKeyRole::Direct
+    } else {
+        HostKeyRole::Jump
+    };
+    let tunnel_host_role = if is_final_target {
+        HostKeyRole::Target
+    } else {
+        HostKeyRole::Jump
     };
 
     match target_config.jump_host_id.as_deref() {
         None | Some("") => {
             let addr = format!("{}:{}", target_config.host, target_config.port);
+            let handler = make_client_handler(
+                &window,
+                target_config,
+                state,
+                &session_id,
+                &shell_channel_id,
+                direct_host_role,
+            );
 
-            // ✅ 修正：使用 .await 结尾，并确保 timeout 已经导入
             let mut handle = timeout(connect_timeout, client::connect(client_config, addr, handler))
                 .await
                 .map_err(|_| format!("连接目标 {} 超时", target_config.host))?
@@ -400,10 +504,12 @@ async fn create_recursive_session<R: Runtime>(
 
             let jump_handle = Box::pin(create_recursive_session(
                 window.clone(),
+                state,
                 jump_config,
                 all_configs,
                 format!("{}_tunnel", session_id),
-                shell_channel_id.clone()
+                shell_channel_id.clone(),
+                false,
             )).await?;
             println!("隧道已建立，正在尝试在隧道内连接目标: {}:{}", target_config.host, target_config.port);
             let channel = timeout(
@@ -414,13 +520,22 @@ async fn create_recursive_session<R: Runtime>(
                     "127.0.0.1",
                     0
                 )
-            ).await // ✅ 修正：.await 放在这里
+            ).await
             .map_err(|_| "跳板机建立隧道响应超时".to_string())?
             .map_err(|e| format!("隧道建立失败: {}", e))?;
 
+            let handler = make_client_handler(
+                &window,
+                target_config,
+                state,
+                &session_id,
+                &shell_channel_id,
+                tunnel_host_role,
+            );
+
             let mut handle = timeout(
                 connect_timeout,
-                client::connect_stream(client_config, channel.into_stream(), handler)
+                client::connect_stream(client_config, channel.into_stream(), handler),
             )
             .await
             .map_err(|_| format!("隧道内与目标 {} 握手超时", target_config.host))?
@@ -514,12 +629,12 @@ async fn get_server_latency(
     state: State<'_, AppState>,
     server_id: String,
 ) -> Result<u32, String> {
-    let servers = get_servers(state).await?;
+    let servers = get_servers(state.clone()).await?;
     let target = servers
         .iter()
         .find(|s| s.id == server_id)
         .ok_or("配置不存在")?;
-    measure_server_latency(target, &servers).await
+    measure_server_latency(state.inner(), target, &servers).await
 }
 
 #[tauri::command]
@@ -786,7 +901,15 @@ async fn connect_ssh(
     let servers = get_servers(state.clone()).await?;
     let target_config = servers.iter().find(|s| s.id == server_id)
         .ok_or("配置不存在")?.clone();
-    let handle = create_recursive_session(window.clone(), &target_config, &servers, session_id.clone(), shell_id_container.clone())
+    let handle = create_recursive_session(
+        window.clone(),
+        state.inner(),
+        &target_config,
+        &servers,
+        session_id.clone(),
+        shell_id_container.clone(),
+        true,
+    )
         .await?;
     let channel = handle.channel_open_session().await.map_err(|e| e.to_string())?;
     {
@@ -1962,6 +2085,8 @@ pub fn run() {
                 p2p_sender: tx,
                 sync_runtime: Arc::new(tokio::sync::Mutex::new(SyncRuntime::default())),
                 port_forwards: new_port_forward_map(),
+                app_handle: handle.clone(),
+                host_key_hub: Arc::new(HostKeyPromptHub::new()),
             });
 
            app.manage(shared_p2p_status.clone());
@@ -2023,6 +2148,7 @@ pub fn run() {
                         let _ = write_txn.open_table(P2P_REMARKS_TABLE).map_err(|e| e.to_string())?;
                         let _ = write_txn.open_table(API_DEBUGGER_TABLE).map_err(|e| e.to_string())?;
                         let _ = write_txn.open_table(AI_CHAT_SESSIONS_TABLE).map_err(|e| e.to_string())?;
+                        let _ = write_txn.open_table(KNOWN_HOSTS_TABLE).map_err(|e| e.to_string())?;
                     }
                     write_txn.commit().map_err(|e| e.to_string())?;
                     let _ = ai_chat::prune_expired_sessions(&db_for_setup);
@@ -2126,6 +2252,9 @@ pub fn run() {
             start_port_forward,
             stop_port_forward,
             list_port_forwards,
+            respond_host_key_prompt,
+            list_known_hosts,
+            remove_known_host,
         ])
         .run(tauri::generate_context!())
         .expect("Tauri 运行出错");

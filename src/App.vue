@@ -46,6 +46,8 @@ import TerminalSearchBar from "./components/TerminalSearchBar.vue";
 import CommandPalette, { type CommandPaletteItem } from "./components/CommandPalette.vue";
 import ShortcutHelp from "./components/ShortcutHelp.vue";
 import PortForwardDialog from "./components/PortForwardDialog.vue";
+import HostKeyDialog from "./components/HostKeyDialog.vue";
+import { type HostKeyPrompt, normalizeHostKeyPrompt } from "./utils/hostKey.ts";
 
 const QuickCommandPanel = defineAsyncComponent(() => import("./components/QuickCommandPanel.vue"));
 const AiAssistantPanel = defineAsyncComponent(() => import("./components/AiAssistantPanel.vue"));
@@ -100,6 +102,7 @@ const terminalMap = new Map<string, TerminalInstance>();
 const commandPaletteOpen = ref(false);
 const shortcutHelpOpen = ref(false);
 const portForwardOpen = ref(false);
+const hostKeyPrompt = ref<HostKeyPrompt | null>(null);
 const recentPaletteActions = ref<ShortcutAction[]>(getRecentPaletteActions());
 const reconnectAttempts = new Map<string, number>();
 const autoReconnecting = new Set<string>();
@@ -157,6 +160,7 @@ let unlisten: UnlistenFn | null = null;
 let unlistenClosed: UnlistenFn | null = null;
 let unlistenTransfer: UnlistenFn | null = null;
 let unlistenSync: UnlistenFn | null = null;
+let unlistenHostKey: UnlistenFn | null = null;
 let unlistenDragDrop: UnlistenFn | null = null;
 /** Skip disconnect toast when user closes tab, reconnects, or app unmounts */
 const suppressSshClosedToast = new Set<string>();
@@ -1801,6 +1805,7 @@ const executeShortcutAction = (action: ShortcutAction): boolean => {
 const handleShortcutKeydown = (e: KeyboardEvent): boolean => {
   if (commandPaletteOpen.value) return false;
   if (portForwardOpen.value) return false;
+  if (hostKeyPrompt.value) return false;
   if (shortcutHelpOpen.value) {
     if (e.key === 'Escape') shortcutHelpOpen.value = false;
     return e.key === 'Escape';
@@ -1883,6 +1888,10 @@ onMounted(async () => {
     const instance = terminalMap.get(payload.session_id);
     if (instance) instance.term.write(payload.data);
   });
+  unlistenHostKey = await listen("ssh-host-key-prompt", (event) => {
+    const prompt = normalizeHostKeyPrompt(event.payload as Record<string, unknown>);
+    if (prompt) hostKeyPrompt.value = prompt;
+  });
   await listen('database-changed', () => loadServers());
   await bootstrapSessionWindow();
   unlistenClosed = await listen("ssh-closed", (event) => {
@@ -1937,6 +1946,7 @@ onUnmounted(async () => {
   window.removeEventListener("resize", handleResize);
   window.removeEventListener("keydown", handleGlobalKeydown);
   if (unlisten) unlisten();
+  if (unlistenHostKey) unlistenHostKey();
   if (unlistenClosed) unlistenClosed();
   if (unlistenTransfer) unlistenTransfer();
   if (unlistenSync) unlistenSync();
@@ -2290,6 +2300,11 @@ onUnmounted(async () => {
         :visible="portForwardOpen"
         :session-id="activeSessionId"
         @close="portForwardOpen = false"
+    />
+
+    <HostKeyDialog
+        :prompt="hostKeyPrompt"
+        @close="hostKeyPrompt = null"
     />
 
     <ShortcutHelp

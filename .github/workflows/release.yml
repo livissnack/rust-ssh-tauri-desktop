@@ -49,11 +49,8 @@ jobs:
       - name: install frontend dependencies
         run: npm ci
 
-      - name: typecheck frontend
-        run: npx vue-tsc --noEmit
-
       - name: build frontend
-        run: npx vite build --logLevel info
+        run: npm run build
 
       - name: build tauri app
         uses: tauri-apps/tauri-action@v0

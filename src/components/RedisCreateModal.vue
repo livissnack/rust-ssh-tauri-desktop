@@ -36,6 +36,8 @@ const formData = ref({
   ttl: -1,
 });
 
+const hashFieldPlaceholder = computed(() => placeholderMap.value.hash.field);
+
 const currentPlaceholder = computed(() =>
   placeholderMap.value[formData.value.type as keyof typeof placeholderMap.value],
 );
@@ -118,7 +120,7 @@ const handleConfirm = async () => {
                   <label>{{ t('redis.createField') }}</label>
                   <input
                     v-model="formData.field"
-                    :placeholder="currentPlaceholder.field"
+                    :placeholder="hashFieldPlaceholder"
                     class="dark-input"
                   />
                 </div>

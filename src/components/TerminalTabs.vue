@@ -13,17 +13,17 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  (e: 'update:activeSessionId', id: string): void;
-  (e: 'close', id: string): void;
-  (e: 'cloneTab', id: string): void;
-  (e: 'cloneWindow', id: string): void;
-  (e: 'newLocalShell'): void;
-  (e: 'reconnect', id: string): void;
+  'update:activeSessionId': [id: string];
+  close: [id: string];
+  cloneTab: [id: string];
+  cloneWindow: [id: string];
+  newLocalShell: [];
+  reconnect: [id: string];
 }>();
 
 const activeSessionId = computed({
   get: () => props.activeSessionId,
-  set: (id) => emit('update:activeSessionId', id)
+  set: (id: string) => emit('update:activeSessionId', id),
 });
 
 const menuVisible = ref(false);

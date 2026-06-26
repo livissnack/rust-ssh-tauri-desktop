@@ -48,9 +48,6 @@ const title = computed(() => {
   if (props.mode === 'createFile') return '新建文件';
   return '新建文件夹';
 });
-
-const isCreateMode = computed(() => props.mode === 'createFile' || props.mode === 'createFolder');
-
 const formatTime = (timestamp?: number) => {
   if (!timestamp) return '-';
   return new Date(timestamp * 1000).toLocaleString();

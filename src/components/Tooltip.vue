@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, nextTick, onUnmounted } from 'vue';
+import { ref, computed, onUnmounted } from 'vue';
 import {
   portalStyleFromPlacement,
   resolveTooltipPlacement,

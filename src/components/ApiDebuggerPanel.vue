@@ -383,19 +383,19 @@ const sendHttp = async () => {
     });
     httpResponse.value = res;
     appendLog('in', `${res.status} ${res.statusText} (${res.elapsedMs}ms)`);
-    history.value = await pushHistory({
+    history.value = (await pushHistory({
       timestamp: Date.now(),
       snapshot,
       status: res.status,
       elapsedMs: res.elapsedMs,
-    }, buildStore(collections.value, environments.value, history.value, activeEnvId.value));
+    }, buildStore(collections.value, environments.value, history.value, activeEnvId.value))).history;
   } catch (err) {
     appendLog('error', String(err));
     toast.error(String(err));
-    history.value = await pushHistory({
+    history.value = (await pushHistory({
       timestamp: Date.now(),
       snapshot,
-    }, buildStore(collections.value, environments.value, history.value, activeEnvId.value));
+    }, buildStore(collections.value, environments.value, history.value, activeEnvId.value))).history;
   } finally {
     httpLoading.value = false;
   }
@@ -944,7 +944,7 @@ onUnmounted(() => {
         <div class="request-row">
           <input v-model="wsUrl" class="url-input" placeholder="wss://host/path" />
           <button v-if="!wsActive" type="button" class="btn-primary" @click="connectWs">Connect</button>
-          <button v-else type="button" class="btn-danger" @click="disconnectWs">
+          <button v-else type="button" class="btn-danger" @click="() => disconnectWs()">
             {{ wsConnected ? 'Disconnect' : 'Cancel' }}
           </button>
           <Tooltip :text="t('apiDebugger.saveToCollection')" placement="bottom">
@@ -964,7 +964,7 @@ onUnmounted(() => {
         <div class="request-row">
           <input v-model="sseUrl" class="url-input" placeholder="https://host/events" />
           <button v-if="!sseActive" type="button" class="btn-primary" @click="connectSse">Connect</button>
-          <button v-else type="button" class="btn-danger" @click="disconnectSse">
+          <button v-else type="button" class="btn-danger" @click="() => disconnectSse()">
             {{ sseConnected ? 'Disconnect' : 'Cancel' }}
           </button>
           <Tooltip :text="t('apiDebugger.saveToCollection')" placement="bottom">
@@ -986,7 +986,7 @@ onUnmounted(() => {
         </div>
         <div class="request-row">
           <button v-if="!sioActive" type="button" class="btn-primary" @click="connectSio">Connect</button>
-          <button v-else type="button" class="btn-danger" @click="disconnectSio">
+          <button v-else type="button" class="btn-danger" @click="() => disconnectSio()">
             {{ sioConnected ? 'Disconnect' : 'Cancel' }}
           </button>
           <Tooltip :text="t('apiDebugger.saveToCollection')" placement="bottom">
@@ -1019,7 +1019,7 @@ onUnmounted(() => {
         </div>
         <div class="request-row">
           <button v-if="!mqttActive" type="button" class="btn-primary" @click="connectMqtt">Connect</button>
-          <button v-else type="button" class="btn-danger" @click="disconnectMqtt">
+          <button v-else type="button" class="btn-danger" @click="() => disconnectMqtt()">
             {{ mqttConnected ? 'Disconnect' : 'Cancel' }}
           </button>
           <Tooltip :text="t('apiDebugger.saveToCollection')" placement="bottom">

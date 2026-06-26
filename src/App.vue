@@ -165,12 +165,9 @@ const rightPanelDock = useRightPanel();
 const {
   rightPanelVisible,
   rightPanelType,
-  panelWidths,
   panelWidth,
-  isResizing,
   reloadPanelWidths,
   startResizing,
-  getPanelMinWidth,
 } = rightPanelDock;
 
 const isModalOpen = ref(false);
@@ -228,7 +225,7 @@ const sftpDialogInput = ref('');
 
 const newHost = ref({
   id: "", name: "", host: "", username: "root", port: 22,
-  auth_type: "password", password: "", private_key_path: "", jump_host_id: null
+  auth_type: "password", password: "", private_key_path: "", jump_host_id: null as string | null, group: "",
 });
 
 const currentViewMode = computed(() => {
@@ -837,24 +834,24 @@ const connectToServer = async (serverId?: string) => {
 
   activeId.value = server.id;
 
-  if (!sessionId) {
-    const existing = openSessions.value.find((s) => s.id === server.id);
-    sessionId = existing?.id ?? server.id;
-  }
+  const resolvedSessionId =
+    sessionId ??
+    openSessions.value.find((s) => s.id === server.id)?.id ??
+    server.id;
 
-  const status = sessionStatuses.value[sessionId];
+  const status = sessionStatuses.value[resolvedSessionId];
   if (status === 'connected') {
-    activeSessionId.value = sessionId;
-    await focusTerminal(sessionId);
+    activeSessionId.value = resolvedSessionId;
+    await focusTerminal(resolvedSessionId);
     return;
   }
 
-  if (!openSessions.value.find((s) => s.id === sessionId)) {
-    openSessions.value.push({ id: sessionId, serverId: server.id, name: server.name });
-    sessionViewModes.value[sessionId] = 'terminal';
+  if (!openSessions.value.find((s) => s.id === resolvedSessionId)) {
+    openSessions.value.push({ id: resolvedSessionId, serverId: server.id, name: server.name });
+    sessionViewModes.value[resolvedSessionId] = 'terminal';
   }
-  activeSessionId.value = sessionId;
-  await performConnect(sessionId, server);
+  activeSessionId.value = resolvedSessionId;
+  await performConnect(resolvedSessionId, server);
 };
 
 const reconnectSession = async (sessionId?: string, options?: { silent?: boolean }) => {
@@ -1375,9 +1372,10 @@ const handleResize = throttle(async () => {
 }, 100);
 
 const openLocalShell = async () => {
+  let sessionId = '';
   try {
     const label = await invoke<string>('get_local_shell_label');
-    const sessionId = `local-${Math.random().toString(36).substring(2, 9)}`;
+    sessionId = `local-${Math.random().toString(36).substring(2, 9)}`;
     const localCount = openSessions.value.filter(s => isLocalSession(s)).length;
     const name = localCount > 0 ? `${label} (${localCount + 1})` : label;
 
@@ -1399,7 +1397,7 @@ const openLocalShell = async () => {
     setSessionStatus(sessionId, 'connected');
   } catch (err) {
     toast.error(t('toast.localTerminalFailed', { err: String(err) }));
-    setSessionStatus(sessionId, 'failed', String(err));
+    if (sessionId) setSessionStatus(sessionId, 'failed', String(err));
   }
 };
 
@@ -1414,7 +1412,7 @@ const openAddModal = () => {
     auth_type: "password",
     password: "",
     private_key_path: "",
-    jump_host_id: "",
+    jump_host_id: null as string | null,
     group: ""
   };
   isModalOpen.value = true;
@@ -1506,10 +1504,10 @@ const updateOnlineCount = async () => {
   }
 };
 
-const handleOrderChange = async (newList) => {
+const handleOrderChange = async (newList: typeof servers.value) => {
   servers.value = newList;
 
-  const ids = newList.map(s => s.id);
+  const ids = newList.map((s: (typeof servers.value)[number]) => s.id);
   try {
     await invoke("update_server_order", { ids });
     console.log("后端排序更新成功");

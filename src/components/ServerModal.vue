@@ -2,6 +2,7 @@
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
 import { open } from "@tauri-apps/plugin-dialog";
 import { toast } from "../utils/toast.ts";
+import { generateStrongPassword } from "../utils/password.ts";
 
 const props = defineProps<{
   isOpen: boolean;
@@ -175,6 +176,12 @@ const closeModal = () => {
   showPassword.value = false;
   emit('close');
 };
+
+const generatePassword = () => {
+  formData.value.password = generateStrongPassword(30);
+  showPassword.value = true;
+  toast.success('已生成 30 位强密码');
+};
 </script>
 
 <template>
@@ -294,9 +301,16 @@ const closeModal = () => {
                     :type="showPassword ? 'text' : 'password'"
                     placeholder="输入登录密码"
                 />
-                <button type="button" class="eye-btn" @click="showPassword = !showPassword">
-                  <i class="fas" :class="showPassword ? 'fa-eye-slash' : 'fa-eye'"></i>
-                </button>
+                <Tooltip text="生成 30 位强密码">
+                  <button type="button" class="gen-btn" @click="generatePassword">
+                    <i class="fas fa-wand-magic-sparkles"></i>
+                  </button>
+                </Tooltip>
+                <Tooltip :text="showPassword ? '隐藏密码' : '显示密码'">
+                  <button type="button" class="eye-btn" @click="showPassword = !showPassword">
+                    <i class="fas" :class="showPassword ? 'fa-eye-slash' : 'fa-eye'"></i>
+                  </button>
+                </Tooltip>
               </div>
             </div>
 
@@ -792,7 +806,7 @@ const closeModal = () => {
   position: relative;
 
   .field-control {
-    padding-right: 40px;
+    padding-right: 72px;
     padding-left: 36px;
   }
 
@@ -807,9 +821,9 @@ const closeModal = () => {
     pointer-events: none;
   }
 
+  .gen-btn,
   .eye-btn {
     position: absolute;
-    right: 4px;
     top: 50%;
     transform: translateY(-50%);
     width: 30px;
@@ -824,10 +838,22 @@ const closeModal = () => {
     cursor: pointer;
     transition: all 0.15s ease;
 
+    i {
+      font-size: 12px;
+    }
+
     &:hover {
       background: var(--accent-10);
       color: var(--accent);
     }
+  }
+
+  .gen-btn {
+    right: 34px;
+  }
+
+  .eye-btn {
+    right: 4px;
   }
 }
 

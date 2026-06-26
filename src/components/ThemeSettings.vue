@@ -55,15 +55,64 @@
           </div>
         </div>
       </section>
+
+      <section class="settings-section">
+        <h3 class="section-title">
+          <i class="fas fa-plug"></i>
+          {{ tr.sessionSettings.title }}
+        </h3>
+        <p class="section-hint">{{ tr.sessionSettings.reconnectHint }}</p>
+        <div class="session-settings">
+          <label class="session-settings__toggle">
+            <input v-model="reconnectEnabled" type="checkbox" @change="persistSessionSettings" />
+            <span>{{ tr.sessionSettings.reconnectEnabled }}</span>
+          </label>
+          <div class="session-settings__row">
+            <span>{{ tr.sessionSettings.maxAttempts }}</span>
+            <NumberInput v-model="reconnectMaxAttempts" :min="1" :max="10" @update:model-value="persistSessionSettings" />
+          </div>
+          <div class="session-settings__row">
+            <span>{{ tr.sessionSettings.intervalSec }}</span>
+            <NumberInput v-model="reconnectIntervalSec" :min="1" :max="30" @update:model-value="persistSessionSettings" />
+          </div>
+        </div>
+      </section>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import { ref, onMounted } from "vue";
 import { themeOptions, applyTheme, defaultTheme } from "../utils/theme.ts";
 import { useI18n } from "../utils/i18n.ts";
+import {
+  getSessionReconnectSettings,
+  saveSessionReconnectSettings,
+} from "../utils/sessionSettings.ts";
+import NumberInput from "./NumberInput.vue";
 
 const { locale, tr, setLocale, localeOptions } = useI18n();
+
+const reconnectEnabled = ref(true);
+const reconnectMaxAttempts = ref(3);
+const reconnectIntervalSec = ref(3);
+
+const loadSessionSettings = () => {
+  const settings = getSessionReconnectSettings();
+  reconnectEnabled.value = settings.enabled;
+  reconnectMaxAttempts.value = settings.maxAttempts;
+  reconnectIntervalSec.value = Math.round(settings.intervalMs / 1000);
+};
+
+const persistSessionSettings = () => {
+  saveSessionReconnectSettings({
+    enabled: reconnectEnabled.value,
+    maxAttempts: reconnectMaxAttempts.value,
+    intervalMs: reconnectIntervalSec.value * 1000,
+  });
+};
+
+onMounted(loadSessionSettings);
 </script>
 
 <style lang="scss" scoped>
@@ -237,6 +286,37 @@ const { locale, tr, setLocale, localeOptions } = useI18n();
       right: 16px;
       color: var(--accent);
       font-size: 1.1rem;
+    }
+  }
+
+  .session-settings {
+    display: grid;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid var(--border-30);
+    background: var(--bg-input);
+
+    &__toggle {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--text-main);
+      cursor: pointer;
+
+      input {
+        accent-color: var(--accent);
+      }
+    }
+
+    &__row {
+      display: grid;
+      grid-template-columns: 1fr 120px;
+      align-items: center;
+      gap: 12px;
+      font-size: 12px;
+      color: var(--text-dim);
     }
   }
 }

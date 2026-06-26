@@ -2,6 +2,7 @@
 import {ref, computed, onMounted, onUnmounted, nextTick, watch, defineAsyncComponent} from "vue";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { SearchAddon } from "@xterm/addon-search";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { WebglAddon } from "@xterm/addon-webgl";
 import "@xterm/xterm/css/xterm.css";
@@ -18,6 +19,19 @@ import { LOCAL_SERVER_ID, isLocalSession, isSessionConnected, type OpenSession, 
 import { beginPointerDrag } from "./utils/pointerDrag.ts";
 import { detectAppPlatform } from "./utils/platform.ts";
 import { useI18n, t } from "./utils/i18n.ts";
+import {
+  isModKey,
+  isTypingContext,
+  resolveShortcutAction,
+  PALETTE_SHORTCUT_ITEMS,
+  shortcutLabelParams,
+  tabIndexFromAction,
+  type ShortcutAction,
+} from "./utils/shortcuts.ts";
+import { getRecentPaletteActions, recordPaletteUse } from "./utils/paletteRecent.ts";
+import { getSessionReconnectSettings } from "./utils/sessionSettings.ts";
+import { exportTerminalOutput } from "./utils/terminalExport.ts";
+import { type TransferTask, isTransferCancelled } from "./utils/transferTask.ts";
 
 const { tr } = useI18n();
 
@@ -28,6 +42,10 @@ import StatusBar from "./components/StatusBar.vue";
 import TitleBar from "./components/TitleBar.vue";
 import ServerModal from "./components/ServerModal.vue";
 import SftpFileDialog, { type SftpFileDetail } from "./components/SftpFileDialog.vue";
+import TerminalSearchBar from "./components/TerminalSearchBar.vue";
+import CommandPalette, { type CommandPaletteItem } from "./components/CommandPalette.vue";
+import ShortcutHelp from "./components/ShortcutHelp.vue";
+import PortForwardDialog from "./components/PortForwardDialog.vue";
 
 const QuickCommandPanel = defineAsyncComponent(() => import("./components/QuickCommandPanel.vue"));
 const AiAssistantPanel = defineAsyncComponent(() => import("./components/AiAssistantPanel.vue"));
@@ -72,11 +90,20 @@ const sessionViewModes = ref<Record<string, 'terminal' | 'sftp'>>({});
 type TerminalInstance = {
   term: Terminal;
   fitAddon: FitAddon;
+  searchAddon: SearchAddon;
   isLocal: boolean;
   backendReady: boolean;
   resizeObserver?: ResizeObserver;
 };
 const terminalMap = new Map<string, TerminalInstance>();
+
+const commandPaletteOpen = ref(false);
+const shortcutHelpOpen = ref(false);
+const portForwardOpen = ref(false);
+const recentPaletteActions = ref<ShortcutAction[]>(getRecentPaletteActions());
+const reconnectAttempts = new Map<string, number>();
+const autoReconnecting = new Set<string>();
+const terminalSearchOpen = ref(false);
 
 const markSessionBackendReady = (sessionId: string) => {
   const instance = terminalMap.get(sessionId);
@@ -133,7 +160,7 @@ let unlistenSync: UnlistenFn | null = null;
 let unlistenDragDrop: UnlistenFn | null = null;
 /** Skip disconnect toast when user closes tab, reconnects, or app unmounts */
 const suppressSshClosedToast = new Set<string>();
-const transferTasks = ref<any[]>([]);
+const transferTasks = ref<TransferTask[]>([]);
 const isSftpInternalDragging = ref(false);
 const sftpInternalDragKey = ref<string | null>(null);
 
@@ -750,35 +777,53 @@ const handleFileDblClick = async (file: any, type: 'local' | 'remote') => {
   }
 };
 
-const startTransferFromPath = async (
-  type: 'upload' | 'download',
-  opts: { localPath: string; remotePath: string; name: string }
-) => {
-  const {localPath: localFilePath, remotePath: remoteFilePath, name} = opts;
-  const taskId = Math.random().toString(36).substring(7);
-  transferTasks.value.push({id: taskId, name, progress: 0, type, status: 'transferring'});
+const runTransferTask = async (task: TransferTask) => {
+  task.status = 'transferring';
+  task.error = undefined;
   try {
-    await invoke(type === 'upload' ? "sftp_upload" : "sftp_download", {
-      sessionId: activeSessionId.value,
-      localPath: localFilePath,
-      remotePath: remoteFilePath,
-      taskId
+    await invoke(task.type === 'upload' ? 'sftp_upload' : 'sftp_download', {
+      sessionId: task.sessionId,
+      localPath: task.localPath,
+      remotePath: task.remotePath,
+      taskId: task.id,
     });
-    const task = transferTasks.value.find(t => t.id === taskId);
-    if (task) {
-      task.status = 'success';
-      task.progress = 100;
-      setTimeout(() => {
-        transferTasks.value = transferTasks.value.filter(t => t.id !== taskId);
-      }, 2000);
-    }
+    if (task.status === 'cancelled') return;
+    task.status = 'success';
+    task.progress = 100;
+    setTimeout(() => {
+      transferTasks.value = transferTasks.value.filter((t) => t.id !== task.id);
+    }, 2000);
     refreshLocalFiles();
     refreshRemoteFiles();
   } catch (err) {
-    const task = transferTasks.value.find(t => t.id === taskId);
-    if (task) task.status = 'error';
+    if (task.status === 'cancelled' || isTransferCancelled(err)) {
+      transferTasks.value = transferTasks.value.filter((t) => t.id !== task.id);
+      return;
+    }
+    task.status = 'error';
+    task.error = String(err);
     toast.error(t('toast.transferFailed', { err: String(err) }));
   }
+};
+
+const startTransferFromPath = async (
+  type: 'upload' | 'download',
+  opts: { localPath: string; remotePath: string; name: string },
+) => {
+  if (!activeSessionId.value) return;
+  const { localPath: localFilePath, remotePath: remoteFilePath, name } = opts;
+  const task: TransferTask = {
+    id: Math.random().toString(36).substring(7),
+    name,
+    progress: 0,
+    type,
+    status: 'transferring',
+    localPath: localFilePath,
+    remotePath: remoteFilePath,
+    sessionId: activeSessionId.value,
+  };
+  transferTasks.value.push(task);
+  void runTransferTask(task);
 };
 
 const startTransfer = async (type: 'upload' | 'download', file: any) => {
@@ -833,7 +878,11 @@ const syncRemotePathForSession = (sessionId: string | null) => {
   remotePath.value = getDefaultRemotePath(server);
 };
 
-const performConnect = async (sessionId: string, server: { id: string; name: string }) => {
+const performConnect = async (
+  sessionId: string,
+  server: { id: string; name: string },
+  options?: { silent?: boolean },
+) => {
   setSessionStatus(sessionId, 'connecting');
   await initTerminal(sessionId, false);
   const instance = terminalMap.get(sessionId);
@@ -851,7 +900,7 @@ const performConnect = async (sessionId: string, server: { id: string; name: str
   } catch (err) {
     const msg = String(err);
     setSessionStatus(sessionId, 'failed', msg);
-    toast.error(t('toast.connectFailed', { msg }));
+    if (!options?.silent) toast.error(t('toast.connectFailed', { msg }));
   }
 };
 
@@ -895,7 +944,7 @@ const connectToServer = async (serverId?: string) => {
   await performConnect(sessionId, server);
 };
 
-const reconnectSession = async (sessionId?: string) => {
+const reconnectSession = async (sessionId?: string, options?: { silent?: boolean }) => {
   const id = sessionId ?? activeSessionId.value;
   if (!id) return;
   const session = openSessions.value.find((s) => s.id === id);
@@ -904,10 +953,75 @@ const reconnectSession = async (sessionId?: string) => {
   if (!server) return;
   activeSessionId.value = id;
   activeId.value = server.id;
-  await performConnect(id, server);
+  await performConnect(id, server, { silent: options?.silent });
   if (sessionStatuses.value[id] === 'connected') {
-    toast.success(t('toast.reconnected'));
+    reconnectAttempts.delete(id);
+    autoReconnecting.delete(id);
+    if (!options?.silent) toast.success(t('toast.reconnected'));
   }
+};
+
+const exportActiveTerminal = async () => {
+  if (!activeSessionId.value) return;
+  const instance = terminalMap.get(activeSessionId.value);
+  if (!instance) return;
+  const session = openSessions.value.find((s) => s.id === activeSessionId.value);
+  const name = session?.name?.replace(/[^\w.-]+/g, '_') || 'terminal';
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  try {
+    const ok = await exportTerminalOutput(instance.term, `${name}-${stamp}.log`);
+    if (!ok) {
+      toast.warning(t('session.exportEmpty'));
+      return;
+    }
+    toast.success(t('session.exportSuccess'));
+  } catch (err) {
+    toast.error(t('session.exportFailed', { err: String(err) }));
+  }
+};
+
+const tryAutoReconnect = async (sessionId: string) => {
+  if (autoReconnecting.has(sessionId)) return;
+  const settings = getSessionReconnectSettings();
+  if (!settings.enabled) return;
+
+  const attempts = reconnectAttempts.get(sessionId) ?? 0;
+  if (attempts >= settings.maxAttempts) {
+    toast.warning(t('session.autoReconnectGiveUp'));
+    autoReconnecting.delete(sessionId);
+    return;
+  }
+
+  autoReconnecting.add(sessionId);
+  reconnectAttempts.set(sessionId, attempts + 1);
+  toast.info(t('session.autoReconnecting', {
+    current: attempts + 1,
+    max: settings.maxAttempts,
+  }));
+
+  await new Promise((resolve) => setTimeout(resolve, settings.intervalMs));
+  if (!openSessions.value.some((s) => s.id === sessionId)) {
+    autoReconnecting.delete(sessionId);
+    return;
+  }
+
+  await reconnectSession(sessionId, { silent: true });
+  autoReconnecting.delete(sessionId);
+
+  if (sessionStatuses.value[sessionId] !== 'connected') {
+    void tryAutoReconnect(sessionId);
+  } else {
+    toast.success(t('session.autoReconnected'));
+  }
+};
+
+const openPortForwardDialog = () => {
+  if (!activeSessionId.value || isActiveLocalSession.value) return;
+  if (sessionStatuses.value[activeSessionId.value] !== 'connected') {
+    toast.warning(t('session.defaultDisconnected'));
+    return;
+  }
+  portForwardOpen.value = true;
 };
 
 const showSessionOverlay = (sessionId: string) => {
@@ -997,7 +1111,9 @@ const initTerminal = async (sessionId: string, isLocal = false) => {
     scrollback: 8000,
   });
   const fitAddon = new FitAddon();
+  const searchAddon = new SearchAddon();
   term.loadAddon(fitAddon);
+  term.loadAddon(searchAddon);
   if (isLocal) {
     const unicode11Addon = new Unicode11Addon();
     term.loadAddon(unicode11Addon);
@@ -1064,7 +1180,17 @@ const initTerminal = async (sessionId: string, isLocal = false) => {
       sendQueue.push(data);
       scheduleFlush();
     });
-    terminalMap.set(sessionId, { term, fitAddon, isLocal, backendReady: false, resizeObserver });
+
+    term.attachCustomKeyEventHandler((e) => {
+      if (e.type !== 'keydown') return true;
+      if (handleShortcutKeydown(e)) {
+        e.preventDefault();
+        return false;
+      }
+      return true;
+    });
+
+    terminalMap.set(sessionId, { term, fitAddon, searchAddon, isLocal, backendReady: false, resizeObserver });
   }
 };
 
@@ -1075,6 +1201,8 @@ const closeTab = async (id: string) => {
 };
 
 const internalUiCleanup = (id: string) => {
+  reconnectAttempts.delete(id);
+  autoReconnecting.delete(id);
   const instance = terminalMap.get(id);
   if (instance) {
     instance.resizeObserver?.disconnect();
@@ -1363,21 +1491,49 @@ const loadServers = async () => {
   if (servers.value.length > 0 && !activeId.value) activeId.value = servers.value[0].id;
 };
 
-const getTaskIcon = (task: any) => {
+const getTaskIcon = (task: TransferTask) => {
   if (task.status === 'error') return 'fas fa-exclamation-circle';
   if (task.status === 'success') return 'fas fa-check-circle';
+  if (task.status === 'paused') return 'fas fa-pause-circle';
   return task.type === 'upload' ? 'fas fa-cloud-upload-alt' : 'fas fa-cloud-download-alt';
 };
 
-const cancelTask = async (taskId: string) => {
-  const task = transferTasks.value.find(t => t.id === taskId);
-  if (!task) return;
+const pauseTask = async (taskId: string) => {
+  const task = transferTasks.value.find((t) => t.id === taskId);
+  if (!task || task.status !== 'transferring') return;
   try {
-    await invoke("abort_transfer", {taskId});
-    task.status = 'error';
-    setTimeout(() => {
-      transferTasks.value = transferTasks.value.filter(t => t.id !== taskId);
-    }, 3000);
+    await invoke('pause_transfer', { taskId });
+    task.status = 'paused';
+  } catch (err) {
+    toast.error(t('sftp.pauseFailed', { err: String(err) }));
+  }
+};
+
+const resumeTask = async (taskId: string) => {
+  const task = transferTasks.value.find((t) => t.id === taskId);
+  if (!task || task.status !== 'paused') return;
+  try {
+    await invoke('resume_transfer', { taskId });
+    task.status = 'transferring';
+  } catch (err) {
+    toast.error(t('sftp.resumeFailed', { err: String(err) }));
+  }
+};
+
+const retryTask = (taskId: string) => {
+  const task = transferTasks.value.find((t) => t.id === taskId);
+  if (!task || task.status !== 'error') return;
+  task.progress = 0;
+  void runTransferTask(task);
+};
+
+const cancelTask = async (taskId: string) => {
+  const task = transferTasks.value.find((t) => t.id === taskId);
+  if (!task) return;
+  task.status = 'cancelled';
+  try {
+    await invoke('abort_transfer', { taskId });
+    transferTasks.value = transferTasks.value.filter((t) => t.id !== taskId);
   } catch (err) {
     console.error(err);
   }
@@ -1513,15 +1669,203 @@ watch(defaultTheme, async () => {
   terminalMap.forEach(({ term }) => applyTerminalTheme(term));
 }, { immediate: false });
 
-const handleGlobalKeydown = (e: KeyboardEvent) => {
-  const target = e.target as HTMLElement;
-  const tag = target.tagName;
-  if (tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable) return;
+watch([activeSessionId, currentViewMode], () => {
+  terminalSearchOpen.value = false;
+});
 
-  if (e.ctrlKey && e.key === 'w') {
-    e.preventDefault();
-    if (activeSessionId.value) void closeTab(activeSessionId.value);
+const switchTabByOffset = (offset: number) => {
+  if (!openSessions.value.length || !activeSessionId.value) return;
+  const idx = openSessions.value.findIndex((s) => s.id === activeSessionId.value);
+  if (idx < 0) return;
+  const next = (idx + offset + openSessions.value.length) % openSessions.value.length;
+  activeSessionId.value = openSessions.value[next].id;
+};
+
+const switchTabByIndex = (index: number) => {
+  if (index >= 0 && index < openSessions.value.length) {
+    activeSessionId.value = openSessions.value[index].id;
   }
+};
+
+const tryModDigitTab = (e: KeyboardEvent): boolean => {
+  if (!isModKey(e) || !/^[1-9]$/.test(e.key)) return false;
+  switchTabByIndex(Number(e.key) - 1);
+  return true;
+};
+
+const findInActiveTerminal = (query: string, direction: 'next' | 'prev') => {
+  if (!activeSessionId.value) return;
+  const instance = terminalMap.get(activeSessionId.value);
+  if (!instance) return;
+  const options = { caseSensitive: false, wholeWord: false, regex: false };
+  if (direction === 'next') instance.searchAddon.findNext(query, options);
+  else instance.searchAddon.findPrevious(query, options);
+};
+
+const copyActiveTerminalSelection = async () => {
+  if (!activeSessionId.value) return;
+  const instance = terminalMap.get(activeSessionId.value);
+  const text = instance?.term.getSelection()?.trim();
+  if (!text) {
+    toast.warning(t('shortcuts.selectionEmpty'));
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    toast.success(t('shortcuts.selectionCopied'));
+  } catch {
+    toast.error(t('toast.copyFailed'));
+  }
+};
+
+const executeShortcutAction = (action: ShortcutAction): boolean => {
+  switch (action) {
+    case 'closeTab':
+      if (activeSessionId.value) void closeTab(activeSessionId.value);
+      return true;
+    case 'newLocalShell':
+      void openLocalShell();
+      return true;
+    case 'newHost':
+      if (!isModalOpen.value) openAddModal();
+      return true;
+    case 'nextTab':
+      switchTabByOffset(1);
+      return true;
+    case 'prevTab':
+      switchTabByOffset(-1);
+      return true;
+    case 'terminalSearch':
+      if (activeSessionId.value && currentViewMode.value === 'terminal') {
+        terminalSearchOpen.value = true;
+      }
+      return true;
+    case 'toggleSftp':
+      if (activeSessionId.value) void toggleViewMode();
+      return true;
+    case 'clearTerminal': {
+      const instance = activeSessionId.value ? terminalMap.get(activeSessionId.value) : null;
+      instance?.term.clear();
+      return true;
+    }
+    case 'copyTerminalSelection':
+      void copyActiveTerminalSelection();
+      return true;
+    case 'exportTerminal':
+      void exportActiveTerminal();
+      return true;
+    case 'commandPalette':
+      commandPaletteOpen.value = true;
+      return true;
+    case 'toggleQuickPanel':
+      handleToggle('quick');
+      return true;
+    case 'toggleAiPanel':
+      handleToggle('ai');
+      return true;
+    case 'toggleRedisPanel':
+      handleToggle('redis');
+      return true;
+    case 'toggleApiPanel':
+      handleToggle('api');
+      return true;
+    case 'toggleChatPanel':
+      handleToggle('chat');
+      return true;
+    case 'toggleSyncPanel':
+      handleToggle('sync-settings');
+      return true;
+    case 'portForwardPanel':
+      openPortForwardDialog();
+      return true;
+    case 'themeSettings':
+      handleToggle('theme-settings');
+      return true;
+    case 'reconnect':
+      if (activeSessionId.value) void reconnectSession(activeSessionId.value);
+      return true;
+    case 'shortcutHelp':
+      shortcutHelpOpen.value = true;
+      return true;
+    default: {
+      const tabIdx = tabIndexFromAction(action);
+      if (tabIdx !== null) {
+        switchTabByIndex(tabIdx);
+        return true;
+      }
+      return false;
+    }
+  }
+};
+
+const handleShortcutKeydown = (e: KeyboardEvent): boolean => {
+  if (commandPaletteOpen.value) return false;
+  if (portForwardOpen.value) return false;
+  if (shortcutHelpOpen.value) {
+    if (e.key === 'Escape') shortcutHelpOpen.value = false;
+    return e.key === 'Escape';
+  }
+  if (terminalSearchOpen.value && e.key === 'Escape') {
+    terminalSearchOpen.value = false;
+    return true;
+  }
+  if (isModalOpen.value || sftpDialogVisible.value) return false;
+  if (isTypingContext(e.target)) return false;
+
+  if (tryModDigitTab(e)) return true;
+
+  const action = resolveShortcutAction(e);
+  if (!action) return false;
+  return executeShortcutAction(action);
+};
+
+const handleGlobalKeydown = (e: KeyboardEvent) => {
+  if (handleShortcutKeydown(e)) e.preventDefault();
+};
+
+const paletteItemDisabled = (action: ShortcutAction): boolean => {
+  switch (action) {
+    case 'closeTab':
+    case 'toggleSftp':
+    case 'reconnect':
+    case 'clearTerminal':
+    case 'copyTerminalSelection':
+    case 'exportTerminal':
+      return !activeSessionId.value;
+    case 'nextTab':
+    case 'prevTab':
+      return openSessions.value.length < 2;
+    case 'terminalSearch':
+      return !activeSessionId.value || currentViewMode.value !== 'terminal';
+    case 'portForwardPanel':
+      return !activeSessionId.value ||
+        isActiveLocalSession.value ||
+        sessionStatuses.value[activeSessionId.value ?? ''] !== 'connected';
+    default: {
+      const tabIdx = tabIndexFromAction(action);
+      if (tabIdx !== null) return tabIdx >= openSessions.value.length;
+      return false;
+    }
+  }
+};
+
+const commandPaletteItems = computed<CommandPaletteItem[]>(() =>
+  PALETTE_SHORTCUT_ITEMS.map((def) => {
+    const params = shortcutLabelParams(def.action);
+    return {
+      id: def.action,
+      label: params ? t(def.labelKey, params) : t(def.labelKey),
+      shortcut: def.keys || undefined,
+      action: def.action,
+      disabled: paletteItemDisabled(def.action),
+    };
+  }),
+);
+
+const handlePaletteRun = (action: string) => {
+  recordPaletteUse(action as ShortcutAction);
+  recentPaletteActions.value = getRecentPaletteActions();
+  executeShortcutAction(action as ShortcutAction);
 };
 
 onMounted(async () => {
@@ -1556,6 +1900,7 @@ onMounted(async () => {
     if (instance) instance.backendReady = false;
     setSessionStatus(payload.session_id, 'disconnected', t('session.remoteDisconnected'));
     toast.warning(t('session.sshDisconnectedTitle'));
+    void tryAutoReconnect(payload.session_id);
   });
   unlistenTransfer = await listen("transfer-progress", (event) => {
     const {taskId, progress} = event.payload as { taskId: string, progress: number };
@@ -1637,10 +1982,16 @@ onUnmounted(async () => {
             @toggle-view-mode="toggleViewMode"
             @connect="connectToServer()"
             @reconnect="reconnectSession()"
+            @open-port-forward="openPortForwardDialog()"
         />
 
         <div class="terminal-shell">
           <div v-show="currentViewMode === 'terminal'" class="terminal-wrapper">
+            <TerminalSearchBar
+                :visible="terminalSearchOpen && !!activeSessionId"
+                @close="terminalSearchOpen = false"
+                @find="findInActiveTerminal"
+            />
             <div v-if="openSessions.length > 0" class="terminal-multi-wrapper">
               <div
                   v-for="session in openSessions"
@@ -1780,20 +2131,47 @@ onUnmounted(async () => {
                     <div v-for="task in transferTasks" :key="task.id" class="task-row"
                          :class="[`status-${task.status}`]">
                       <div class="task-info">
-                        <Tooltip :text="task.name" block wrap>
+                        <Tooltip :text="task.name" wrap>
                           <div class="name-box">
                             <i :class="getTaskIcon(task)" class="type-icon"></i>
                             <span class="task-name">{{ task.name }}</span>
                           </div>
                         </Tooltip>
                         <div class="task-actions">
-                          <button v-if="task.status === 'transferring'" class="cancel-btn"
-                                  @click.stop="cancelTask(task.id)"><i class="fas fa-times"></i></button>
-                          <span class="task-percent">{{ task.progress }}%</span>
+                          <Tooltip v-if="task.status === 'transferring'" :text="t('sftp.pause')">
+                            <button type="button" class="task-btn" @click.stop="pauseTask(task.id)">
+                              <i class="fas fa-pause"></i>
+                            </button>
+                          </Tooltip>
+                          <Tooltip v-if="task.status === 'paused'" :text="t('sftp.resume')">
+                            <button type="button" class="task-btn" @click.stop="resumeTask(task.id)">
+                              <i class="fas fa-play"></i>
+                            </button>
+                          </Tooltip>
+                          <Tooltip v-if="task.status === 'error'" :text="t('sftp.retry')">
+                            <button type="button" class="task-btn task-btn--retry" @click.stop="retryTask(task.id)">
+                              <i class="fas fa-rotate-right"></i>
+                            </button>
+                          </Tooltip>
+                          <Tooltip
+                              v-if="task.status === 'transferring' || task.status === 'paused'"
+                              :text="t('common.cancel')"
+                          >
+                            <button type="button" class="task-btn task-btn--cancel" @click.stop="cancelTask(task.id)">
+                              <i class="fas fa-times"></i>
+                            </button>
+                          </Tooltip>
                         </div>
+                        <span class="task-percent">
+                          {{ task.status === 'paused' ? t('sftp.paused') : `${task.progress}%` }}
+                        </span>
                       </div>
                       <div class="progress-container">
-                        <div class="progress-bar" :style="{ width: task.progress + '%' }"></div>
+                        <div
+                            class="progress-bar"
+                            :class="{ transferring: task.status === 'transferring' }"
+                            :style="{ width: task.progress + '%' }"
+                        ></div>
                       </div>
                     </div>
                   </TransitionGroup>
@@ -1899,6 +2277,25 @@ onUnmounted(async () => {
         </Transition>
       </div>
     </div>
+
+    <CommandPalette
+        :visible="commandPaletteOpen"
+        :items="commandPaletteItems"
+        :recent-action-ids="recentPaletteActions"
+        @close="commandPaletteOpen = false"
+        @run="handlePaletteRun"
+    />
+
+    <PortForwardDialog
+        :visible="portForwardOpen"
+        :session-id="activeSessionId"
+        @close="portForwardOpen = false"
+    />
+
+    <ShortcutHelp
+        :visible="shortcutHelpOpen"
+        @close="shortcutHelpOpen = false"
+    />
 
     <ServerModal :is-open="isModalOpen" :is-editing="isEditing" :server="newHost" :servers="servers" @close="closeModal"
                  @save="saveHost"/>

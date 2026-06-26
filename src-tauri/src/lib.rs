@@ -4,6 +4,8 @@ mod security;
 mod redis_manager;
 mod local_shell;
 mod api_debugger;
+mod ai_chat;
+mod port_forward;
 use crate::sync::{
     get_sync_settings,
     save_sync_settings,
@@ -17,6 +19,14 @@ use p2p::{set_p2p_remark, start_p2p_node, get_p2p_remarks, search_p2p_messages, 
 use local_shell::{LocalSessionMap, LOCAL_SERVER_ID};
 use api_debugger::{
     export_api_debugger_file, get_api_debugger_data, import_api_debugger_file, save_api_debugger_data,
+};
+use ai_chat::{
+    clear_ai_chat_sessions, delete_ai_chat_session, get_ai_chat_session, list_ai_chat_sessions,
+    prune_ai_chat_sessions, save_ai_chat_session,
+};
+use port_forward::{
+    list_port_forwards, start_port_forward, stop_port_forward, stop_all_for_session,
+    PortForwardMap, new_port_forward_map,
 };
 use redis_manager::{redis_connect, redis_get_keys, redis_get_value, redis_set_value, redis_del_key, redis_rename_key, redis_get_ttl, redis_get_type, save_redis_config, get_redis_configs, delete_redis_config, clear_all_redis_configs};
 use tokio::sync::mpsc;
@@ -51,6 +61,7 @@ pub const REDIS_CONN_TABLE: TableDefinition<&str, &str> = TableDefinition::new("
 pub const P2P_MESSAGES_TABLE: TableDefinition<&str, &str> = TableDefinition::new("p2p_messages");
 pub const P2P_REMARKS_TABLE: TableDefinition<&str, &str> = TableDefinition::new("p2p_remarks");
 pub const API_DEBUGGER_TABLE: TableDefinition<&str, &str> = TableDefinition::new("api_debugger");
+pub const AI_CHAT_SESSIONS_TABLE: TableDefinition<&str, &str> = TableDefinition::new("ai_chat_sessions");
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ServerConfig {
@@ -210,8 +221,10 @@ pub struct AppState {
     pub local_sessions: LocalSessionMap,
     pub db: Arc<redb::Database>,
     pub cancelled_tasks: Arc<Mutex<HashSet<String>>>,
+    pub paused_tasks: Arc<Mutex<HashSet<String>>>,
     pub p2p_sender: mpsc::UnboundedSender<p2p::P2PCommand>,
     pub sync_runtime: Arc<tokio::sync::Mutex<SyncRuntime>>,
+    pub port_forwards: PortForwardMap,
 }
 
 impl Clone for AppState {
@@ -221,8 +234,10 @@ impl Clone for AppState {
             local_sessions: self.local_sessions.clone(),
             db: self.db.clone(),
             cancelled_tasks: self.cancelled_tasks.clone(),
+            paused_tasks: self.paused_tasks.clone(),
             p2p_sender: self.p2p_sender.clone(),
             sync_runtime: self.sync_runtime.clone(),
+            port_forwards: self.port_forwards.clone(),
         }
     }
 }
@@ -845,7 +860,16 @@ async fn disconnect_ssh(state: State<'_, AppState>, session_id: String) -> Resul
             )
             .await;
     }
+    stop_all_for_session(&state.port_forwards, &session_id).await;
     Ok(())
+}
+
+#[tauri::command]
+async fn write_text_file(path: String, content: String) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || std::fs::write(&path, content))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1368,7 +1392,26 @@ async fn list_remote_dir(state: State<'_, AppState>, session_id: String, path: S
     Ok(files)
 }
 
-
+async fn wait_transfer_tick(state: &AppState, task_id: &str) -> Result<(), String> {
+    loop {
+        {
+            let cancelled = state.cancelled_tasks.lock().await;
+            if cancelled.contains(task_id) {
+                drop(cancelled);
+                state.cancelled_tasks.lock().await.remove(task_id);
+                state.paused_tasks.lock().await.remove(task_id);
+                return Err("Task cancelled".into());
+            }
+        }
+        {
+            let paused = state.paused_tasks.lock().await;
+            if !paused.contains(task_id) {
+                return Ok(());
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+}
 
 #[tauri::command]
 async fn sftp_upload(
@@ -1406,14 +1449,11 @@ async fn sftp_upload(
     let mut buffer = vec![0u8; 65536];
     let mut uploaded_size = 0u64;
 
-    while let Ok(n) = local_file.read(&mut buffer).await {
-        if n == 0 { break; }
+    loop {
+        wait_transfer_tick(state.inner(), &task_id).await?;
 
-        if state.cancelled_tasks.lock().await.contains(&task_id) {
-            state.cancelled_tasks.lock().await.remove(&task_id);
-            drop(remote_file);
-            return Err("Task cancelled".into());
-        }
+        let n = local_file.read(&mut buffer).await.map_err(|e| e.to_string())?;
+        if n == 0 { break; }
 
         remote_file.write_all(&buffer[..n]).await.map_err(|e| e.to_string())?;
         uploaded_size += n as u64;
@@ -1464,14 +1504,11 @@ async fn sftp_download(
     let mut buffer = vec![0u8; 65536];
     let mut downloaded_size = 0u64;
 
-    while let Ok(n) = remote_file.read(&mut buffer).await {
-        if n == 0 { break; }
+    loop {
+        wait_transfer_tick(state.inner(), &task_id).await?;
 
-        if state.cancelled_tasks.lock().await.contains(&task_id) {
-            state.cancelled_tasks.lock().await.remove(&task_id);
-            drop(remote_file);
-            return Err("Task cancelled".into());
-        }
+        let n = remote_file.read(&mut buffer).await.map_err(|e| e.to_string())?;
+        if n == 0 { break; }
 
         local_file.write_all(&buffer[..n]).await.map_err(|e| e.to_string())?;
         downloaded_size += n as u64;
@@ -1495,7 +1532,20 @@ async fn sftp_download(
 
 #[tauri::command]
 async fn abort_transfer(state: State<'_, AppState>, task_id: String) -> Result<(), String> {
-    state.cancelled_tasks.lock().await.insert(task_id);
+    state.cancelled_tasks.lock().await.insert(task_id.clone());
+    state.paused_tasks.lock().await.remove(&task_id);
+    Ok(())
+}
+
+#[tauri::command]
+async fn pause_transfer(state: State<'_, AppState>, task_id: String) -> Result<(), String> {
+    state.paused_tasks.lock().await.insert(task_id);
+    Ok(())
+}
+
+#[tauri::command]
+async fn resume_transfer(state: State<'_, AppState>, task_id: String) -> Result<(), String> {
+    state.paused_tasks.lock().await.remove(&task_id);
     Ok(())
 }
 
@@ -1908,8 +1958,10 @@ pub fn run() {
                 local_sessions: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
                 db: db_arc.clone(),
                 cancelled_tasks: Arc::new(Mutex::new(HashSet::new())),
+                paused_tasks: Arc::new(Mutex::new(HashSet::new())),
                 p2p_sender: tx,
                 sync_runtime: Arc::new(tokio::sync::Mutex::new(SyncRuntime::default())),
+                port_forwards: new_port_forward_map(),
             });
 
            app.manage(shared_p2p_status.clone());
@@ -1970,8 +2022,10 @@ pub fn run() {
                         let _ = write_txn.open_table(P2P_MESSAGES_TABLE).map_err(|e| e.to_string())?;
                         let _ = write_txn.open_table(P2P_REMARKS_TABLE).map_err(|e| e.to_string())?;
                         let _ = write_txn.open_table(API_DEBUGGER_TABLE).map_err(|e| e.to_string())?;
+                        let _ = write_txn.open_table(AI_CHAT_SESSIONS_TABLE).map_err(|e| e.to_string())?;
                     }
                     write_txn.commit().map_err(|e| e.to_string())?;
+                    let _ = ai_chat::prune_expired_sessions(&db_for_setup);
                     Ok(())
                 })();
 
@@ -2002,6 +2056,7 @@ pub fn run() {
             resize_ssh,
             disconnect_ssh,
             write_to_ssh,
+            write_text_file,
             list_local_dir,
             get_local_file_info,
             rename_local_file,
@@ -2020,6 +2075,8 @@ pub fn run() {
             sftp_upload,
             sftp_download,
             abort_transfer,
+            pause_transfer,
+            resume_transfer,
             delete_remote_file,
             get_quick_commands,
             save_quick_command,
@@ -2027,6 +2084,12 @@ pub fn run() {
             save_ai_config,
             get_ai_config,
             ask_ai,
+            list_ai_chat_sessions,
+            get_ai_chat_session,
+            save_ai_chat_session,
+            delete_ai_chat_session,
+            clear_ai_chat_sessions,
+            prune_ai_chat_sessions,
             get_server_latency,
             get_servers,
             update_server_order,
@@ -2059,7 +2122,10 @@ pub fn run() {
             get_api_debugger_data,
             save_api_debugger_data,
             export_api_debugger_file,
-            import_api_debugger_file
+            import_api_debugger_file,
+            start_port_forward,
+            stop_port_forward,
+            list_port_forwards,
         ])
         .run(tauri::generate_context!())
         .expect("Tauri 运行出错");

@@ -10,6 +10,7 @@
     "npm:@tauri-apps/plugin-updater@^2.10.0": "2.10.0",
     "npm:@vitejs/plugin-vue@^5.2.1": "5.2.4_vite@6.4.1__sass-embedded@1.97.3__picomatch@4.0.3_vue@3.5.29__typescript@5.6.3_sass-embedded@1.97.3_typescript@5.6.3",
     "npm:@xterm/addon-fit@0.11": "0.11.0",
+    "npm:@xterm/addon-search@0.15": "0.15.0_@xterm+xterm@6.0.0",
     "npm:@xterm/addon-unicode11@0.9": "0.9.0",
     "npm:@xterm/addon-webgl@0.19": "0.19.0",
     "npm:@xterm/xterm@6": "6.0.0",
@@ -645,6 +646,12 @@
     },
     "@xterm/addon-fit@0.11.0": {
       "integrity": "sha512-jYcgT6xtVYhnhgxh3QgYDnnNMYTcf8ElbxxFzX0IZo+vabQqSPAjC3c1wJrKB5E19VwQei89QCiZZP86DCPF7g=="
+    },
+    "@xterm/addon-search@0.15.0_@xterm+xterm@6.0.0": {
+      "integrity": "sha512-ZBZKLQ+EuKE83CqCmSSz5y1tx+aNOCUaA7dm6emgOX+8J9H1FWXZyrKfzjwzV+V14TV3xToz1goIeRhXBS5qjg==",
+      "dependencies": [
+        "@xterm/xterm"
+      ]
     },
     "@xterm/addon-unicode11@0.9.0": {
       "integrity": "sha512-FxDnYcyuXhNl+XSqGZL/t0U9eiNb/q3EWT5rYkQT/zuig8Gz/VagnQANKHdDWFM2lTMk9ly0EFQxxxtZUoRetw=="
@@ -1336,6 +1343,7 @@
         "npm:@tauri-apps/plugin-updater@^2.10.0",
         "npm:@vitejs/plugin-vue@^5.2.1",
         "npm:@xterm/addon-fit@0.11",
+        "npm:@xterm/addon-search@0.15",
         "npm:@xterm/addon-unicode11@0.9",
         "npm:@xterm/addon-webgl@0.19",
         "npm:@xterm/xterm@6",

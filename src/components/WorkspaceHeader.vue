@@ -20,6 +20,7 @@ const emit = defineEmits<{
   (e: 'toggleViewMode'): void;
   (e: 'connect'): void;
   (e: 'reconnect'): void;
+  (e: 'openPortForward'): void;
 }>();
 
 const activeServer = computed(() => {
@@ -82,6 +83,12 @@ const showConnectButton = computed(() =>
 const showReconnectButton = computed(() =>
   !props.isLocalSession &&
   (props.sessionStatus === 'failed' || props.sessionStatus === 'disconnected'),
+);
+
+const showPortForwardButton = computed(() =>
+  !props.isLocalSession &&
+  props.sessionStatus === 'connected' &&
+  !!props.activeSessionId,
 );
 
 const connectButtonText = computed(() => {
@@ -147,6 +154,16 @@ const viewModeTooltip = computed(() => {
             <span>{{ viewModeLabel }}</span>
           </button>
         </Tooltip>
+
+        <button
+            v-if="showPortForwardButton"
+            type="button"
+            class="action-btn action-btn--ghost"
+            @click="emit('openPortForward')"
+        >
+          <i class="fas fa-shuffle"></i>
+          <span>{{ tr.portForward.openPanel }}</span>
+        </button>
 
         <button
             v-if="showReconnectButton"

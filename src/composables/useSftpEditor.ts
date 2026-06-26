@@ -9,7 +9,10 @@ import {
   type SftpFileRevision,
   revisionsEqual,
 } from '../utils/sftpEditor.ts';
-import type { SftpFileDetail } from '../components/SftpFileDialog.vue';
+interface FileDetailResponse {
+  size: number;
+  modifiedAt?: number;
+}
 
 interface SftpListFile {
   name: string;
@@ -44,10 +47,10 @@ export function useSftpEditor(options: {
     filePath: string,
   ): Promise<SftpFileRevision> => {
     if (src === 'local') {
-      const detail = await invoke<SftpFileDetail>('get_local_file_info', { path: filePath });
+      const detail = await invoke<FileDetailResponse>('get_local_file_info', { path: filePath });
       return { size: detail.size, modifiedAt: detail.modifiedAt };
     }
-    const detail = await invoke<SftpFileDetail>('get_remote_file_info', {
+    const detail = await invoke<FileDetailResponse>('get_remote_file_info', {
       sessionId: options.activeSessionId.value,
       path: filePath,
     });

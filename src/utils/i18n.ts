@@ -1950,7 +1950,7 @@ function interpolate(text: string, params?: Record<string, ParamValue>) {
   return text.replace(/\{(\w+)\}/g, (_, key: string) => String(params[key] ?? `{${key}}`));
 }
 
-function getNestedMessage(dict: I18nMessages, path: string): string | undefined {
+function getNestedMessage(dict: (typeof messages)[AppLocale], path: string): string | undefined {
   const parts = path.split('.');
   let current: unknown = dict;
   for (const part of parts) {

@@ -28,6 +28,9 @@ export function useTransferQueue(options: {
     }
   };
 
+  const taskWasCancelled = (taskId: string) =>
+    transferTasks.value.find((item) => item.id === taskId)?.status === 'cancelled';
+
   const runTransferTask = async (task: TransferTask) => {
     if (task.status !== 'queued' && task.status !== 'transferring' && task.status !== 'paused') {
       return;
@@ -45,7 +48,7 @@ export function useTransferQueue(options: {
         remotePath: task.remotePath,
         taskId: task.id,
       });
-      if (task.status === 'cancelled') return;
+      if (taskWasCancelled(task.id)) return;
       task.status = 'success';
       task.progress = 100;
       setTimeout(() => {
@@ -54,7 +57,7 @@ export function useTransferQueue(options: {
       await options.refreshLocalFiles();
       await options.refreshRemoteFiles();
     } catch (err) {
-      if (task.status === 'cancelled' || isTransferCancelled(err)) {
+      if (taskWasCancelled(task.id) || isTransferCancelled(err)) {
         transferTasks.value = transferTasks.value.filter((item) => item.id !== task.id);
         return;
       }

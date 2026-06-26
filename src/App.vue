@@ -40,6 +40,7 @@ import {
 } from "./utils/sftpPaths.ts";
 import { useRightPanel, type RightPanelType } from "./composables/useRightPanel.ts";
 import { useTransferQueue } from "./composables/useTransferQueue.ts";
+import { useSftpEditor } from "./composables/useSftpEditor.ts";
 
 const { tr } = useI18n();
 
@@ -50,6 +51,7 @@ import StatusBar from "./components/StatusBar.vue";
 import TitleBar from "./components/TitleBar.vue";
 import ServerModal from "./components/ServerModal.vue";
 import SftpFileDialog, { type SftpFileDetail } from "./components/SftpFileDialog.vue";
+import SftpEditorDialog from "./components/SftpEditorDialog.vue";
 import TerminalSearchBar from "./components/TerminalSearchBar.vue";
 import CommandPalette, { type CommandPaletteItem } from "./components/CommandPalette.vue";
 import ShortcutHelp from "./components/ShortcutHelp.vue";
@@ -216,7 +218,7 @@ const sftpClipboard = ref<SftpClipboardItem | null>(null);
 
 type SftpMenuAction =
   | 'copy' | 'cut' | 'paste' | 'copyPath' | 'refresh' | 'newFile' | 'newFolder'
-  | 'transfer' | 'info' | 'openExplorer' | 'rename' | 'chmod' | 'delete';
+  | 'transfer' | 'info' | 'openExplorer' | 'rename' | 'chmod' | 'edit' | 'view' | 'delete';
 
 const sftpDialogVisible = ref(false);
 const sftpDialogMode = ref<'info' | 'rename' | 'chmod' | 'createFile' | 'createFolder'>('info');
@@ -563,6 +565,12 @@ const handleMenuAction = async (action: SftpMenuAction) => {
     }
   } else if (action === 'rename') {
     openSftpDialog('rename', source, file, file.name);
+  } else if (action === 'edit') {
+    if (file.is_dir) return;
+    await openSftpEditor(source, file);
+  } else if (action === 'view') {
+    if (file.is_dir) return;
+    await openSftpEditor(source, file, { readonly: true });
   } else if (action === 'chmod') {
     openSftpDialog('chmod', source, file);
     sftpDialogLoading.value = true;
@@ -1187,6 +1195,30 @@ const {
   activeSessionId,
   refreshLocalFiles,
   refreshRemoteFiles,
+});
+
+const {
+  sftpEditorVisible,
+  sftpEditorLoading,
+  sftpEditorSaving,
+  sftpEditorReadonly,
+  sftpEditorSource,
+  sftpEditorPath,
+  sftpEditorFileName,
+  sftpEditorFileSize,
+  sftpEditorContent,
+  sftpEditorEncoding,
+  sftpEditorSavedAt,
+  sftpEditorDirty,
+  openSftpEditor,
+  closeSftpEditor,
+  saveSftpEditor,
+  setSftpEditorEncoding,
+} = useSftpEditor({
+  activeSessionId,
+  refreshLocalFiles,
+  refreshRemoteFiles,
+  getContextFilePath,
 });
 
 const startTransfer = async (type: 'upload' | 'download', file: any) => {
@@ -2149,6 +2181,25 @@ onUnmounted(async () => {
       @confirm="handleSftpDialogConfirm"
     />
 
+    <SftpEditorDialog
+      :visible="sftpEditorVisible"
+      :loading="sftpEditorLoading"
+      :saving="sftpEditorSaving"
+      :readonly="sftpEditorReadonly"
+      :source="sftpEditorSource"
+      :path="sftpEditorPath"
+      :file-name="sftpEditorFileName"
+      :file-size="sftpEditorFileSize"
+      :content="sftpEditorContent"
+      :dirty="sftpEditorDirty"
+      :encoding="sftpEditorEncoding"
+      :saved-at="sftpEditorSavedAt"
+      @update:content="sftpEditorContent = $event"
+      @update:encoding="setSftpEditorEncoding"
+      @close="closeSftpEditor"
+      @save="saveSftpEditor"
+    />
+
     <Transition name="menu-scale">
       <div v-if="menuVisible" class="context-menu" :style="{ top: menuPos.y + 'px', left: menuPos.x + 'px' }"
            @click.stop>
@@ -2215,6 +2266,16 @@ onUnmounted(async () => {
           <div class="menu-item" @click="handleMenuAction('rename')">
             <i class="fas fa-pen"></i>
             <span class="menu-text">{{ tr.sftp.rename }}</span>
+          </div>
+
+          <div v-if="contextFile && !contextFile.is_dir" class="menu-item" @click="handleMenuAction('edit')">
+            <i class="fas fa-file-code"></i>
+            <span class="menu-text">{{ tr.sftp.edit }}</span>
+          </div>
+
+          <div v-if="contextFile && !contextFile.is_dir" class="menu-item" @click="handleMenuAction('view')">
+            <i class="fas fa-eye"></i>
+            <span class="menu-text">{{ tr.sftp.view }}</span>
           </div>
 
           <div v-if="contextSource === 'remote'" class="menu-item" @click="handleMenuAction('chmod')">

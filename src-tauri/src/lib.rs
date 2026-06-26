@@ -53,9 +53,9 @@ use session_window::{open_session_window, preheat_servers};
 use sftp::{
     abort_transfer, copy_local_path, copy_remote_path, create_local_path, create_remote_path,
     delete_local_file, delete_remote_file, get_local_file_info, get_remote_file_info, list_local_dir,
-    list_remote_dir, move_local_path, move_remote_path, pause_transfer, rename_local_file,
-    rename_remote_file, resume_transfer, reveal_in_file_manager, set_remote_file_permissions,
-    sftp_download, sftp_upload,
+    list_remote_dir, move_local_path, move_remote_path, pause_transfer, read_local_file,
+    read_remote_file, rename_local_file, rename_remote_file, resume_transfer, reveal_in_file_manager,
+    set_remote_file_permissions, sftp_download, sftp_upload, write_local_file, write_remote_file,
 };
 use ssh_session::{connect_ssh, disconnect_ssh, resize_ssh, write_to_ssh};
 
@@ -575,6 +575,8 @@ pub fn run() {
             copy_local_path,
             move_local_path,
             delete_local_file,
+            read_local_file,
+            write_local_file,
             list_remote_dir,
             get_remote_file_info,
             rename_remote_file,
@@ -588,6 +590,8 @@ pub fn run() {
             pause_transfer,
             resume_transfer,
             delete_remote_file,
+            read_remote_file,
+            write_remote_file,
             get_quick_commands,
             save_quick_command,
             delete_quick_command,

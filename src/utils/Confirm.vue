@@ -93,7 +93,7 @@ onMounted(() => {
   width: 340px;
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: 8px;
   padding: 24px;
   box-shadow: 0 20px 25px -5px var(--shadow, rgba(0, 0, 0, 0.3));
   position: relative;

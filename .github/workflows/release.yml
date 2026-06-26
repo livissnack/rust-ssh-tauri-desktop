@@ -37,7 +37,7 @@ jobs:
           echo "tag_msg=$MSG" >> $GITHUB_OUTPUT
 
       - name: install frontend dependencies
-        run: deno install
+        run: deno install --allow-scripts
 
       # 🚀 构建 Tauri 软件
       - name: build tauri app

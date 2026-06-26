@@ -123,12 +123,16 @@ pub fn write_store(db: &Database, store: &YourStore) -> Result<(), String> { /* 
 
 ## 开发命令
 
+前端依赖**只用 Deno 安装**，禁止 `npm install`：
+
 ```bash
-deno install          # 安装 npm 依赖（nodeModulesDir: auto）
-deno task dev           # 仅前端
-deno task tauri dev     # 完整桌面开发
-deno task check         # 前端类型检查 + cargo check
-deno task tauri build   # 生产打包
+deno install --allow-scripts   # 或 deno task install
+deno install npm:包名          # 新增生产依赖
+deno install --dev npm:包名    # 新增开发依赖
+deno task dev                  # 仅前端
+deno task tauri dev            # 完整桌面开发
+deno task check                # 前端类型检查 + cargo check
+deno task tauri build          # 生产打包
 ```
 
 ---

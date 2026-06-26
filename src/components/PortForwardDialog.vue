@@ -161,7 +161,7 @@ const stopForward = async (id: string) => {
   max-height: min(80vh, 560px);
   display: flex;
   flex-direction: column;
-  border-radius: 10px;
+  border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--bg-card);
   box-shadow: 0 24px 48px var(--shadow);

@@ -169,7 +169,7 @@ const handleConfirm = async () => {
 .modal-card {
   background: var(--bg-card);
   width: 460px;
-  border-radius: 12px;
+  border-radius: 8px;
   border: 1px solid var(--border);
   box-shadow: 0 20px 60px var(--shadow);
   display: flex;

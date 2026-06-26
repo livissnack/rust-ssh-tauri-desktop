@@ -405,7 +405,7 @@ const generatePassword = () => {
   flex-direction: column;
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: 8px;
   box-shadow:
     0 24px 48px -12px var(--shadow),
     0 0 0 1px var(--border-30);

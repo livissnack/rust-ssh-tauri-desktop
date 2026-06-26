@@ -140,7 +140,7 @@ const handleKeydown = (e: KeyboardEvent) => {
   width: min(420px, 100%);
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: 8px;
   box-shadow:
     0 24px 48px rgba(0, 0, 0, 0.35),
     inset 0 1px 0 var(--border-30);

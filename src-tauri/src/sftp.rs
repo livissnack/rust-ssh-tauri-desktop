@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, UNIX_EPOCH};
 use tauri::{Emitter, State, Window};
+use encoding_rs::{Encoding, GBK, UTF_8, WINDOWS_1252};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Mutex;
 
@@ -165,6 +166,144 @@ macro_rules! with_sftp {
             .ok_or_else(|| "SFTP session unavailable".to_string())?;
         $body
     }};
+}
+
+const MAX_SFTP_EDIT_BYTES: u64 = 2 * 1024 * 1024;
+
+fn resolve_encoding(name: &str) -> Result<&'static Encoding, String> {
+    match name.trim().to_lowercase().as_str() {
+        "utf-8" | "utf8" => Ok(UTF_8),
+        "gbk" | "gb2312" | "gb18030" => Ok(GBK),
+        "latin1" | "iso-8859-1" | "windows-1252" | "cp1252" => Ok(WINDOWS_1252),
+        other => Err(format!("Unsupported encoding: {other}")),
+    }
+}
+
+fn decode_text_file(bytes: &[u8], encoding: &str) -> Result<String, String> {
+    if bytes.contains(&0) {
+        return Err("Binary file cannot be edited as text".into());
+    }
+    let enc = resolve_encoding(encoding)?;
+    let (decoded, _, had_errors) = enc.decode(bytes);
+    if had_errors && enc == UTF_8 {
+        return Err("File is not valid UTF-8 text".into());
+    }
+    Ok(decoded.into_owned())
+}
+
+fn encode_text_file(content: &str, encoding: &str) -> Result<Vec<u8>, String> {
+    let enc = resolve_encoding(encoding)?;
+    let (encoded, _, had_errors) = enc.encode(content);
+    if had_errors {
+        return Err(format!(
+            "Content contains characters that cannot be encoded as {encoding}"
+        ));
+    }
+    Ok(encoded.into_owned())
+}
+
+fn ensure_editable_size(size: u64) -> Result<(), String> {
+    if size > MAX_SFTP_EDIT_BYTES {
+        return Err(format!(
+            "File too large to edit (max {} MB)",
+            MAX_SFTP_EDIT_BYTES / (1024 * 1024)
+        ));
+    }
+    Ok(())
+}
+
+async fn read_limited<R: AsyncReadExt + Unpin>(
+    mut reader: R,
+    max_bytes: u64,
+    known_size: Option<u64>,
+) -> Result<Vec<u8>, String> {
+    if let Some(size) = known_size {
+        ensure_editable_size(size)?;
+    }
+    let mut buffer = Vec::new();
+    let mut chunk = vec![0u8; 65536];
+    loop {
+        let n = reader.read(&mut chunk).await.map_err(|e| e.to_string())?;
+        if n == 0 {
+            break;
+        }
+        if buffer.len() as u64 + n as u64 > max_bytes {
+            return Err(format!(
+                "File too large to edit (max {} MB)",
+                max_bytes / (1024 * 1024)
+            ));
+        }
+        buffer.extend_from_slice(&chunk[..n]);
+    }
+    Ok(buffer)
+}
+
+#[tauri::command]
+pub async fn read_local_file(path: String, encoding: Option<String>) -> Result<String, String> {
+    let enc = encoding.unwrap_or_else(|| "utf-8".to_string());
+    let meta = tokio::fs::metadata(&path)
+        .await
+        .map_err(|e| format!("Failed to read file: {}", e))?;
+    if meta.is_dir() {
+        return Err("Cannot edit a directory".into());
+    }
+    ensure_editable_size(meta.len())?;
+    let bytes = tokio::fs::read(&path)
+        .await
+        .map_err(|e| format!("Failed to read file: {}", e))?;
+    decode_text_file(&bytes, &enc)
+}
+
+#[tauri::command]
+pub async fn write_local_file(
+    path: String,
+    content: String,
+    encoding: Option<String>,
+) -> Result<(), String> {
+    let enc = encoding.unwrap_or_else(|| "utf-8".to_string());
+    let bytes = encode_text_file(&content, &enc)?;
+    tokio::fs::write(&path, bytes)
+        .await
+        .map_err(|e| format!("Failed to save file: {}", e))
+}
+
+#[tauri::command]
+pub async fn read_remote_file(
+    state: State<'_, AppState>,
+    session_id: String,
+    path: String,
+    encoding: Option<String>,
+) -> Result<String, String> {
+    let enc = encoding.unwrap_or_else(|| "utf-8".to_string());
+    with_sftp!(state.inner(), &session_id, |sftp| {
+        let meta = sftp.metadata(&path).await.map_err(|e| e.to_string())?;
+        if meta.is_dir() {
+            return Err("Cannot edit a directory".into());
+        }
+        ensure_editable_size(meta.len())?;
+        let mut file = sftp.open(&path).await.map_err(|e| e.to_string())?;
+        let bytes = read_limited(&mut file, MAX_SFTP_EDIT_BYTES, Some(meta.len())).await?;
+        decode_text_file(&bytes, &enc)
+    })
+}
+
+#[tauri::command]
+pub async fn write_remote_file(
+    state: State<'_, AppState>,
+    session_id: String,
+    path: String,
+    content: String,
+    encoding: Option<String>,
+) -> Result<(), String> {
+    let enc = encoding.unwrap_or_else(|| "utf-8".to_string());
+    let bytes = encode_text_file(&content, &enc)?;
+    with_sftp!(state.inner(), &session_id, |sftp| {
+        let mut file = sftp.create(&path).await.map_err(|e| e.to_string())?;
+        file.write_all(&bytes)
+            .await
+            .map_err(|e| format!("Failed to save file: {}", e))?;
+        Ok(())
+    })
 }
 
 #[tauri::command]

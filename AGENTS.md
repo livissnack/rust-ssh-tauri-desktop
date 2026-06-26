@@ -46,6 +46,23 @@ Tauri 2 桌面 SSH 终端 + 运维工具箱（AI、Redis、API 调试、P2P 聊�
 - 最小 diff，匹配现有风格
 - 仅用户要求时 git commit
 
+## 前端依赖安装（必读）
+
+本项目通过 **Deno** 管理 npm 依赖（`deno.json` 中 `"nodeModulesDir": "auto"`），**禁止使用 `npm install`**。
+
+| 场景 | 正确命令 | 禁止 |
+|------|----------|------|
+| 首次克隆 / 全量安装 | `deno install --allow-scripts` 或 `deno task install` | `npm install` |
+| 新增生产依赖 | `deno install npm:包名` | `npm install 包名` |
+| 新增开发依赖 | `deno install --dev npm:包名` | `npm install -D 包名` |
+| 重装 / 更新 lock | `deno install --allow-scripts` | `npm ci` / `npm update` |
+
+说明：
+
+- `--allow-scripts`：允许 npm 生命周期脚本（如 `sass-embedded` 等原生模块）
+- Deno 会同步更新 `package.json` 与 `deno.lock`，并写入 `node_modules/`
+- 构建与开发仍通过 `deno task dev` / `deno task tauri dev` 调用 Vite，与 npm scripts 兼容
+
 ## 拖放规范（必读，勿破坏）
 
 Tauri 桌面端存在**两套互斥**的拖放机制，混用会导致禁止图标、SFTP 上传失效、主机排序失灵。**改一处必须隔离，不得影响另一处。**
@@ -100,6 +117,7 @@ Tauri 桌面端存在**两套互斥**的拖放机制，混用会导致禁止图�
 ## 常用命令
 
 ```bash
+deno task install        # 安装前端依赖（勿用 npm install）
 deno task check          # vue-tsc + cargo check
 deno task tauri dev
 deno task tauri build

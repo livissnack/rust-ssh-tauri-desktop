@@ -29,9 +29,17 @@
 
 ### 安装与运行
 
+> **依赖安装规范**：前端 npm 依赖一律用 **Deno** 安装，**不要使用 `npm install`**。Deno 会维护 `package.json`、`deno.lock` 与 `node_modules/`。
+
 ```bash
-# 安装依赖
-deno install
+# 安装依赖（首次克隆或 package.json 变更后）
+deno install --allow-scripts
+# 或
+deno task install
+
+# 新增依赖示例
+deno install npm:lodash
+deno install --dev npm:@types/node
 
 # 开发（Tauri + 前端热更新）
 deno task tauri dev
@@ -75,8 +83,9 @@ hiphup-terminal/
 │   └── EXTENDING.md              # 扩展新功能指南
 │
 ├── .github/workflows/release.yml # 标签触发 CI 发布
-├── deno.json                     # Deno 任务定义
-├── package.json                  # npm 依赖
+├── deno.json                     # Deno 任务与 npm 依赖管理（nodeModulesDir: auto）
+├── deno.lock                     # Deno 依赖锁文件
+├── package.json                  # npm 依赖清单（由 Deno 维护，勿 npm install）
 ├── vite.config.ts                # Vite（端口 1420）
 └── update.json                   # 应用内更新元数据
 ```

@@ -140,7 +140,7 @@ const respond = async (trust: boolean) => {
 
 .host-key-dialog {
   width: min(560px, 100%);
-  border-radius: 10px;
+  border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--bg-card);
   box-shadow: 0 24px 48px var(--shadow);

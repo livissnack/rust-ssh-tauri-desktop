@@ -188,7 +188,7 @@ const scrollActiveIntoView = () => {
 
 .command-palette {
   width: min(520px, calc(100vw - 32px));
-  border-radius: 10px;
+  border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--bg-card);
   box-shadow: 0 24px 48px var(--shadow);

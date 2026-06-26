@@ -82,7 +82,7 @@ const handleConfirm = () => {
   width: min(400px, calc(100vw - 32px));
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: 8px;
   padding: 20px;
   box-shadow: 0 20px 25px -5px var(--shadow, rgba(0, 0, 0, 0.3));
 }

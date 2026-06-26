@@ -3,6 +3,7 @@ import vue from "@vitejs/plugin-vue";
 
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
+const isCi = !!process.env.CI;
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
@@ -17,7 +18,14 @@ export default defineConfig(async () => ({
   // 1. prevent Vite from obscuring rust errors
   clearScreen: false,
   build: {
-    minify: false,
+    minify: isCi ? "esbuild" : false,
+    sourcemap: false,
+    reportCompressedSize: !isCi,
+    rollupOptions: isCi
+      ? {
+          maxParallelFileOps: 2,
+        }
+      : undefined,
   },
   // 2. tauri expects a fixed port, fail if that port is not available
   server: {

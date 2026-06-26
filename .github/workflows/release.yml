@@ -30,7 +30,7 @@ jobs:
       # Use npm ci (flat node_modules). Deno's symlink layout + Vite/Rollup hangs on Windows CI.
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       - name: setup rust

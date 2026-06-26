@@ -1,16 +1,37 @@
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import vue from "@vitejs/plugin-vue";
 
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
 const isCi = !!process.env.CI;
+const isWindows = process.platform === "win32";
+
+/** sass-embedded can leave handles open on Windows; exit explicitly in CI. */
+function ciForceExitPlugin(): Plugin {
+  return {
+    name: "ci-force-exit",
+    closeBundle() {
+      if (isCi) {
+        setImmediate(() => process.exit(0));
+      }
+    },
+  };
+}
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
-  plugins: [vue()],
+  plugins: [vue(), ...(isCi ? [ciForceExitPlugin()] : [])],
 
   optimizeDeps: {
     include: ["mqtt", "socket.io-client"],
+  },
+
+  css: {
+    preprocessorOptions: {
+      scss: {
+        api: "modern-compiler",
+      },
+    },
   },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
@@ -21,9 +42,11 @@ export default defineConfig(async () => ({
     minify: isCi ? "esbuild" : false,
     sourcemap: false,
     reportCompressedSize: !isCi,
+    watch: false,
     rollupOptions: isCi
       ? {
-          maxParallelFileOps: 2,
+          // Windows runners deadlock more often with parallel Rollup I/O.
+          maxParallelFileOps: isWindows ? 1 : 2,
         }
       : undefined,
   },

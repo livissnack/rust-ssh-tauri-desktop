@@ -27,13 +27,11 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Use npm ci (flat node_modules). Deno's symlink layout + Vite/Rollup hangs on Windows CI.
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
-
-      - uses: denoland/setup-deno@v1
-        with:
-          deno-version: v2.x
+          node-version: 20
+          cache: npm
 
       - name: setup rust
         uses: dtolnay/rust-toolchain@stable
@@ -49,10 +47,13 @@ jobs:
           echo "tag_msg=$MSG" >> $GITHUB_OUTPUT
 
       - name: install frontend dependencies
-        run: deno install --allow-scripts
+        run: npm ci
+
+      - name: typecheck frontend
+        run: npx vue-tsc --noEmit
 
       - name: build frontend
-        run: deno task build
+        run: npx vite build --logLevel info
 
       - name: build tauri app
         uses: tauri-apps/tauri-action@v0

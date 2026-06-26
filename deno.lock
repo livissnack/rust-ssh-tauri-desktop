@@ -32,7 +32,7 @@
     "npm:@tauri-apps/plugin-opener@2": "2.5.3",
     "npm:@tauri-apps/plugin-process@^2.3.1": "2.3.1",
     "npm:@tauri-apps/plugin-updater@^2.10.0": "2.10.0",
-    "npm:@vitejs/plugin-vue@^5.2.1": "5.2.4_vite@6.4.1__sass-embedded@1.97.3__picomatch@4.0.3_vue@3.5.29__typescript@5.6.3_sass-embedded@1.97.3_typescript@5.6.3",
+    "npm:@vitejs/plugin-vue@^5.2.1": "5.2.4_vite@6.4.1__sass@1.97.3__picomatch@4.0.3_vue@3.5.29__typescript@5.6.3_sass@1.97.3_typescript@5.6.3",
     "npm:@xterm/addon-fit@0.11": "0.11.0",
     "npm:@xterm/addon-search@0.15": "0.15.0_@xterm+xterm@6.0.0",
     "npm:@xterm/addon-unicode11@0.9": "0.9.0",
@@ -41,10 +41,10 @@
     "npm:highlight.js@^11.11.1": "11.11.1",
     "npm:marked@^17.0.3": "17.0.3",
     "npm:mqtt@^5.10.3": "5.15.1",
-    "npm:sass-embedded@^1.97.3": "1.97.3",
+    "npm:sass@^1.97.3": "1.97.3",
     "npm:socket.io-client@^4.8.1": "4.8.3",
     "npm:typescript@~5.6.2": "5.6.3",
-    "npm:vite@^6.0.3": "6.4.1_sass-embedded@1.97.3_picomatch@4.0.3",
+    "npm:vite@^6.0.3": "6.4.1_sass@1.97.3_picomatch@4.0.3",
     "npm:vue-tsc@^2.1.10": "2.2.12_typescript@5.6.3",
     "npm:vue@^3.5.13": "3.5.29_typescript@5.6.3"
   },
@@ -915,7 +915,7 @@
         "@types/node"
       ]
     },
-    "@vitejs/plugin-vue@5.2.4_vite@6.4.1__sass-embedded@1.97.3__picomatch@4.0.3_vue@3.5.29__typescript@5.6.3_sass-embedded@1.97.3_typescript@5.6.3": {
+    "@vitejs/plugin-vue@5.2.4_vite@6.4.1__sass@1.97.3__picomatch@4.0.3_vue@3.5.29__typescript@5.6.3_sass@1.97.3_typescript@5.6.3": {
       "integrity": "sha512-7Yx/SXSOcQq5HiiV3orevHUFn+pmMB4cgbEkDYgnkUWb0WfeQ/wa2yFv6D5ICiCQOVpjA7vYDXrC7AGO8yjDHA==",
       "dependencies": [
         "vite",
@@ -1640,7 +1640,7 @@
     "varint@6.0.0": {
       "integrity": "sha512-cXEIW6cfr15lFv563k4GuVuW/fiwjknytD37jIOLSdSWuOI6WnO/oKwmP2FQTU2l01LP8/M5TSAJpzUaGe3uWg=="
     },
-    "vite@6.4.1_sass-embedded@1.97.3_picomatch@4.0.3": {
+    "vite@6.4.1_sass@1.97.3_picomatch@4.0.3": {
       "integrity": "sha512-+Oxm7q9hDoLMyJOYfUYBuHQo+dkAloi33apOPP56pzj+vsdJDzr+j1NISE5pyaAuKL4A3UD34qd0lx5+kfKp2g==",
       "dependencies": [
         "esbuild",
@@ -1648,6 +1648,7 @@
         "picomatch",
         "postcss",
         "rollup",
+        "sass",
         "sass-embedded",
         "tinyglobby"
       ],
@@ -1655,6 +1656,7 @@
         "fsevents"
       ],
       "optionalPeers": [
+        "sass",
         "sass-embedded"
       ],
       "bin": true
@@ -1773,7 +1775,7 @@
         "npm:highlight.js@^11.11.1",
         "npm:marked@^17.0.3",
         "npm:mqtt@^5.10.3",
-        "npm:sass-embedded@^1.97.3",
+        "npm:sass@^1.97.3",
         "npm:socket.io-client@^4.8.1",
         "npm:typescript@~5.6.2",
         "npm:vite@^6.0.3",

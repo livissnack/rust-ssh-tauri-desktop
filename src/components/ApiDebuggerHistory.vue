@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import { confirm } from '../utils/confirm.ts';
 import { toast } from '../utils/toast.ts';
+import { t } from '../utils/i18n.ts';
 import type { HistoryEntry, HttpRequestSnapshot } from '../utils/apiDebuggerStorage.ts';
 import { formatHistoryTime } from '../utils/apiDebuggerStorage.ts';
 
@@ -53,7 +54,7 @@ const methodClass = (method: string) => {
 };
 
 const statusLabel = (entry: HistoryEntry) => {
-  if (entry.status === undefined) return '失败';
+  if (entry.status === undefined) return t('apiDebugger.history.failed');
   return String(entry.status);
 };
 
@@ -68,11 +69,15 @@ const loadMore = () => {
 
 const clearHistory = async () => {
   if (!props.history.length) return;
-  const ok = await confirm('清空全部请求历史？', 'warning', '清空历史');
+  const ok = await confirm(
+    t('apiDebugger.history.clearConfirm'),
+    'warning',
+    t('apiDebugger.history.clearTitle'),
+  );
   if (!ok) return;
   emit('update', []);
   visibleCount.value = HISTORY_PAGE_SIZE;
-  toast.success('历史已清空');
+  toast.success(t('apiDebugger.history.cleared'));
 };
 
 const deleteEntry = (id: string) => {
@@ -89,31 +94,31 @@ const loadEntry = (entry: HistoryEntry) => {
     <div class="history-toolbar">
       <div class="history-toolbar__meta">
         <span v-if="history.length" class="history-count">
-          {{ history.length }} 条记录
+          {{ t('apiDebugger.history.recordCount', { count: history.length }) }}
           <template v-if="successCount || errorCount">
-            · <span class="history-stat history-stat--ok">{{ successCount }} 成功</span>
-            <template v-if="errorCount"> · <span class="history-stat history-stat--err">{{ errorCount }} 失败</span></template>
+            · <span class="history-stat history-stat--ok">{{ t('apiDebugger.history.successCount', { count: successCount }) }}</span>
+            <template v-if="errorCount"> · <span class="history-stat history-stat--err">{{ t('apiDebugger.history.errorCount', { count: errorCount }) }}</span></template>
           </template>
         </span>
-        <span v-else class="history-count">HTTP 请求发送记录</span>
-        <span v-if="history.length >= HISTORY_MAX" class="history-limit">已达上限 {{ HISTORY_MAX }} 条</span>
+        <span v-else class="history-count">{{ t('apiDebugger.history.emptyMeta') }}</span>
+        <span v-if="history.length >= HISTORY_MAX" class="history-limit">{{ t('apiDebugger.history.limitReached', { max: HISTORY_MAX }) }}</span>
       </div>
       <button type="button" class="btn-ghost" :disabled="!history.length" @click="clearHistory">
         <i class="fas fa-trash-alt"></i>
-        清空
+        {{ t('apiDebugger.history.clear') }}
       </button>
     </div>
 
     <p v-if="history.length" class="hint-box">
-      点击条目可重新加载请求；最多保留 {{ HISTORY_MAX }} 条，超出后自动移除最早记录。
+      {{ t('apiDebugger.history.hint', { max: HISTORY_MAX }) }}
     </p>
 
     <div v-if="!history.length" class="empty-state">
       <div class="empty-state__icon">
         <i class="fas fa-history"></i>
       </div>
-      <p class="empty-state__title">暂无历史</p>
-      <p class="empty-state__desc">在 Request 面板发送 HTTP 请求后，响应状态与 URL 会记录在这里</p>
+      <p class="empty-state__title">{{ t('apiDebugger.history.emptyTitle') }}</p>
+      <p class="empty-state__desc">{{ t('apiDebugger.history.emptyDesc') }}</p>
     </div>
 
     <template v-else>
@@ -134,12 +139,12 @@ const loadEntry = (entry: HistoryEntry) => {
               <span class="method-tag" :class="methodClass(entry.snapshot.method)">
                 {{ entry.snapshot.method }}
               </span>
-              <p class="history-url">{{ entry.snapshot.url || '（未设置 URL）' }}</p>
+              <p class="history-url">{{ entry.snapshot.url || t('apiDebugger.history.noUrl') }}</p>
             </div>
           </div>
 
           <div class="history-item__actions">
-            <Tooltip text="删除记录" placement="top">
+            <Tooltip :text="t('apiDebugger.history.deleteEntry')" placement="top">
               <button type="button" class="icon-btn" @click.stop="deleteEntry(entry.id)">
                 <i class="fas fa-times"></i>
               </button>
@@ -151,7 +156,7 @@ const loadEntry = (entry: HistoryEntry) => {
       <div v-if="hasMore" class="history-load-more">
         <button type="button" class="btn-ghost history-load-more__btn" @click="loadMore">
           <i class="fas fa-chevron-down"></i>
-          加载更多（还有 {{ remainingCount }} 条）
+          {{ t('apiDebugger.history.loadMore', { count: remainingCount }) }}
         </button>
       </div>
     </template>

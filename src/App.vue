@@ -31,7 +31,15 @@ import {
 import { getRecentPaletteActions, recordPaletteUse } from "./utils/paletteRecent.ts";
 import { getSessionReconnectSettings } from "./utils/sessionSettings.ts";
 import { exportTerminalOutput } from "./utils/terminalExport.ts";
-import { type TransferTask, isTransferCancelled } from "./utils/transferTask.ts";
+import {
+  joinLocalPath,
+  joinRemotePath,
+  buildPathInPane as buildPathInPaneAt,
+  getContextFilePath as getContextFilePathAt,
+  getPaneBasePath as getPaneBasePathAt,
+} from "./utils/sftpPaths.ts";
+import { useRightPanel, type RightPanelType } from "./composables/useRightPanel.ts";
+import { useTransferQueue } from "./composables/useTransferQueue.ts";
 
 const { tr } = useI18n();
 
@@ -151,7 +159,18 @@ const isActiveSessionConnected = computed(() =>
     : isSessionConnected(activeSessionStatus.value),
 );
 
-const rightPanelVisible = ref(false);
+const rightPanelDock = useRightPanel();
+const {
+  rightPanelVisible,
+  rightPanelType,
+  panelWidths,
+  panelWidth,
+  isResizing,
+  reloadPanelWidths,
+  startResizing,
+  getPanelMinWidth,
+} = rightPanelDock;
+
 const isModalOpen = ref(false);
 const isEditing = ref(false);
 const isSyncing = ref(false);
@@ -164,41 +183,8 @@ let unlistenHostKey: UnlistenFn | null = null;
 let unlistenDragDrop: UnlistenFn | null = null;
 /** Skip disconnect toast when user closes tab, reconnects, or app unmounts */
 const suppressSshClosedToast = new Set<string>();
-const transferTasks = ref<TransferTask[]>([]);
 const isSftpInternalDragging = ref(false);
 const sftpInternalDragKey = ref<string | null>(null);
-
-const rightPanelType = ref<'quick' | 'ai' | 'redis' | 'history' | 'sync-settings' | 'theme-settings' | 'chat' | 'api'>('quick');
-
-type RightPanelType = typeof rightPanelType.value;
-
-const PANEL_WIDTH_STORAGE_KEY = 'right-panel-widths';
-const LEGACY_PANEL_WIDTH_KEY = 'right-panel-width';
-
-const DEFAULT_PANEL_WIDTHS: Record<RightPanelType, number> = {
-  quick: 420,
-  ai: 420,
-  redis: 420,
-  history: 420,
-  'sync-settings': 420,
-  'theme-settings': 400,
-  chat: 420,
-  api: 892,
-};
-
-const PANEL_MIN_WIDTHS: Partial<Record<RightPanelType, number>> = {
-  api: 480,
-  redis: 360,
-};
-
-const panelWidths = ref<Record<RightPanelType, number>>({ ...DEFAULT_PANEL_WIDTHS });
-
-const panelWidth = computed(() =>
-  panelWidths.value[rightPanelType.value] ?? DEFAULT_PANEL_WIDTHS[rightPanelType.value],
-);
-
-const getPanelMinWidth = (type: RightPanelType) =>
-  PANEL_MIN_WIDTHS[type] ?? 300;
 
 const localPath = ref("");
 const remotePath = ref("");
@@ -262,10 +248,6 @@ const activeTabServer = computed(() => {
   return servers.value.find((s) => s.id === session.serverId) ?? null;
 });
 
-const hasActiveTasks = computed(() =>
-    transferTasks.value.some(t => t.status === 'transferring')
-);
-
 const handleToggle = (type: RightPanelType) => {
   if (rightPanelVisible.value && rightPanelType.value === type) {
     rightPanelVisible.value = false;
@@ -273,7 +255,7 @@ const handleToggle = (type: RightPanelType) => {
     rightPanelType.value = type;
     rightPanelVisible.value = true;
   }
-}
+};
 
 const toggleRightPanel = throttle(handleToggle, 300);
 
@@ -317,28 +299,14 @@ const handlePaneContextMenu = (e: MouseEvent, source: 'local' | 'remote') => {
   openContextMenu(e, source, 'pane');
 };
 
-const joinLocalPath = (base: string, name: string) => {
-  const normalized = base.replace(/[/\\]$/, '');
-  const sep = normalized.includes('\\') || /^[A-Za-z]:/.test(normalized) ? '\\' : '/';
-  if (normalized.endsWith(':')) return `${normalized}\\${name}`;
-  return `${normalized}${sep}${name}`;
-};
+const buildPathInPane = (source: 'local' | 'remote', name: string) =>
+  buildPathInPaneAt(source, name, localPath.value, remotePath.value);
 
-const joinRemotePath = (base: string, name: string) => {
-  const normalized = base.replace(/\/$/, '');
-  return normalized ? `${normalized}/${name}` : `/${name}`;
-};
-
-const getContextFilePath = (source: 'local' | 'remote', file: any) => {
-  if (source === 'local') return joinLocalPath(localPath.value, file.name);
-  return joinRemotePath(remotePath.value, file.name);
-};
+const getContextFilePath = (source: 'local' | 'remote', file: { name: string }) =>
+  getContextFilePathAt(source, file, localPath.value, remotePath.value);
 
 const getPaneBasePath = (source: 'local' | 'remote') =>
-  source === 'local' ? localPath.value : remotePath.value.replace(/\/$/, '') || '/';
-
-const buildPathInPane = (source: 'local' | 'remote', name: string) =>
-  source === 'local' ? joinLocalPath(localPath.value, name) : joinRemotePath(remotePath.value, name);
+  getPaneBasePathAt(source, localPath.value, remotePath.value);
 
 const copyTextToClipboard = async (text: string) => {
   try {
@@ -781,73 +749,6 @@ const handleFileDblClick = async (file: any, type: 'local' | 'remote') => {
   }
 };
 
-const runTransferTask = async (task: TransferTask) => {
-  task.status = 'transferring';
-  task.error = undefined;
-  try {
-    await invoke(task.type === 'upload' ? 'sftp_upload' : 'sftp_download', {
-      sessionId: task.sessionId,
-      localPath: task.localPath,
-      remotePath: task.remotePath,
-      taskId: task.id,
-    });
-    if (task.status === 'cancelled') return;
-    task.status = 'success';
-    task.progress = 100;
-    setTimeout(() => {
-      transferTasks.value = transferTasks.value.filter((t) => t.id !== task.id);
-    }, 2000);
-    refreshLocalFiles();
-    refreshRemoteFiles();
-  } catch (err) {
-    if (task.status === 'cancelled' || isTransferCancelled(err)) {
-      transferTasks.value = transferTasks.value.filter((t) => t.id !== task.id);
-      return;
-    }
-    task.status = 'error';
-    task.error = String(err);
-    toast.error(t('toast.transferFailed', { err: String(err) }));
-  }
-};
-
-const startTransferFromPath = async (
-  type: 'upload' | 'download',
-  opts: { localPath: string; remotePath: string; name: string },
-) => {
-  if (!activeSessionId.value) return;
-  const { localPath: localFilePath, remotePath: remoteFilePath, name } = opts;
-  const task: TransferTask = {
-    id: Math.random().toString(36).substring(7),
-    name,
-    progress: 0,
-    type,
-    status: 'transferring',
-    localPath: localFilePath,
-    remotePath: remoteFilePath,
-    sessionId: activeSessionId.value,
-  };
-  transferTasks.value.push(task);
-  void runTransferTask(task);
-};
-
-const startTransfer = async (type: 'upload' | 'download', file: any) => {
-  if (file.is_dir || file.name === '..') {
-    toast.error(t('toast.folderTransferUnsupported', {
-      action: type === 'upload' ? t('toast.upload') : t('toast.download'),
-    }));
-    return;
-  }
-  const localBase = localPath.value.replace(/[/\\]$/, '');
-  const remoteBase = remotePath.value.replace(/\/$/, '');
-  const localFilePath = `${localBase}/${file.name}`;
-  const remoteFilePath = `${remoteBase}/${file.name}`;
-  await startTransferFromPath(type, {
-    localPath: localFilePath,
-    remotePath: remoteFilePath,
-    name: file.name,
-  });
-};
-
 const getDefaultRemotePath = (server: { id: string; username: string }) => {
   const username = server.username || 'root';
   try {
@@ -1272,6 +1173,40 @@ const refreshRemoteFiles = async () => {
   }
 };
 
+const {
+  transferTasks,
+  hasActiveTasks,
+  startTransferFromPath,
+  getTaskIcon,
+  pauseTask,
+  resumeTask,
+  retryTask,
+  cancelTask,
+  updateTaskProgress,
+} = useTransferQueue({
+  activeSessionId,
+  refreshLocalFiles,
+  refreshRemoteFiles,
+});
+
+const startTransfer = async (type: 'upload' | 'download', file: any) => {
+  if (file.is_dir || file.name === '..') {
+    toast.error(t('toast.folderTransferUnsupported', {
+      action: type === 'upload' ? t('toast.upload') : t('toast.download'),
+    }));
+    return;
+  }
+  const localBase = localPath.value.replace(/[/\\]$/, '');
+  const remoteBase = remotePath.value.replace(/\/$/, '');
+  const localFilePath = `${localBase}/${file.name}`;
+  const remoteFilePath = `${remoteBase}/${file.name}`;
+  await startTransferFromPath(type, {
+    localPath: localFilePath,
+    remotePath: remoteFilePath,
+    name: file.name,
+  });
+};
+
 const getSessionContext = (sourceSessionId?: string | null) => {
   const sessionId = sourceSessionId ?? activeSessionId.value;
   if (!sessionId) return null;
@@ -1495,54 +1430,6 @@ const loadServers = async () => {
   if (servers.value.length > 0 && !activeId.value) activeId.value = servers.value[0].id;
 };
 
-const getTaskIcon = (task: TransferTask) => {
-  if (task.status === 'error') return 'fas fa-exclamation-circle';
-  if (task.status === 'success') return 'fas fa-check-circle';
-  if (task.status === 'paused') return 'fas fa-pause-circle';
-  return task.type === 'upload' ? 'fas fa-cloud-upload-alt' : 'fas fa-cloud-download-alt';
-};
-
-const pauseTask = async (taskId: string) => {
-  const task = transferTasks.value.find((t) => t.id === taskId);
-  if (!task || task.status !== 'transferring') return;
-  try {
-    await invoke('pause_transfer', { taskId });
-    task.status = 'paused';
-  } catch (err) {
-    toast.error(t('sftp.pauseFailed', { err: String(err) }));
-  }
-};
-
-const resumeTask = async (taskId: string) => {
-  const task = transferTasks.value.find((t) => t.id === taskId);
-  if (!task || task.status !== 'paused') return;
-  try {
-    await invoke('resume_transfer', { taskId });
-    task.status = 'transferring';
-  } catch (err) {
-    toast.error(t('sftp.resumeFailed', { err: String(err) }));
-  }
-};
-
-const retryTask = (taskId: string) => {
-  const task = transferTasks.value.find((t) => t.id === taskId);
-  if (!task || task.status !== 'error') return;
-  task.progress = 0;
-  void runTransferTask(task);
-};
-
-const cancelTask = async (taskId: string) => {
-  const task = transferTasks.value.find((t) => t.id === taskId);
-  if (!task) return;
-  task.status = 'cancelled';
-  try {
-    await invoke('abort_transfer', { taskId });
-    transferTasks.value = transferTasks.value.filter((t) => t.id !== taskId);
-  } catch (err) {
-    console.error(err);
-  }
-};
-
 watch(activeSessionId, async (newId) => {
   if (newId) {
     const session = openSessions.value.find(s => s.id === newId);
@@ -1562,75 +1449,6 @@ watch(currentViewMode, async (mode) => {
     await focusTerminal(activeSessionId.value);
   }
 });
-
-const isResizing = ref(false);
-
-const savePanelWidths = () => {
-  localStorage.setItem(PANEL_WIDTH_STORAGE_KEY, JSON.stringify(panelWidths.value));
-};
-
-const loadPanelWidths = () => {
-  try {
-    const raw = localStorage.getItem(PANEL_WIDTH_STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw) as Partial<Record<RightPanelType, number>>;
-      panelWidths.value = { ...DEFAULT_PANEL_WIDTHS, ...parsed };
-      return;
-    }
-    const legacy = localStorage.getItem(LEGACY_PANEL_WIDTH_KEY);
-    if (legacy) {
-      const width = parseInt(legacy, 10);
-      if (!Number.isNaN(width) && width >= 300) {
-        panelWidths.value = {
-          ...DEFAULT_PANEL_WIDTHS,
-          quick: width,
-          ai: width,
-          redis: width,
-          history: width,
-          'sync-settings': width,
-          'theme-settings': width,
-          chat: width,
-        };
-        savePanelWidths();
-        localStorage.removeItem(LEGACY_PANEL_WIDTH_KEY);
-      }
-    }
-  } catch {
-    panelWidths.value = { ...DEFAULT_PANEL_WIDTHS };
-  }
-};
-
-const startResizing = (e: MouseEvent) => {
-  isResizing.value = true;
-  const startX = e.clientX;
-  const panelType = rightPanelType.value;
-  const startWidth = panelWidths.value[panelType];
-
-  const doResize = (moveEvent: MouseEvent) => {
-    if (!isResizing.value) return;
-    const delta = moveEvent.clientX - startX;
-    const newWidth = startWidth - delta;
-
-    const maxWidth = window.innerWidth - 300;
-    const minWidth = getPanelMinWidth(panelType);
-
-    if (newWidth >= minWidth && newWidth <= maxWidth) {
-      panelWidths.value = { ...panelWidths.value, [panelType]: newWidth };
-    }
-  };
-
-  const stopResizing = () => {
-    isResizing.value = false;
-    document.removeEventListener('mousemove', doResize);
-    document.removeEventListener('mouseup', stopResizing);
-    document.body.style.cursor = 'default';
-    savePanelWidths();
-  };
-
-  document.addEventListener('mousemove', doResize);
-  document.addEventListener('mouseup', stopResizing);
-  document.body.style.cursor = 'col-resize';
-};
 
 const initLocalRootPath = async () => {
   try {
@@ -1880,7 +1698,7 @@ onMounted(async () => {
   window.addEventListener("resize", handleResize);
   window.addEventListener("keydown", handleGlobalKeydown);
   await setupNativeDragDrop();
-  loadPanelWidths();
+  reloadPanelWidths();
   loadServers();
   updateOnlineCount();
   unlisten = await listen("ssh-output", (event) => {
@@ -1913,8 +1731,7 @@ onMounted(async () => {
   });
   unlistenTransfer = await listen("transfer-progress", (event) => {
     const {taskId, progress} = event.payload as { taskId: string, progress: number };
-    const task = transferTasks.value.find(t => t.id === taskId);
-    if (task) task.progress = progress;
+    updateTaskProgress(taskId, progress);
   });
 
   await listen("sync-error", (event) => {
@@ -2164,7 +1981,7 @@ onUnmounted(async () => {
                             </button>
                           </Tooltip>
                           <Tooltip
-                              v-if="task.status === 'transferring' || task.status === 'paused'"
+                              v-if="task.status === 'transferring' || task.status === 'paused' || task.status === 'queued'"
                               :text="t('common.cancel')"
                           >
                             <button type="button" class="task-btn task-btn--cancel" @click.stop="cancelTask(task.id)">
@@ -2173,7 +1990,13 @@ onUnmounted(async () => {
                           </Tooltip>
                         </div>
                         <span class="task-percent">
-                          {{ task.status === 'paused' ? t('sftp.paused') : `${task.progress}%` }}
+                          {{
+                            task.status === 'paused'
+                              ? t('sftp.paused')
+                              : task.status === 'queued'
+                                ? t('sftp.queued')
+                                : `${task.progress}%`
+                          }}
                         </span>
                       </div>
                       <div class="progress-container">

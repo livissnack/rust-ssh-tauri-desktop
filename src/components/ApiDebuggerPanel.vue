@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { Socket } from 'socket.io-client';
 import type { MqttClient } from 'mqtt';
 import { toast } from '../utils/toast.ts';
+import { t } from '../utils/i18n.ts';
 import AppSelect from './AppSelect.vue';
 import HeaderComboInput from './HeaderComboInput.vue';
 import ApiDebuggerCollections from './ApiDebuggerCollections.vue';
@@ -85,14 +86,14 @@ type CloseIntent = 'manual' | 'remote' | 'error' | 'unmount';
 const logConnectionEnd = (protocol: string, intent: CloseIntent, detail?: string) => {
   if (intent === 'unmount') return;
   if (intent === 'manual') {
-    appendLog('system', `${protocol} 已断开`);
+    appendLog('system', t('apiDebugger.logDisconnected', { protocol }));
     return;
   }
   if (intent === 'error') {
-    appendLog('system', `${protocol} 连接失败${detail ? `: ${detail}` : ''}`);
+    appendLog('system', t('apiDebugger.logConnectFailed', { protocol, detail: detail ? `: ${detail}` : '' }));
     return;
   }
-  appendLog('system', `${protocol} 连接已关闭${detail ? ` (${detail})` : ''}`);
+  appendLog('system', t('apiDebugger.logConnectionClosed', { protocol, detail: detail ? ` (${detail})` : '' }));
 };
 
 const createCloseSession = () => ({ intent: null as CloseIntent | null });
@@ -135,14 +136,14 @@ const httpResponseHeadersText = computed(() => {
 
 const copyText = async (text: string) => {
   if (!text) {
-    toast.warning('没有可复制的内容');
+    toast.warning(t('apiDebugger.nothingToCopy'));
     return;
   }
   try {
     await navigator.clipboard.writeText(text);
-    toast.success('已复制到剪贴板');
+    toast.success(t('apiDebugger.copied'));
   } catch {
-    toast.error('复制失败');
+    toast.error(t('apiDebugger.copyFailed'));
   }
 };
 
@@ -222,7 +223,7 @@ const editRequestTarget = ref<{
 
 const openSaveRequestDialog = (collectionId?: string) => {
   if (collections.value.length === 0) {
-    toast.warning('请先在 Collections 中创建集合');
+    toast.warning(t('apiDebugger.createCollectionFirst'));
     managerView.value = 'collections';
     return;
   }
@@ -256,7 +257,7 @@ const handleSaveRequest = async (payload: SaveRequestPayload) => {
         ),
       };
     });
-    toast.success('已更新请求信息');
+    toast.success(t('apiDebugger.requestUpdated'));
   } else {
     collections.value = collections.value.map((collection) => {
       if (collection.id !== payload.collectionId) return collection;
@@ -274,7 +275,7 @@ const handleSaveRequest = async (payload: SaveRequestPayload) => {
         ],
       };
     });
-    toast.success('已保存到集合');
+    toast.success(t('apiDebugger.savedToCollection'));
   }
   await persistStore();
   showSaveDialog.value = false;
@@ -323,7 +324,7 @@ const loadRequestSnapshot = (snapshot: RequestSnapshot) => {
     }
   }
   managerView.value = 'request';
-  toast.success('已加载请求');
+  toast.success(t('apiDebugger.requestLoaded'));
 };
 
 const buildHttpBody = (method: string, bodyType: typeof httpBodyType.value, rawBody: string) => {
@@ -346,7 +347,7 @@ const buildHttpBody = (method: string, bodyType: typeof httpBodyType.value, rawB
 const sendHttp = async () => {
   const resolvedUrl = applyEnvironmentVariables(httpUrl.value.trim(), activeVariables.value);
   if (!resolvedUrl) {
-    toast.warning('请输入 URL');
+    toast.warning(t('apiDebugger.enterUrl'));
     return;
   }
   httpLoading.value = true;
@@ -424,7 +425,7 @@ const finalizeWs = (intent: CloseIntent, detail?: string) => {
 const connectWs = () => {
   if (wsActive.value) return;
   if (!wsUrl.value.trim()) {
-    toast.warning('请输入 WebSocket URL');
+    toast.warning(t('apiDebugger.enterWsUrl'));
     return;
   }
   try {
@@ -440,7 +441,7 @@ const connectWs = () => {
     };
     wsClient.onerror = () => {
       if (!wsSession.intent && wsActive.value && !wsConnected.value) {
-        appendLog('error', 'WebSocket 连接出错');
+        appendLog('error', t('apiDebugger.wsConnectError'));
       }
     };
     wsClient.onclose = (ev) => {
@@ -465,7 +466,7 @@ const disconnectWs = (intent: CloseIntent = 'manual') => {
 
 const sendWs = () => {
   if (!wsClient || wsClient.readyState !== WebSocket.OPEN) {
-    toast.warning('WebSocket 未连接');
+    toast.warning(t('apiDebugger.wsNotConnected'));
     return;
   }
   wsClient.send(wsMessage.value);
@@ -496,7 +497,7 @@ const finalizeSse = (intent: CloseIntent, detail?: string) => {
 const connectSse = () => {
   if (sseActive.value) return;
   if (!sseUrl.value.trim()) {
-    toast.warning('请输入 SSE URL');
+    toast.warning(t('apiDebugger.enterSseUrl'));
     return;
   }
   try {
@@ -515,7 +516,7 @@ const connectSse = () => {
         return;
       }
       if (sseActive.value && !sseConnected.value) {
-        appendLog('error', 'SSE 连接出错');
+        appendLog('error', t('apiDebugger.sseConnectError'));
       }
     };
     sseSource.addEventListener('ping', (ev: Event) => {
@@ -559,7 +560,7 @@ const finalizeSio = (intent: CloseIntent, detail?: string) => {
 const connectSio = async () => {
   if (sioActive.value) return;
   if (!sioUrl.value.trim()) {
-    toast.warning('请输入 Socket.IO 服务地址');
+    toast.warning(t('apiDebugger.enterSioUrl'));
     return;
   }
   try {
@@ -607,7 +608,7 @@ const disconnectSio = (intent: CloseIntent = 'manual') => {
 
 const emitSio = () => {
   if (!sioClient?.connected) {
-    toast.warning('Socket.IO 未连接');
+    toast.warning(t('apiDebugger.sioNotConnected'));
     return;
   }
   const event = sioEvent.value.trim() || 'message';
@@ -673,7 +674,7 @@ const finalizeMqtt = (intent: CloseIntent, detail?: string) => {
 const connectMqtt = async () => {
   if (mqttActive.value) return;
   if (!mqttUrl.value.trim()) {
-    toast.warning('请输入 MQTT Broker 地址');
+    toast.warning(t('apiDebugger.enterMqttUrl'));
     return;
   }
   try {
@@ -725,12 +726,12 @@ const disconnectMqtt = (intent: CloseIntent = 'manual') => {
 
 const publishMqtt = () => {
   if (!mqttClient?.connected) {
-    toast.warning('MQTT 未连接');
+    toast.warning(t('apiDebugger.mqttNotConnected'));
     return;
   }
   const topic = mqttPubTopic.value.trim();
   if (!topic) {
-    toast.warning('请输入发布 Topic');
+    toast.warning(t('apiDebugger.enterMqttTopic'));
     return;
   }
   mqttClient.publish(topic, mqttPubMessage.value, {}, (err) => {
@@ -774,7 +775,7 @@ onUnmounted(() => {
     <header class="panel-header">
       <div class="title">
         <i class="fas fa-paper-plane"></i>
-        <span>API 调试</span>
+        <span>{{ t('apiDebugger.title') }}</span>
       </div>
     </header>
 
@@ -838,7 +839,7 @@ onUnmounted(() => {
       <section v-show="activeTab === 'http'" class="tab-panel">
         <div v-if="activeVariables.some(v => v.enabled && v.key)" class="env-banner">
           <i class="fas fa-sliders-h"></i>
-          <span>环境: {{ activeEnvironmentName }}</span>
+          <span>{{ t('apiDebugger.environmentBanner', { name: activeEnvironmentName }) }}</span>
         </div>
         <div class="request-row">
           <div class="method-select-wrap">
@@ -849,7 +850,7 @@ onUnmounted(() => {
             <i class="fas" :class="httpLoading ? 'fa-circle-notch fa-spin' : 'fa-paper-plane'"></i>
             Send
           </button>
-          <Tooltip text="保存到集合" placement="bottom">
+          <Tooltip :text="t('apiDebugger.saveToCollection')" placement="bottom">
             <button type="button" class="btn-ghost" @click="openSaveRequestDialog()">
               <i class="fas fa-folder-plus"></i>
             </button>
@@ -859,13 +860,13 @@ onUnmounted(() => {
         <label class="field-label">Headers</label>
         <div class="kv-list">
           <div class="kv-row kv-row--head">
-            <span class="kv-head-cell kv-head-cell--check">启用</span>
+            <span class="kv-head-cell kv-head-cell--check">{{ t('apiDebugger.enabled') }}</span>
             <span class="kv-head-cell">Key</span>
             <span class="kv-head-cell">Value</span>
             <span class="kv-head-cell kv-head-cell--action"></span>
           </div>
           <div v-for="row in httpHeaders" :key="row.id" class="kv-row" :class="{ 'is-disabled': !row.enabled }">
-            <label class="header-toggle" :title="row.enabled ? '禁用此 Header' : '启用此 Header'">
+            <label class="header-toggle" :title="row.enabled ? t('apiDebugger.disableHeader') : t('apiDebugger.enableHeader')">
               <input v-model="row.enabled" type="checkbox" class="header-toggle__input" />
               <span class="header-toggle__box">
                 <i class="fas fa-check header-toggle__icon"></i>
@@ -923,14 +924,14 @@ onUnmounted(() => {
           </div>
           <div class="section-head">
             <span class="sub-label">Response Headers</span>
-            <button type="button" class="copy-btn" title="复制 Headers" @click="copyText(httpResponseHeadersText)">
+            <button type="button" class="copy-btn" :title="t('apiDebugger.copyHeaders')" @click="copyText(httpResponseHeadersText)">
               <i class="fas fa-copy"></i>
             </button>
           </div>
           <pre class="code-preview selectable">{{ httpResponseHeadersText }}</pre>
           <div class="section-head">
             <span class="sub-label">Response Body</span>
-            <button type="button" class="copy-btn" title="复制 Body" @click="copyText(httpResponseBody)">
+            <button type="button" class="copy-btn" :title="t('apiDebugger.copyBody')" @click="copyText(httpResponseBody)">
               <i class="fas fa-copy"></i>
             </button>
           </div>
@@ -946,7 +947,7 @@ onUnmounted(() => {
           <button v-else type="button" class="btn-danger" @click="disconnectWs">
             {{ wsConnected ? 'Disconnect' : 'Cancel' }}
           </button>
-          <Tooltip text="保存到集合" placement="bottom">
+          <Tooltip :text="t('apiDebugger.saveToCollection')" placement="bottom">
             <button type="button" class="btn-ghost" @click="openSaveRequestDialog()">
               <i class="fas fa-folder-plus"></i>
             </button>
@@ -966,13 +967,13 @@ onUnmounted(() => {
           <button v-else type="button" class="btn-danger" @click="disconnectSse">
             {{ sseConnected ? 'Disconnect' : 'Cancel' }}
           </button>
-          <Tooltip text="保存到集合" placement="bottom">
+          <Tooltip :text="t('apiDebugger.saveToCollection')" placement="bottom">
             <button type="button" class="btn-ghost" @click="openSaveRequestDialog()">
               <i class="fas fa-folder-plus"></i>
             </button>
           </Tooltip>
         </div>
-        <p class="hint">浏览器 EventSource 不支持自定义 Header；跨域需服务端允许 CORS。</p>
+        <p class="hint">{{ t('apiDebugger.sseCorsHint') }}</p>
       </section>
 
       <!-- Socket.IO -->
@@ -988,7 +989,7 @@ onUnmounted(() => {
           <button v-else type="button" class="btn-danger" @click="disconnectSio">
             {{ sioConnected ? 'Disconnect' : 'Cancel' }}
           </button>
-          <Tooltip text="保存到集合" placement="bottom">
+          <Tooltip :text="t('apiDebugger.saveToCollection')" placement="bottom">
             <button type="button" class="btn-ghost" @click="openSaveRequestDialog()">
               <i class="fas fa-folder-plus"></i>
             </button>
@@ -1021,7 +1022,7 @@ onUnmounted(() => {
           <button v-else type="button" class="btn-danger" @click="disconnectMqtt">
             {{ mqttConnected ? 'Disconnect' : 'Cancel' }}
           </button>
-          <Tooltip text="保存到集合" placement="bottom">
+          <Tooltip :text="t('apiDebugger.saveToCollection')" placement="bottom">
             <button type="button" class="btn-ghost" @click="openSaveRequestDialog()">
               <i class="fas fa-folder-plus"></i>
             </button>

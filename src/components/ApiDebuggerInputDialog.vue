@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
+import { t } from '../utils/i18n.ts';
 
 const props = defineProps<{
   visible: boolean;
@@ -54,9 +55,9 @@ const handleConfirm = () => {
           </div>
 
           <div class="api-dialog-footer">
-            <button type="button" class="btn-cancel" @click="emit('close')">取消</button>
+            <button type="button" class="btn-cancel" @click="emit('close')">{{ t('common.cancel') }}</button>
             <button type="button" class="btn-confirm" :disabled="!inputValue.trim()" @click="handleConfirm">
-              确定
+              {{ t('common.confirm') }}
             </button>
           </div>
         </div>

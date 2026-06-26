@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue';
 import { toast } from '../utils/toast.ts';
 import { confirm } from '../utils/confirm.ts';
+import { t } from '../utils/i18n.ts';
 import type { ApiDebuggerStore } from '../utils/apiDebuggerStorage.ts';
 import {
   exportApiDebuggerData,
@@ -53,7 +54,7 @@ const handleExport = async (format: ExportFormat) => {
   closeMenu();
   try {
     const ok = await exportApiDebuggerData(format);
-    if (ok) toast.success('导出成功');
+    if (ok) toast.success(t('apiDebugger.dataMenu.exportSuccess'));
   } catch (err) {
     toast.error(String(err));
   }
@@ -61,12 +62,16 @@ const handleExport = async (format: ExportFormat) => {
 
 const handleImport = async (format: 'auto' | ExportFormat) => {
   closeMenu();
-  const merge = await confirm('选择「确定」合并导入，选择「取消」覆盖现有数据', 'warning', '导入 API 数据');
+  const merge = await confirm(
+    t('apiDebugger.dataMenu.importConfirm'),
+    'warning',
+    t('apiDebugger.dataMenu.importTitle'),
+  );
   try {
     const store = await importApiDebuggerData(format, merge ? 'merge' : 'replace');
     if (!store) return;
     emit('imported', store);
-    toast.success('导入成功');
+    toast.success(t('apiDebugger.dataMenu.importSuccess'));
   } catch (err) {
     toast.error(String(err));
   }
@@ -101,7 +106,7 @@ onUnmounted(() => {
   <div ref="rootRef" class="data-menu" :class="{ open: menuOpen }">
     <button type="button" class="meta-btn" @click="toggleMenu">
       <i class="fas fa-database"></i>
-      <span>数据</span>
+      <span>{{ t('apiDebugger.dataMenu.label') }}</span>
       <i class="fas fa-chevron-down caret"></i>
     </button>
 
@@ -113,10 +118,10 @@ onUnmounted(() => {
         :style="menuStyle"
       >
         <div class="menu-group">
-          <span class="menu-label">导出</span>
+          <span class="menu-label">{{ t('apiDebugger.dataMenu.export') }}</span>
           <button type="button" class="menu-item" @click="handleExport('hiphup')">
             <i class="fas fa-file-export"></i>
-            Hiphup 完整备份
+            {{ t('apiDebugger.dataMenu.exportHiphup') }}
           </button>
           <button type="button" class="menu-item" @click="handleExport('postman-collection')">
             <i class="fas fa-layer-group"></i>
@@ -128,14 +133,14 @@ onUnmounted(() => {
           </button>
         </div>
         <div class="menu-group">
-          <span class="menu-label">导入</span>
+          <span class="menu-label">{{ t('apiDebugger.dataMenu.import') }}</span>
           <button type="button" class="menu-item" @click="handleImport('auto')">
             <i class="fas fa-file-import"></i>
-            自动识别格式
+            {{ t('apiDebugger.dataMenu.importAuto') }}
           </button>
           <button type="button" class="menu-item" @click="handleImport('hiphup')">
             <i class="fas fa-file-code"></i>
-            Hiphup 备份
+            {{ t('apiDebugger.dataMenu.importHiphup') }}
           </button>
           <button type="button" class="menu-item" @click="handleImport('postman-collection')">
             <i class="fas fa-layer-group"></i>

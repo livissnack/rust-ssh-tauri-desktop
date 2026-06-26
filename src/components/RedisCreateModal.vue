@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue';
-import {invoke} from "@tauri-apps/api/core";
-import {toast} from "../utils/toast.ts";
+import { invoke } from '@tauri-apps/api/core';
+import { toast } from '../utils/toast.ts';
+import { t } from '../utils/i18n.ts';
 
 const props = defineProps<{
   visible: boolean;
@@ -9,32 +10,39 @@ const props = defineProps<{
 
 const emit = defineEmits(['close', 'confirm']);
 
-// --- 数据类型配置 ---
-const redisTypes = [
-  { label: 'String', value: 'string', color: '#9ece6a', desc: '字符串 (SET)' },
-  { label: 'Hash', value: 'hash', color: '#7aa2f7', desc: '哈希表 (HSET)' },
-  { label: 'List', value: 'list', color: '#e0af68', desc: '列表 (RPUSH)' },
-  { label: 'Set', value: 'set', color: '#bb9af7', desc: '集合 (SADD)' }
-];
+const redisTypes = computed(() => [
+  { label: 'String', value: 'string', color: '#9ece6a', desc: t('redis.typeStringDesc') },
+  { label: 'Hash', value: 'hash', color: '#7aa2f7', desc: t('redis.typeHashDesc') },
+  { label: 'List', value: 'list', color: '#e0af68', desc: t('redis.typeListDesc') },
+  { label: 'Set', value: 'set', color: '#bb9af7', desc: t('redis.typeSetDesc') },
+]);
 
-// --- 动态提示文字映射 ---
-const placeholderMap: Record<string, { key: string; field?: string; value: string }> = {
-  string: { key: '例如: config:settings', value: '输入字符串内容...' },
-  hash: { key: '例如: user:1001', field: '例如: nickname', value: '输入字段值...' },
-  list: { key: '例如: task:queue', value: '输入要插入列表的值...' },
-  set: { key: '例如: tags:active', value: '输入要加入集合的成员...' }
-};
+const placeholderMap = computed(() => ({
+  string: { key: t('redis.phStringKey'), value: t('redis.phStringValue') },
+  hash: {
+    key: t('redis.phHashKey'),
+    field: t('redis.phHashField'),
+    value: t('redis.phHashValue'),
+  },
+  list: { key: t('redis.phListKey'), value: t('redis.phListValue') },
+  set: { key: t('redis.phSetKey'), value: t('redis.phSetValue') },
+}));
 
-// --- 表单状态 ---
 const formData = ref({
   key: '',
   value: '',
   type: 'string',
   field: '',
-  ttl: -1
+  ttl: -1,
 });
 
-const currentPlaceholder = computed(() => placeholderMap[formData.value.type]);
+const currentPlaceholder = computed(() =>
+  placeholderMap.value[formData.value.type as keyof typeof placeholderMap.value],
+);
+
+const activeType = computed(() =>
+  redisTypes.value.find((item) => item.value === formData.value.type),
+);
 
 watch(() => props.visible, (newVal) => {
   if (newVal) {
@@ -43,18 +51,25 @@ watch(() => props.visible, (newVal) => {
 });
 
 const handleConfirm = async () => {
-  if (!formData.value.key.trim()) return alert("KEY 名称不能为空");
-  if (formData.value.type === 'hash' && !formData.value.field.trim()) return alert("Hash 必须填写 Field");
+  if (!formData.value.key.trim()) {
+    toast.warning(t('redis.keyRequired'));
+    return;
+  }
+  if (formData.value.type === 'hash' && !formData.value.field.trim()) {
+    toast.warning(t('redis.hashFieldRequired'));
+    return;
+  }
   try {
     await invoke('redis_set_value', {
       ...formData.value,
-      keyType: formData.value.type
+      keyType: formData.value.type,
     });
-    toast.success("保存成功");
-  } catch (err) {
-    toast.error("保存失败");
+    toast.success(t('redis.saveSuccess'));
+    emit('confirm', { ...formData.value });
+    emit('close');
+  } catch {
+    toast.error(t('redis.saveFailed'));
   }
-  emit('confirm', { ...formData.value });
 };
 </script>
 
@@ -65,34 +80,34 @@ const handleConfirm = async () => {
         <div class="modal-header">
           <div class="title">
             <i class="fas fa-plus-square"></i>
-            <span>新建 Redis 数据</span>
+            <span>{{ t('redis.createTitle') }}</span>
           </div>
-          <button class="close-x" @click="emit('close')">&times;</button>
+          <button type="button" class="close-x" @click="emit('close')">&times;</button>
         </div>
 
         <div class="modal-body">
           <div class="type-selector">
             <div
-                v-for="t in redisTypes"
-                :key="t.value"
-                class="type-item"
-                :class="{ active: formData.type === t.value }"
-                @click="formData.type = t.value"
+              v-for="typeItem in redisTypes"
+              :key="typeItem.value"
+              class="type-item"
+              :class="{ active: formData.type === typeItem.value }"
+              @click="formData.type = typeItem.value"
             >
-              <span class="dot" :style="{ background: t.color }"></span>
-              {{ t.label }}
+              <span class="dot" :style="{ background: typeItem.color }"></span>
+              {{ typeItem.label }}
             </div>
           </div>
 
           <div class="modal-form">
             <div class="input-row">
               <div class="form-group flex-3">
-                <label>KEY 名称</label>
+                <label>{{ t('redis.createKeyName') }}</label>
                 <input v-model="formData.key" :placeholder="currentPlaceholder.key" class="dark-input" />
               </div>
 
               <div class="form-group flex-2">
-                <label>过期 (秒) <span class="hint">(-1永久)</span></label>
+                <label>{{ t('redis.createTtl') }} <span class="hint">{{ t('redis.createTtlHint') }}</span></label>
                 <NumberInput v-model="formData.ttl" :min="-1" />
               </div>
             </div>
@@ -100,19 +115,23 @@ const handleConfirm = async () => {
             <div class="expand-wrapper" :class="{ 'is-open': formData.type === 'hash' }">
               <div class="expand-content">
                 <div class="form-group">
-                  <label>FIELD (字段名)</label>
-                  <input v-model="formData.field" :placeholder="currentPlaceholder.field" class="dark-input" />
+                  <label>{{ t('redis.createField') }}</label>
+                  <input
+                    v-model="formData.field"
+                    :placeholder="currentPlaceholder.field"
+                    class="dark-input"
+                  />
                 </div>
               </div>
             </div>
 
             <div class="form-group">
-              <label>VALUE 内容</label>
+              <label>{{ t('redis.createValue') }}</label>
               <textarea
-                  v-model="formData.value"
-                  :placeholder="currentPlaceholder.value"
-                  class="dark-input value-area"
-                  :style="{ color: redisTypes.find(t => t.value === formData.type)?.color }"
+                v-model="formData.value"
+                :placeholder="currentPlaceholder.value"
+                class="dark-input value-area"
+                :style="{ color: activeType?.color }"
               ></textarea>
             </div>
           </div>
@@ -121,11 +140,11 @@ const handleConfirm = async () => {
         <div class="modal-footer">
           <div class="type-hint">
             <i class="fas fa-info-circle"></i>
-            {{ redisTypes.find(t => t.value === formData.type)?.desc }}
+            {{ activeType?.desc }}
           </div>
           <div class="btns">
-            <button class="btn-cancel" @click="emit('close')">取消</button>
-            <button class="btn-confirm" @click="handleConfirm">立即创建</button>
+            <button type="button" class="btn-cancel" @click="emit('close')">{{ t('common.cancel') }}</button>
+            <button type="button" class="btn-confirm" @click="handleConfirm">{{ t('redis.createNow') }}</button>
           </div>
         </div>
       </div>
@@ -134,10 +153,8 @@ const handleConfirm = async () => {
 </template>
 
 <style lang="scss" scoped>
-@use "sass:color";
 @use '../assets/css/base.scss';
 
-/* 基础结构 */
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -160,10 +177,8 @@ const handleConfirm = async () => {
   overflow: hidden;
 }
 
-/* Header & Body */
 .modal-header {
   padding: 16px 20px;
-  // 使用预计算的透明变量，避免 rgba(var) 报错
   background: var(--bg-secondary-60);
   border-bottom: 1px solid var(--border);
   display: flex;
@@ -193,7 +208,6 @@ const handleConfirm = async () => {
 
 .modal-body { padding: 20px; }
 
-/* 类型选择器 */
 .type-selector {
   display: flex;
   gap: 4px;
@@ -229,7 +243,6 @@ const handleConfirm = async () => {
   }
 }
 
-/* 表单布局 */
 .modal-form {
   display: flex;
   flex-direction: column;
@@ -272,8 +285,8 @@ const handleConfirm = async () => {
 
   &:focus {
     border-color: var(--accent);
-    background: var(--accent-05) !important; // 修复点
-    box-shadow: 0 0 0 2px var(--accent-10); // 修复点
+    background: var(--accent-05) !important;
+    box-shadow: 0 0 0 2px var(--accent-10);
   }
 }
 
@@ -285,7 +298,6 @@ const handleConfirm = async () => {
   line-height: 1.5;
 }
 
-/* 展开动画容器 */
 .expand-wrapper {
   display: grid;
   grid-template-rows: 0fr;
@@ -300,10 +312,9 @@ const handleConfirm = async () => {
   .expand-content { min-height: 0; }
 }
 
-/* Footer */
 .modal-footer {
   padding: 15px 20px;
-  background: var(--bg-secondary-60); // 修复点
+  background: var(--bg-secondary-60);
   border-top: 1px solid var(--border);
   display: flex;
   justify-content: space-between;
@@ -347,7 +358,7 @@ const handleConfirm = async () => {
 
     &:hover {
       transform: translateY(-1px);
-      box-shadow: 0 4px 12px var(--accent-30); // 使用预定义的 accent-30
+      box-shadow: 0 4px 12px var(--accent-30);
       filter: brightness(1.1);
     }
 
@@ -355,7 +366,6 @@ const handleConfirm = async () => {
   }
 }
 
-/* 弹窗渐变动画 */
 .modal-fade-enter-active, .modal-fade-leave-active { transition: opacity 0.3s ease; }
 .modal-fade-enter-from, .modal-fade-leave-to { opacity: 0; }
 </style>

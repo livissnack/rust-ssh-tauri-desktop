@@ -2,6 +2,7 @@
 import { ref } from 'vue';
 import { toast } from '../utils/toast.ts';
 import { confirm } from '../utils/confirm.ts';
+import { t } from '../utils/i18n.ts';
 import ApiDebuggerInputDialog from './ApiDebuggerInputDialog.vue';
 import type { ApiCollection, RequestSnapshot, SavedRequest } from '../utils/apiDebuggerStorage.ts';
 import {
@@ -62,26 +63,34 @@ const confirmCreateCollection = (name: string) => {
   emit('update', [...props.collections, collection]);
   showCreateDialog.value = false;
   expandedIds.value = new Set([...expandedIds.value, collection.id]);
-  toast.success('集合已创建');
+  toast.success(t('apiDebugger.collections.created'));
 };
 
 const deleteCollection = async (collection: ApiCollection) => {
-  const ok = await confirm(`删除集合「${collection.name}」？`, 'warning', '删除集合');
+  const ok = await confirm(
+    t('apiDebugger.collections.deleteConfirm', { name: collection.name }),
+    'warning',
+    t('apiDebugger.collections.deleteTitle'),
+  );
   if (!ok) return;
   emit('update', props.collections.filter((item) => item.id !== collection.id));
-  toast.success('集合已删除');
+  toast.success(t('apiDebugger.collections.deleted'));
 };
 
 const openSaveForm = (collectionId?: string) => {
   if (props.collections.length === 0) {
-    toast.warning('请先创建集合');
+    toast.warning(t('apiDebugger.collections.createFirst'));
     return;
   }
   emit('open-save', collectionId);
 };
 
 const deleteRequest = async (collectionId: string, requestId: string) => {
-  const ok = await confirm('删除此请求？', 'warning', '删除请求');
+  const ok = await confirm(
+    t('apiDebugger.collections.deleteRequestConfirm'),
+    'warning',
+    t('apiDebugger.collections.deleteRequestTitle'),
+  );
   if (!ok) return;
   const next = props.collections.map((collection) => {
     if (collection.id !== collectionId) return collection;
@@ -107,35 +116,37 @@ const editRequest = (collectionId: string, request: SavedRequest) => {
   <section class="manager-view collections-view">
     <div class="collections-toolbar">
       <span v-if="collections.length" class="collections-meta">
-        {{ collections.length }} 个集合 ·
-        {{ collections.reduce((n, c) => n + c.requests.length, 0) }} 个请求
+        {{ t('apiDebugger.collections.meta', {
+          collections: collections.length,
+          requests: collections.reduce((n, c) => n + c.requests.length, 0),
+        }) }}
       </span>
-      <span v-else class="collections-meta">组织并复用 API 请求</span>
+      <span v-else class="collections-meta">{{ t('apiDebugger.collections.metaEmpty') }}</span>
       <div class="collections-toolbar__actions">
         <button type="button" class="btn-ghost" @click="addCollection">
           <i class="fas fa-folder-plus"></i>
-          新建集合
+          {{ t('apiDebugger.collections.newCollection') }}
         </button>
         <button type="button" class="btn-primary" @click="openSaveForm()">
           <i class="fas fa-save"></i>
-          保存当前
+          {{ t('apiDebugger.collections.saveCurrent') }}
         </button>
       </div>
     </div>
 
     <p v-if="collections.length" class="hint-box">
-      点击请求条目加载到 Request 面板；支持 HTTP / WS / SSE / Socket.IO / MQTT。
+      {{ t('apiDebugger.collections.hint') }}
     </p>
 
     <div v-if="!collections.length" class="empty-state">
       <div class="empty-state__icon">
         <i class="fas fa-folder-open"></i>
       </div>
-      <p class="empty-state__title">暂无集合</p>
-      <p class="empty-state__desc">创建集合后，可将当前 HTTP 请求保存并按项目分组管理</p>
+      <p class="empty-state__title">{{ t('apiDebugger.collections.emptyTitle') }}</p>
+      <p class="empty-state__desc">{{ t('apiDebugger.collections.emptyDesc') }}</p>
       <button type="button" class="btn-primary empty-state__action" @click="addCollection">
         <i class="fas fa-folder-plus"></i>
-        新建集合
+        {{ t('apiDebugger.collections.newCollection') }}
       </button>
     </div>
 
@@ -163,7 +174,7 @@ const editRequest = (collectionId: string, request: SavedRequest) => {
           </div>
 
           <div class="group-head-actions">
-            <Tooltip text="保存当前请求到此集合" placement="top">
+            <Tooltip :text="t('apiDebugger.collections.saveToThis')" placement="top">
               <button
                 type="button"
                 class="icon-btn icon-btn--accent"
@@ -172,7 +183,7 @@ const editRequest = (collectionId: string, request: SavedRequest) => {
                 <i class="fas fa-plus"></i>
               </button>
             </Tooltip>
-            <Tooltip text="删除集合" placement="top">
+            <Tooltip :text="t('apiDebugger.collections.deleteCollection')" placement="top">
               <button type="button" class="icon-btn" @click.stop="deleteCollection(collection)">
                 <i class="fas fa-trash-alt"></i>
               </button>
@@ -195,11 +206,11 @@ const editRequest = (collectionId: string, request: SavedRequest) => {
                 <span class="request-name">{{ request.name }}</span>
               </div>
               <p v-if="request.description" class="request-desc">{{ request.description }}</p>
-              <p class="request-url">{{ request.snapshot.url || '（未设置 URL）' }}</p>
+              <p class="request-url">{{ request.snapshot.url || t('apiDebugger.collections.noUrl') }}</p>
             </div>
 
             <div class="request-item__actions">
-              <Tooltip text="编辑名称和备注" placement="top">
+              <Tooltip :text="t('apiDebugger.collections.editRequest')" placement="top">
                 <button
                   type="button"
                   class="icon-btn icon-btn--muted"
@@ -208,7 +219,7 @@ const editRequest = (collectionId: string, request: SavedRequest) => {
                   <i class="fas fa-pen"></i>
                 </button>
               </Tooltip>
-              <Tooltip text="删除请求" placement="top">
+              <Tooltip :text="t('apiDebugger.collections.deleteRequest')" placement="top">
                 <button
                   type="button"
                   class="icon-btn"
@@ -222,9 +233,9 @@ const editRequest = (collectionId: string, request: SavedRequest) => {
 
           <li v-if="!collection.requests.length" class="request-empty">
             <i class="fas fa-inbox"></i>
-            <span>暂无请求</span>
+            <span>{{ t('apiDebugger.collections.noRequests') }}</span>
             <button type="button" class="request-empty__link" @click.stop="openSaveForm(collection.id)">
-              保存当前请求
+              {{ t('apiDebugger.collections.saveCurrentRequest') }}
             </button>
           </li>
         </ul>
@@ -234,9 +245,9 @@ const editRequest = (collectionId: string, request: SavedRequest) => {
 
   <ApiDebuggerInputDialog
     :visible="showCreateDialog"
-    title="新建集合"
-    label="集合名称"
-    placeholder="例如 用户中心 API"
+    :title="t('apiDebugger.collections.createDialogTitle')"
+    :label="t('apiDebugger.collections.createDialogLabel')"
+    :placeholder="t('apiDebugger.collections.createDialogPlaceholder')"
     icon="fa-folder-plus"
     initial-value="New Collection"
     @close="showCreateDialog = false"

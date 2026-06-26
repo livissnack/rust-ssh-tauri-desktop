@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue';
+import { t } from '../utils/i18n.ts';
 import type { ApiCollection, RequestSnapshot } from '../utils/apiDebuggerStorage.ts';
 import {
   defaultRequestName,
@@ -38,7 +39,7 @@ const description = ref('');
 const collectionId = ref('');
 
 const isEdit = computed(() => !!props.editRequest);
-const title = computed(() => (isEdit.value ? '编辑请求' : '保存到集合'));
+const title = computed(() => t(isEdit.value ? 'apiDebugger.saveDialog.editTitle' : 'apiDebugger.saveDialog.saveTitle'));
 const previewTag = computed(() => snapshotTagLabel(props.snapshot));
 const previewExtra = computed(() => snapshotPreviewText(props.snapshot));
 const previewProtocol = computed(() => getSnapshotProtocol(props.snapshot));
@@ -88,32 +89,32 @@ const handleSave = () => {
           <div class="url-preview">
             <span class="method-tag" :class="`protocol-${previewProtocol}`">{{ previewTag }}</span>
             <div class="url-preview__content">
-              <span class="url-text">{{ snapshot.url || '（未设置地址）' }}</span>
+              <span class="url-text">{{ snapshot.url || t('apiDebugger.saveDialog.noUrl') }}</span>
               <span v-if="previewExtra" class="url-extra">{{ previewExtra }}</span>
             </div>
           </div>
 
           <div class="form-section">
-            <label class="field-label">接口名称</label>
+            <label class="field-label">{{ t('apiDebugger.saveDialog.requestName') }}</label>
             <input
               v-model="name"
               class="field-input"
-              placeholder="例如 获取用户列表"
+              :placeholder="t('apiDebugger.saveDialog.requestNamePlaceholder')"
               @keyup.enter="handleSave"
             />
           </div>
 
           <div class="form-section">
-            <label class="field-label">接口备注</label>
+            <label class="field-label">{{ t('apiDebugger.saveDialog.description') }}</label>
             <textarea
               v-model="description"
               class="field-textarea"
-              placeholder="说明此接口的用途、参数含义、注意事项等"
+              :placeholder="t('apiDebugger.saveDialog.descriptionPlaceholder')"
             ></textarea>
           </div>
 
           <div class="form-section">
-            <label class="field-label">归属集合</label>
+            <label class="field-label">{{ t('apiDebugger.saveDialog.collection') }}</label>
             <div class="collection-picker">
               <button
                 v-for="collection in collections"
@@ -132,14 +133,14 @@ const handleSave = () => {
           </div>
 
           <div class="save-dialog-footer">
-            <button type="button" class="btn-cancel" @click="emit('close')">取消</button>
+            <button type="button" class="btn-cancel" @click="emit('close')">{{ t('common.cancel') }}</button>
             <button
               type="button"
               class="btn-confirm"
               :disabled="!name.trim() || !collectionId"
               @click="handleSave"
             >
-              {{ isEdit ? '保存修改' : '保存' }}
+              {{ isEdit ? t('apiDebugger.saveDialog.saveChanges') : t('common.save') }}
             </button>
           </div>
         </div>

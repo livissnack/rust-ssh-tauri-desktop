@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { toast } from '../utils/toast.ts';
 import { throttle } from '../utils/async.ts';
 import { confirm } from '../utils/confirm.ts';
+import { t } from '../utils/i18n.ts';
 import RedisCreateModal from './RedisCreateModal.vue';
 
 const KEY_TYPE_COLORS: Record<string, string> = {
@@ -32,7 +33,7 @@ const selectedTTL = ref(-1);
 
 const connForm = ref({
   id: '',
-  name: '本地开发环境',
+  name: t('redis.defaultConnName'),
   host: '127.0.0.1',
   port: 6379,
   password: '',
@@ -46,9 +47,9 @@ const connectionMeta = computed(() =>
 );
 
 const statusLabel = computed(() => {
-  if (isConnecting.value) return 'Connecting';
-  if (isConnected.value) return 'Connected';
-  return 'Disconnected';
+  if (isConnecting.value) return t('redis.statusConnecting');
+  if (isConnected.value) return t('redis.statusConnected');
+  return t('redis.statusDisconnected');
 });
 
 const statusClass = computed(() => {
@@ -58,9 +59,9 @@ const statusClass = computed(() => {
 });
 
 const formattedTTL = computed(() => {
-  if (selectedTTL.value === -1) return '永久';
-  if (selectedTTL.value === -2) return '已过期';
-  return `${selectedTTL.value}s`;
+  if (selectedTTL.value === -1) return t('redis.ttlForever');
+  if (selectedTTL.value === -2) return t('redis.ttlExpired');
+  return t('redis.ttlSeconds', { seconds: selectedTTL.value });
 });
 
 const typeColor = computed(() =>
@@ -97,7 +98,7 @@ const handleConnect = throttle(async () => {
     await invoke('redis_connect', { config: connForm.value });
     await invoke('save_redis_config', { config: connForm.value });
     isConnected.value = true;
-    toast.success('Redis 连接成功');
+    toast.success(t('redis.connectSuccess'));
     isConnectPanelVisible.value = false;
     await refreshKeys();
     loadSavedConfigs();
@@ -119,7 +120,7 @@ const refreshKeys = async () => {
     keysList.value = [];
     selectedKey.value = null;
     keyValue.value = null;
-    toast.error('刷新失败，请重新连接');
+    toast.error(t('redis.refreshFailed'));
   }
 };
 
@@ -135,7 +136,7 @@ const selectKey = async (key: string) => {
     selectedKeyType.value = type;
     selectedTTL.value = ttl;
   } catch {
-    toast.error('读取 Key 失败');
+    toast.error(t('redis.readKeyFailed'));
   }
 };
 
@@ -148,28 +149,28 @@ const handleSave = async () => {
       keyType: selectedKeyType.value,
       ttl: selectedTTL.value,
     });
-    toast.success('保存成功');
+    toast.success(t('redis.saveSuccess'));
   } catch {
-    toast.error('保存失败');
+    toast.error(t('redis.saveFailed'));
   }
 };
 
 const handleDeleteKey = async () => {
   if (!selectedKey.value) return;
   const ok = await confirm.error(
-    `确定要删除 Key "${selectedKey.value}" 吗？此操作无法恢复。`,
-    '危险操作'
+    t('redis.deleteConfirm', { key: selectedKey.value }),
+    t('redis.deleteTitle'),
   );
   if (!ok) return;
 
   try {
     await invoke('redis_del_key', { key: selectedKey.value });
-    toast.success('删除成功');
+    toast.success(t('redis.deleteSuccess'));
     selectedKey.value = null;
     keyValue.value = null;
     await refreshKeys();
   } catch {
-    toast.error('删除失败');
+    toast.error(t('redis.deleteFailed'));
   }
 };
 
@@ -215,7 +216,7 @@ onUnmounted(() => {
         </div>
 
         <div class="redis-header__actions">
-          <Tooltip text="历史连接">
+          <Tooltip :text="t('redis.historyConnections')">
             <button
                 type="button"
                 class="icon-btn"
@@ -225,7 +226,7 @@ onUnmounted(() => {
               <i class="fas fa-history"></i>
             </button>
           </Tooltip>
-          <Tooltip text="连接设置">
+          <Tooltip :text="t('redis.connectionSettings')">
             <button
                 type="button"
                 class="icon-btn"
@@ -239,7 +240,7 @@ onUnmounted(() => {
 
         <Transition name="dropdown">
           <div v-if="isConfigListVisible" class="history-menu">
-            <div v-if="savedConfigs.length === 0" class="history-menu__empty">暂无历史连接</div>
+            <div v-if="savedConfigs.length === 0" class="history-menu__empty">{{ t('redis.noHistory') }}</div>
             <button
                 v-for="cfg in savedConfigs"
                 :key="cfg.id"
@@ -258,47 +259,47 @@ onUnmounted(() => {
         <section v-if="isConnectPanelVisible" class="connect-panel">
           <div class="connect-panel__inner">
             <div class="connect-panel__head">
-              <span class="section-title">连接配置</span>
+              <span class="section-title">{{ t('redis.connectionConfig') }}</span>
               <button type="button" class="icon-btn" @click="isConnectPanelVisible = false">
                 <i class="fas fa-xmark"></i>
               </button>
             </div>
 
             <div class="field">
-              <label>连接名称</label>
+              <label>{{ t('redis.connName') }}</label>
               <div class="field-control">
                 <i class="fas fa-tag field-icon"></i>
-                <input v-model="connForm.name" placeholder="例如：生产环境主库" />
+                <input v-model="connForm.name" :placeholder="t('redis.connNamePlaceholder')" />
               </div>
             </div>
 
             <div class="field-row">
               <div class="field field--grow">
-                <label>主机地址</label>
+                <label>{{ t('redis.host') }}</label>
                 <div class="field-control">
                   <i class="fas fa-globe field-icon"></i>
                   <input v-model="connForm.host" placeholder="127.0.0.1" />
                 </div>
               </div>
               <div class="field field--port">
-                <label>端口</label>
+                <label>{{ t('redis.port') }}</label>
                 <NumberInput v-model="connForm.port" :min="1" :max="65535" placeholder="6379" />
               </div>
             </div>
 
             <div class="field-row">
               <div class="field field--db">
-                <label>数据库</label>
+                <label>{{ t('redis.database') }}</label>
                 <NumberInput v-model="connForm.db" :min="0" :max="15" />
               </div>
               <div class="field field--grow">
-                <label>访问密码</label>
+                <label>{{ t('redis.password') }}</label>
                 <div class="field-control field-control--password">
                   <i class="fas fa-lock field-icon"></i>
                   <input
                       v-model="connForm.password"
                       :type="showPassword ? 'text' : 'password'"
-                      placeholder="若无密码请留空"
+                      :placeholder="t('redis.passwordPlaceholder')"
                   />
                   <button type="button" class="eye-btn" @click="showPassword = !showPassword">
                     <i class="fas" :class="showPassword ? 'fa-eye-slash' : 'fa-eye'"></i>
@@ -310,7 +311,7 @@ onUnmounted(() => {
             <div class="connect-panel__footer">
               <button type="button" class="btn btn--primary" :disabled="isConnecting" @click="handleConnect">
                 <i class="fas" :class="isConnecting ? 'fa-circle-notch fa-spin' : 'fa-bolt'"></i>
-                {{ isConnecting ? '连接中...' : '测试并连接' }}
+                {{ isConnecting ? t('redis.connecting') : t('redis.testAndConnect') }}
               </button>
             </div>
           </div>
@@ -325,16 +326,16 @@ onUnmounted(() => {
             <i class="fas fa-search"></i>
             <input
                 v-model="searchQuery"
-                placeholder="Key 过滤，如 user:*"
+                :placeholder="t('redis.keyFilterPlaceholder')"
                 @keyup.enter="refreshKeys"
             />
           </div>
-          <Tooltip text="刷新列表">
+          <Tooltip :text="t('redis.refreshList')">
             <button type="button" class="icon-btn" :disabled="!isConnected" @click="refreshKeys">
               <i class="fas fa-rotate"></i>
             </button>
           </Tooltip>
-          <Tooltip text="新建 Key">
+          <Tooltip :text="t('redis.newKey')">
             <button
                 type="button"
                 class="icon-btn icon-btn--accent"
@@ -347,18 +348,18 @@ onUnmounted(() => {
         </div>
 
         <div class="keys-panel__header">
-          <span class="keys-panel__label">Keys</span>
+          <span class="keys-panel__label">{{ t('redis.keysLabel') }}</span>
           <span v-if="isConnected" class="keys-panel__count">{{ keysList.length }}</span>
         </div>
 
         <div v-if="!isConnected" class="keys-panel__empty">
           <i class="fas fa-plug"></i>
-          <p>请先连接 Redis 实例</p>
+          <p>{{ t('redis.connectFirst') }}</p>
         </div>
 
         <div v-else-if="keysList.length === 0" class="keys-panel__empty">
           <i class="fas fa-inbox"></i>
-          <p>暂无匹配的 Key</p>
+          <p>{{ t('redis.noMatchingKeys') }}</p>
         </div>
 
         <div v-else class="keys-list">
@@ -388,12 +389,12 @@ onUnmounted(() => {
               TTL: {{ formattedTTL }}
             </span>
             <div class="editor-panel__actions">
-              <Tooltip text="重新加载">
+              <Tooltip :text="t('redis.reload')">
                 <button type="button" class="icon-btn" @click="selectKey(selectedKey!)">
                   <i class="fas fa-rotate"></i>
                 </button>
               </Tooltip>
-              <Tooltip text="删除 Key">
+              <Tooltip :text="t('redis.deleteKey')">
                 <button type="button" class="icon-btn icon-btn--danger" @click="handleDeleteKey">
                   <i class="fas fa-trash-can"></i>
                 </button>
@@ -405,17 +406,17 @@ onUnmounted(() => {
             <textarea
                 v-model="keyValue"
                 spellcheck="false"
-                placeholder="Value content..."
+                :placeholder="t('redis.valuePlaceholder')"
             ></textarea>
           </div>
 
           <div class="editor-panel__footer">
             <button type="button" class="btn btn--ghost" @click="selectedKey = null; keyValue = null">
-              取消
+              {{ t('common.cancel') }}
             </button>
             <button type="button" class="btn btn--primary" @click="handleSave">
               <i class="fas fa-check"></i>
-              保存修改
+              {{ t('redis.saveChanges') }}
             </button>
           </div>
         </template>
@@ -424,8 +425,8 @@ onUnmounted(() => {
           <div class="editor-panel__empty-icon">
             <i class="fas fa-key"></i>
           </div>
-          <h3>选择 Key 进行编辑</h3>
-          <p>从左侧列表选择一个键，或新建 Key 后开始操作</p>
+          <h3>{{ t('redis.selectKeyTitle') }}</h3>
+          <p>{{ t('redis.selectKeyHint') }}</p>
         </div>
       </main>
     </div>

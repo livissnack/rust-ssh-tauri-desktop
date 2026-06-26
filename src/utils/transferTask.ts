@@ -1,4 +1,5 @@
 export type TransferTaskStatus =
+  | 'queued'
   | 'transferring'
   | 'paused'
   | 'success'

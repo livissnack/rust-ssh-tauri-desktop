@@ -57,6 +57,10 @@
       </section>
 
       <section class="settings-section">
+        <KnownHostsPanel />
+      </section>
+
+      <section class="settings-section">
         <h3 class="section-title">
           <i class="fas fa-plug"></i>
           {{ tr.sessionSettings.title }}
@@ -90,6 +94,7 @@ import {
   saveSessionReconnectSettings,
 } from "../utils/sessionSettings.ts";
 import NumberInput from "./NumberInput.vue";
+import KnownHostsPanel from "./KnownHostsPanel.vue";
 
 const { locale, tr, setLocale, localeOptions } = useI18n();
 
@@ -146,6 +151,10 @@ onMounted(loadSessionSettings);
   }
 
   .settings-section {
+    &:has(.known-hosts) {
+      margin-bottom: 0;
+    }
+
     .section-title {
       margin: 0 0 6px;
       font-size: 13px;

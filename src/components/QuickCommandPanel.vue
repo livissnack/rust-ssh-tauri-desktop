@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { toast } from '../utils/toast.ts';
 import { throttle } from '../utils/async.ts';
 import { confirm } from '../utils/confirm.ts';
+import { t } from '../utils/i18n.ts';
 
 const props = defineProps<{
   activeSessionId: string | null;
@@ -13,14 +14,19 @@ const props = defineProps<{
 const commands = ref<any[]>([]);
 const searchQuery = ref('');
 const isAdding = ref(false);
+const editingId = ref<string | null>(null);
 
-const newCmd = ref({
+const emptyCmd = () => ({
   id: '',
   name: '',
   content: '',
   updated_at: 0,
-  deleted: false
+  deleted: false,
 });
+
+const newCmd = ref(emptyCmd());
+
+const isEditing = computed(() => editingId.value !== null);
 
 const filteredCommands = computed(() => {
   const query = searchQuery.value.toLowerCase();
@@ -38,61 +44,83 @@ const loadCommands = async () => {
   }
 };
 
+const resetForm = () => {
+  newCmd.value = emptyCmd();
+  editingId.value = null;
+  isAdding.value = false;
+};
+
 const saveCommand = async () => {
   if (!newCmd.value.name || !newCmd.value.content) {
-    toast.warning("请填写完整信息", "输入校验");
+    toast.warning(t('quickCommand.validationMessage'), t('quickCommand.validationTitle'));
     return;
   }
   try {
     await invoke('save_quick_command', {
       cmd: {
         ...newCmd.value,
-        id: newCmd.value.id || '' // 确保新建时 id 为空字符串
-      }
+        id: editingId.value || newCmd.value.id || '',
+      },
     });
-    newCmd.value = {
-      id: '',
-      name: '',
-      content: '',
-      updated_at: 0,
-      deleted: false
-    };
-    isAdding.value = false;
+    const wasEditing = !!editingId.value;
+    resetForm();
     await loadCommands();
-    toast.success("快捷指令保存成功");
+    toast.success(wasEditing ? t('quickCommand.updated') : t('quickCommand.saved'));
   } catch (err) {
-    toast.error(`保存失败: ${err}`);
+    toast.error(t('quickCommand.saveFailed', { err: String(err) }));
   }
 };
 
 const executeCommand = async (content: string) => {
   if (!props.activeSessionId) {
-    toast.warning("请先连接到一个 SSH 会话", "未就绪");
+    toast.warning(t('quickCommand.connectFirst'), t('quickCommand.notReadyTitle'));
     return;
   }
   if (!props.sessionConnected) {
-    toast.warning("当前会话未连接，无法发送指令", "未就绪");
+    toast.warning(t('quickCommand.sessionNotConnected'), t('quickCommand.notReadyTitle'));
     return;
   }
   const data = content.endsWith('\n') ? content : content + '\n';
   await invoke('write_to_ssh', { sessionId: props.activeSessionId, data });
-  toast.success("指令已发送", "终端响应");
+  toast.success(t('quickCommand.sent'), t('quickCommand.sentTitle'));
 };
 
 const deleteCommand = async (id: string, name: string) => {
-  const ok = await confirm.warning(`确定删除快捷指令「${name}」吗？`, '删除确认');
+  const ok = await confirm.warning(
+    t('quickCommand.deleteConfirm', { name }),
+    t('quickCommand.deleteTitle'),
+  );
   if (!ok) return;
   try {
     await invoke('delete_quick_command', { id });
+    if (editingId.value === id) resetForm();
     await loadCommands();
-    toast.success("指令已移除");
+    toast.success(t('quickCommand.removed'));
   } catch (err) {
-    toast.error("删除失败");
+    toast.error(t('quickCommand.deleteFailed'));
   }
 };
 
+const startEdit = (cmd: { id: string; name: string; content: string; updated_at: number; deleted?: boolean }) => {
+  newCmd.value = {
+    id: cmd.id,
+    name: cmd.name,
+    content: cmd.content,
+    updated_at: cmd.updated_at,
+    deleted: cmd.deleted ?? false,
+  };
+  editingId.value = cmd.id;
+  isAdding.value = true;
+};
+
 const handleToggleAddCommand = throttle(() => {
-  isAdding.value = !isAdding.value;
+  if (isAdding.value) {
+    resetForm();
+    return;
+  }
+  newCmd.value = emptyCmd();
+  editingId.value = null;
+  isAdding.value = true;
 }, 300);
 
 onMounted(loadCommands);
@@ -103,7 +131,7 @@ onMounted(loadCommands);
     <div class="panel-header">
       <div class="title">
         <i class="fas fa-bolt"></i>
-        <span>快捷指令</span>
+        <span>{{ t('quickCommand.title') }}</span>
       </div>
       <button class="icon-btn" @click="handleToggleAddCommand" :class="{ 'is-active': isAdding }">
         <i class="fas fa-plus"></i>
@@ -113,11 +141,12 @@ onMounted(loadCommands);
     <div class="expand-container" :class="{ 'is-expanded': isAdding }">
       <div class="expand-content">
         <div class="add-form">
-          <input v-model="newCmd.name" placeholder="指令名称 (如: 查看日志)" class="form-input" />
-          <textarea v-model="newCmd.content" placeholder="输入命令内容..." class="form-textarea"></textarea>
+          <div class="form-title">{{ isEditing ? t('quickCommand.editCommand') : t('quickCommand.newCommand') }}</div>
+          <input v-model="newCmd.name" :placeholder="t('quickCommand.namePlaceholder')" class="form-input" />
+          <textarea v-model="newCmd.content" :placeholder="t('quickCommand.contentPlaceholder')" class="form-textarea"></textarea>
           <div class="form-actions">
-            <button @click="isAdding = false" class="btn-cancel">取消</button>
-            <button @click="saveCommand" class="btn-save">保存</button>
+            <button type="button" @click="resetForm" class="btn-cancel">{{ t('common.cancel') }}</button>
+            <button type="button" @click="saveCommand" class="btn-save">{{ isEditing ? t('quickCommand.update') : t('common.save') }}</button>
           </div>
         </div>
       </div>
@@ -126,7 +155,7 @@ onMounted(loadCommands);
     <div class="search-section">
       <div class="search-wrapper">
         <i class="fas fa-search"></i>
-        <input v-model="searchQuery" placeholder="搜索已存指令..." @keyup.esc="searchQuery = ''" />
+        <input v-model="searchQuery" :placeholder="t('quickCommand.searchPlaceholder')" @keyup.esc="searchQuery = ''" />
       </div>
     </div>
 
@@ -141,8 +170,13 @@ onMounted(loadCommands);
         </div>
 
         <div class="card-actions">
-          <Tooltip text="删除指令">
-            <button class="delete-btn" @click.stop="deleteCommand(cmd.id, cmd.name)">
+          <Tooltip :text="t('quickCommand.editTooltip')">
+            <button type="button" class="edit-btn" @click.stop="startEdit(cmd)">
+              <i class="fas fa-pen"></i>
+            </button>
+          </Tooltip>
+          <Tooltip :text="t('quickCommand.deleteTooltip')">
+            <button type="button" class="delete-btn" @click.stop="deleteCommand(cmd.id, cmd.name)">
               <i class="fas fa-trash-alt"></i>
             </button>
           </Tooltip>
@@ -154,7 +188,7 @@ onMounted(loadCommands);
 
       <div v-if="filteredCommands.length === 0" class="empty-state">
         <i class="fas fa-inbox"></i>
-        <p>{{ searchQuery ? '未找到匹配项' : '暂无快捷指令' }}</p>
+        <p>{{ searchQuery ? t('quickCommand.emptySearch') : t('quickCommand.emptyList') }}</p>
       </div>
     </div>
   </div>
@@ -236,6 +270,14 @@ onMounted(loadCommands);
   display: flex;
   flex-direction: column;
   gap: 10px;
+
+  .form-title {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
 
   .form-input, .form-textarea {
     background: var(--bg-input);
@@ -356,6 +398,7 @@ onMounted(loadCommands);
       transform: translateY(-1px);
 
       .execute-icon { color: var(--accent); opacity: 1; }
+      .edit-btn,
       .delete-btn { opacity: 0.6; transform: translateX(0); }
     }
 
@@ -384,6 +427,7 @@ onMounted(loadCommands);
       gap: 12px;
       padding-left: 8px;
 
+      .edit-btn,
       .delete-btn {
         opacity: 0;
         transform: translateX(5px);
@@ -397,9 +441,16 @@ onMounted(loadCommands);
 
         &:hover {
           opacity: 1 !important;
-          color: var(--error);
           transform: scale(1.15);
         }
+      }
+
+      .edit-btn:hover {
+        color: var(--accent);
+      }
+
+      .delete-btn:hover {
+        color: var(--error);
       }
 
       .execute-icon {

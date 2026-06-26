@@ -3,6 +3,7 @@ import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
 import { open } from "@tauri-apps/plugin-dialog";
 import { toast } from "../utils/toast.ts";
 import { generateStrongPassword } from "../utils/password.ts";
+import { t, localeCompareTag } from "../utils/i18n.ts";
 
 const props = defineProps<{
   isOpen: boolean;
@@ -34,22 +35,22 @@ const existingGroups = computed(() => {
     const g = s.group?.trim();
     if (g) set.add(g);
   }
-  return [...set].sort((a, b) => a.localeCompare(b, 'zh'));
+  return [...set].sort((a, b) => a.localeCompare(b, localeCompareTag()));
 });
 
 const jumpHostOptions = computed(() => [
-  { value: '', label: '直连（无跳板机）' },
+  { value: '', label: t('serverModal.directNoJump') },
   ...filteredServers.value.map(s => ({ value: s.id, label: s.name }))
 ]);
 
 const selectedJumpLabel = computed(() => {
   const id = formData.value.jump_host_id ?? '';
-  return jumpHostOptions.value.find(o => o.value === id)?.label ?? '直连（无跳板机）';
+  return jumpHostOptions.value.find(o => o.value === id)?.label ?? t('serverModal.directNoJump');
 });
 
-const modalTitle = computed(() => props.isEditing ? '编辑主机' : '新建主机');
+const modalTitle = computed(() => t(props.isEditing ? 'serverModal.editTitle' : 'serverModal.newTitle'));
 const modalSubtitle = computed(() =>
-  props.isEditing ? '修改 SSH 连接配置' : '创建新的 SSH 连接'
+  t(props.isEditing ? 'serverModal.editSubtitle' : 'serverModal.newSubtitle')
 );
 
 const menuStyle = computed(() => ({
@@ -153,13 +154,13 @@ const wouldCreateJumpCycle = (hostId: string, jumpId: string | null | undefined)
 
 const saveHost = async () => {
   if (!formData.value.name?.trim() || !formData.value.host?.trim()) {
-    toast.warning('请填写显示名称和主机地址');
+    toast.warning(t('toast.fillRequired'));
     return;
   }
   const hostId = formData.value.id || '__new__';
   const jumpId = formData.value.jump_host_id || null;
   if (wouldCreateJumpCycle(hostId, jumpId)) {
-    toast.error('跳板机配置无效：不能指向自身或形成环路');
+    toast.error(t('serverModal.jumpCycleError'));
     return;
   }
   const payload = {
@@ -180,7 +181,7 @@ const closeModal = () => {
 const generatePassword = () => {
   formData.value.password = generateStrongPassword(30);
   showPassword.value = true;
-  toast.success('已生成 30 位强密码');
+  toast.success(t('serverModal.passwordGenerated'));
 };
 </script>
 
@@ -200,7 +201,7 @@ const generatePassword = () => {
               <p>{{ modalSubtitle }}</p>
             </div>
           </div>
-          <Tooltip text="关闭">
+          <Tooltip :text="t('common.close')">
             <button type="button" class="modal-header__close" @click="closeModal">
               <i class="fas fa-xmark"></i>
             </button>
@@ -209,23 +210,23 @@ const generatePassword = () => {
 
         <div ref="modalBodyRef" class="modal-body" @scroll="handleModalScroll">
           <section class="form-section">
-            <div class="form-section__title">连接信息</div>
+            <div class="form-section__title">{{ t('serverModal.connectionInfo') }}</div>
 
             <div class="form-group">
-              <label>显示名称</label>
+              <label>{{ t('serverModal.displayName') }}</label>
               <div class="input-with-icon">
                 <i class="fas fa-tag input-icon"></i>
                 <input
                     v-model="formData.name"
                     class="field-control"
                     type="text"
-                    placeholder="例如：Production Server"
+                    :placeholder="t('serverModal.displayNamePlaceholder')"
                 />
               </div>
             </div>
 
             <div class="form-group">
-              <label>分组 <span class="label-hint">可选</span></label>
+              <label>{{ t('serverModal.group') }} <span class="label-hint">{{ t('serverModal.optional') }}</span></label>
               <div class="input-with-icon">
                 <i class="fas fa-folder input-icon"></i>
                 <input
@@ -233,7 +234,7 @@ const generatePassword = () => {
                     class="field-control"
                     type="text"
                     list="host-group-suggestions"
-                    placeholder="例如：生产环境、测试环境"
+                    :placeholder="t('serverModal.groupPlaceholder')"
                 />
                 <datalist id="host-group-suggestions">
                   <option v-for="g in existingGroups" :key="g" :value="g" />
@@ -243,14 +244,14 @@ const generatePassword = () => {
 
             <div class="form-row">
               <div class="form-group flex-3">
-                <label>主机地址</label>
+                <label>{{ t('serverModal.host') }}</label>
                 <div class="input-with-icon">
                   <i class="fas fa-globe input-icon"></i>
                   <input v-model="formData.host" class="field-control" type="text" placeholder="192.168.1.100" />
                 </div>
               </div>
               <div class="form-group flex-1">
-                <label>端口</label>
+                <label>{{ t('serverModal.port') }}</label>
                 <NumberInput
                     v-model="formData.port"
                     :min="1"
@@ -261,7 +262,7 @@ const generatePassword = () => {
             </div>
 
             <div class="form-group">
-              <label>用户名</label>
+              <label>{{ t('serverModal.username') }}</label>
               <div class="input-with-icon">
                 <i class="fas fa-user input-icon"></i>
                 <input v-model="formData.username" class="field-control" type="text" placeholder="root" />
@@ -270,7 +271,7 @@ const generatePassword = () => {
           </section>
 
           <section class="form-section">
-            <div class="form-section__title">身份验证</div>
+            <div class="form-section__title">{{ t('serverModal.authSection') }}</div>
 
             <div class="auth-tabs">
               <button
@@ -279,7 +280,7 @@ const generatePassword = () => {
                   @click="formData.auth_type = 'password'"
               >
                 <i class="fas fa-key"></i>
-                <span>密码</span>
+                <span>{{ t('serverModal.password') }}</span>
               </button>
               <button
                   type="button"
@@ -287,26 +288,26 @@ const generatePassword = () => {
                   @click="formData.auth_type = 'key'"
               >
                 <i class="fas fa-fingerprint"></i>
-                <span>SSH 密钥</span>
+                <span>{{ t('serverModal.sshKey') }}</span>
               </button>
             </div>
 
             <div v-if="formData.auth_type === 'password'" class="form-group">
-              <label>密码</label>
+              <label>{{ t('serverModal.password') }}</label>
               <div class="password-wrapper">
                 <i class="fas fa-lock input-icon"></i>
                 <input
                     v-model="formData.password"
                     class="field-control"
                     :type="showPassword ? 'text' : 'password'"
-                    placeholder="输入登录密码"
+                    :placeholder="t('serverModal.passwordPlaceholder')"
                 />
-                <Tooltip text="生成 30 位强密码">
+                <Tooltip :text="t('serverModal.generatePassword')">
                   <button type="button" class="gen-btn" @click="generatePassword">
                     <i class="fas fa-wand-magic-sparkles"></i>
                   </button>
                 </Tooltip>
-                <Tooltip :text="showPassword ? '隐藏密码' : '显示密码'">
+                <Tooltip :text="showPassword ? t('serverModal.hidePassword') : t('serverModal.showPassword')">
                   <button type="button" class="eye-btn" @click="showPassword = !showPassword">
                     <i class="fas" :class="showPassword ? 'fa-eye-slash' : 'fa-eye'"></i>
                   </button>
@@ -315,7 +316,7 @@ const generatePassword = () => {
             </div>
 
             <div v-else class="form-group">
-              <label>私钥路径</label>
+              <label>{{ t('serverModal.privateKeyPath') }}</label>
               <div class="file-picker">
                 <div class="input-with-icon file-input">
                   <i class="fas fa-file-code input-icon"></i>
@@ -324,22 +325,22 @@ const generatePassword = () => {
                       class="field-control"
                       type="text"
                       readonly
-                      placeholder="选择私钥文件..."
+                      :placeholder="t('serverModal.selectKeyPlaceholder')"
                   />
                 </div>
                 <button type="button" class="browse-btn" @click="selectKeyFile">
                   <i class="fas fa-folder-open"></i>
-                  浏览
+                  {{ t('serverModal.browse') }}
                 </button>
               </div>
             </div>
           </section>
 
           <section class="form-section form-section--last">
-            <div class="form-section__title">高级选项</div>
+            <div class="form-section__title">{{ t('serverModal.advanced') }}</div>
 
             <div class="form-group">
-              <label>跳板机 <span class="label-hint">可选</span></label>
+              <label>{{ t('serverModal.jumpHost') }} <span class="label-hint">{{ t('serverModal.optional') }}</span></label>
               <div ref="jumpHostSelectRef" class="custom-select" :class="{ open: jumpHostOpen }">
                 <button type="button" class="custom-select__trigger" @click="toggleJumpHost">
                   <i class="fas fa-diagram-project custom-select__icon"></i>
@@ -371,10 +372,10 @@ const generatePassword = () => {
         </div>
 
         <footer class="modal-footer">
-          <button type="button" class="btn btn--ghost" @click="closeModal">取消</button>
+          <button type="button" class="btn btn--ghost" @click="closeModal">{{ t('common.cancel') }}</button>
           <button type="button" class="btn btn--primary" @click="saveHost">
             <i class="fas fa-check"></i>
-            保存
+            {{ t('common.save') }}
           </button>
         </footer>
       </div>

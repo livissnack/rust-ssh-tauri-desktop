@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue';
 import { toast } from '../utils/toast.ts';
 import { confirm } from '../utils/confirm.ts';
+import { t } from '../utils/i18n.ts';
 import AppSelect from './AppSelect.vue';
 import ApiDebuggerInputDialog from './ApiDebuggerInputDialog.vue';
 import type { ApiEnvironment, EnvVariable } from '../utils/apiDebuggerStorage.ts';
@@ -46,22 +47,26 @@ const confirmCreateEnvironment = (name: string) => {
   emit('update', next);
   emit('update:activeEnvId', env.id);
   showCreateDialog.value = false;
-  toast.success('环境已创建');
+  toast.success(t('apiDebugger.environments.created'));
 };
 
 const deleteEnvironment = async (env: ApiEnvironment) => {
   if (props.environments.length <= 1) {
-    toast.warning('至少保留一个环境');
+    toast.warning(t('apiDebugger.environments.keepOne'));
     return;
   }
-  const ok = await confirm(`删除环境「${env.name}」？`, 'warning', '删除环境');
+  const ok = await confirm(
+    t('apiDebugger.environments.deleteConfirm', { name: env.name }),
+    'warning',
+    t('apiDebugger.environments.deleteTitle'),
+  );
   if (!ok) return;
   const next = props.environments.filter((item) => item.id !== env.id);
   emit('update', next);
   if (props.activeEnvId === env.id) {
     emit('update:activeEnvId', next[0]?.id ?? null);
   }
-  toast.success('环境已删除');
+  toast.success(t('apiDebugger.environments.deleted'));
 };
 
 const updateEnvName = (env: ApiEnvironment, name: string) => {
@@ -97,16 +102,16 @@ const patchVariable = (env: ApiEnvironment, variable: EnvVariable, patch: Partia
   <section class="manager-view">
     <div class="manager-toolbar">
       <button type="button" class="btn-ghost" @click="addEnvironment">
-        <i class="fas fa-plus"></i> 新建环境
+        <i class="fas fa-plus"></i> {{ t('apiDebugger.environments.newEnv') }}
       </button>
     </div>
 
     <p class="hint-box">
-      在 URL、Header、Body 中使用 <code v-pre>{{变量名}}</code> 引用环境变量，发送请求时自动替换。
+      {{ t('apiDebugger.environments.hintBefore') }}<code v-pre>{{name}}</code>{{ t('apiDebugger.environments.hintAfter') }}
     </p>
 
     <div class="env-selector">
-      <span class="field-label">当前环境</span>
+      <span class="field-label">{{ t('apiDebugger.environments.currentEnv') }}</span>
       <div class="env-select-wrap">
         <AppSelect
           v-model="selectedEnvId"
@@ -129,22 +134,22 @@ const patchVariable = (env: ApiEnvironment, variable: EnvVariable, patch: Partia
             :value="env.name"
             @change="updateEnvName(env, ($event.target as HTMLInputElement).value)"
           />
-          <span v-if="(activeEnvId ?? activeEnv?.id) === env.id" class="env-badge">Active</span>
+          <span v-if="(activeEnvId ?? activeEnv?.id) === env.id" class="env-badge">{{ t('apiDebugger.activeEnv') }}</span>
           <button
             v-if="(activeEnvId ?? activeEnv?.id) !== env.id"
             type="button"
             class="btn-ghost"
             @click="setActive(env.id)"
           >
-            启用
+            {{ t('apiDebugger.enableEnv') }}
           </button>
-          <button type="button" class="icon-btn" title="删除环境" @click="deleteEnvironment(env)">
+          <button type="button" class="icon-btn" :title="t('apiDebugger.environments.deleteEnv')" @click="deleteEnvironment(env)">
             <i class="fas fa-trash-alt"></i>
           </button>
         </div>
 
         <div class="kv-row kv-row--head">
-          <span class="kv-head-label">启用</span>
+          <span class="kv-head-label">{{ t('apiDebugger.enabled') }}</span>
           <span class="kv-head-label flex">Key</span>
           <span class="kv-head-label flex">Value</span>
           <span class="kv-head-label action"></span>
@@ -180,7 +185,7 @@ const patchVariable = (env: ApiEnvironment, variable: EnvVariable, patch: Partia
         </div>
 
         <button type="button" class="btn-ghost" @click="addVariable(env)">
-          <i class="fas fa-plus"></i> 添加变量
+          <i class="fas fa-plus"></i> {{ t('apiDebugger.environments.addVariable') }}
         </button>
       </div>
     </div>
@@ -188,9 +193,9 @@ const patchVariable = (env: ApiEnvironment, variable: EnvVariable, patch: Partia
 
   <ApiDebuggerInputDialog
     :visible="showCreateDialog"
-    title="新建环境"
-    label="环境名称"
-    placeholder="例如 Production"
+    :title="t('apiDebugger.environments.createDialogTitle')"
+    :label="t('apiDebugger.environments.createDialogLabel')"
+    :placeholder="t('apiDebugger.environments.createDialogPlaceholder')"
     icon="fa-sliders-h"
     initial-value="New Environment"
     @close="showCreateDialog = false"

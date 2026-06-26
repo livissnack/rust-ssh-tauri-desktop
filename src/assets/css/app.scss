@@ -638,6 +638,12 @@
       }
     }
 
+    &.status-queued {
+      border-left: 3px solid var(--text-muted);
+      .type-icon { color: var(--text-muted); }
+      .task-percent { color: var(--text-muted); }
+    }
+
     .task-info {
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto auto;
